@@ -14,6 +14,8 @@ Take a shot, and half a minute later it arrives in a Telegram bot already "on fi
 - English and Russian interface
 - runs on your own server — no subscriptions, no third-party cloud
 
+> **Your bot, your server.** Proyavka is not a service you sign up for — you install your own copy on your own server in about 10 minutes: **[quick start ↓](#install)**. Nothing goes through the author: your photos, bot token and passwords stay on your machines.
+
 ## How it works
 
 ```mermaid
@@ -82,15 +84,21 @@ Running `python3 setup.py` again opens a menu: camera Wi-Fi, language, storage l
 
 Every film is an original mathematical model (curves, shadow and highlight tints, saturation) turned into a 3D LUT on the fly. The names hint at genres and film character, not at specific products; the project is not affiliated with Kodak, Fujifilm, CineStill or Sony.
 
+## Customize
+
+- **[Settings, files and logs](docs/configuration.md)** — what's in `config.env`, where frames and data live, how to read logs and restart the bot.
+- **[Films: how they work and how to make your own](docs/films.md)** — every parameter explained; a new film is a dozen numbers.
+- **Try films locally:** `.venv/bin/python bot/try_films.py photo.jpg` renders a sheet with every film — no Telegram needed.
+
 ## Repository layout
 
 | Folder | Contents |
 |---|---|
 | `setup.py` | setup and settings wizard |
-| `bot/` | the bot and processing (`filmbot.py`), Mini App (`webapp.html`) |
+| `bot/` | the bot and processing (`filmbot.py`), Mini App (`webapp.html`), local film preview (`try_films.py`) |
 | `relay/` | server setup: HTTPS, FTPS, camera upload receiver |
 | `camera-app/` | app for Sony cameras (Android 4.1, no Gradle) |
-| `docs/` | camera guides |
+| `docs/` | camera guides, settings, films |
 
 Secrets (`config.env`, `camera-config/`, the APK signing key) are created locally and never go into git — see `.gitignore`.
 
