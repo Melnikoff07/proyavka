@@ -1,0 +1,594 @@
+<!doctype html>
+<html lang="ru" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<title>Проявка</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #ffffff;
+    --tile: #f2f1ef;
+    --text: #000000;
+    --muted: #8b8b8b;
+    --rule: #e4e4e4;
+    --btn-bg: #000000;
+    --btn-text: #ffffff;
+    --font: "Inter Tight", -apple-system, "SF Pro Text", "Helvetica Neue", Roboto, Arial, sans-serif;
+    --pad: 16px;
+  }
+  [data-theme="dark"] {
+    --bg: #000000;
+    --tile: #141414;
+    --text: #ffffff;
+    --muted: #7a7a7a;
+    --rule: #262626;
+    --btn-bg: #ffffff;
+    --btn-text: #000000;
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin: 0; background: var(--bg); color: var(--text); font: 400 14px/1.4 var(--font); font-feature-settings: "tnum" 1; }
+  body { padding-bottom: env(safe-area-inset-bottom, 0px); overscroll-behavior: none; -webkit-font-smoothing: antialiased; }
+  button { font: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer; text-transform: inherit; letter-spacing: inherit; }
+  button:focus-visible { outline: 1px solid var(--text); outline-offset: 3px; }
+  img { display: block; }
+  .cap { font-size: 11px; line-height: 1.2; font-weight: 500; letter-spacing: .04em; text-transform: uppercase; }
+  .muted { color: var(--muted); }
+
+  /* шапка: заголовок и число кадров на одной линии */
+  .hero { padding: 22px var(--pad) 26px; }
+  .hero-row { display: flex; justify-content: space-between; align-items: baseline; }
+  .hero h1, .hero .total { margin: 0; font-size: 44px; line-height: .95; font-weight: 500; letter-spacing: -.035em; }
+  .hero .sub { margin-top: 12px; color: var(--muted); font-size: 13px; max-width: 32ch; }
+
+  /* день: линия, дата слева, счётчик справа */
+  .day { content-visibility: auto; contain-intrinsic-size: auto 600px; padding: 0 var(--pad) 28px; }
+  .day-head { display: flex; justify-content: space-between; border-top: 1px solid var(--rule); padding: 10px 0 14px; }
+  .grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 10px; row-gap: 18px; }
+  @media (min-width: 600px) { .grid { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+  @media (min-width: 900px) { .grid { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+
+  .cell { display: block; width: 100%; text-align: left; }
+  .tile { aspect-ratio: 1; background: var(--tile); display: flex; align-items: center; justify-content: center; }
+  .tile img { width: 84%; height: 84%; object-fit: contain; }
+  .cell.archived .tile img { opacity: .45; }
+  .cell.pending .tile img { opacity: .5; }
+  .cell .state-dot { display: none; width: 6px; height: 6px; border-radius: 50%; border: 1px solid currentColor; align-self: center; flex: 0 0 auto; }
+  .cell.pending .state-dot { display: inline-block; }
+  .cell-cap { display: flex; gap: 8px; margin-top: 7px; min-width: 0; }
+  .cell-cap .name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+  .state { padding: 40px var(--pad); border-top: 1px solid var(--rule); margin: 0 var(--pad); }
+  .state strong { display: block; font-size: 20px; font-weight: 500; letter-spacing: -.02em; margin-bottom: 6px; }
+  .state p { margin: 0; color: var(--muted); max-width: 36ch; }
+  #sentinel { height: 1px; }
+
+  /* просмотр кадра */
+  .viewer { position: fixed; inset: 0; z-index: 10; background: var(--bg); display: flex; flex-direction: column;
+            padding-top: env(safe-area-inset-top, 0px); }
+  .viewer[hidden] { display: none; }
+  .vbar { display: grid; grid-template-columns: 1fr 1fr 1fr; padding: 12px var(--pad); }
+  .vbar > :nth-child(2) { text-align: center; }
+  .vbar > :nth-child(3) { text-align: right; }
+  .stage { position: relative; flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center;
+           padding: 0 var(--pad); touch-action: pan-y; }
+  .stage img { max-width: 100%; max-height: 100%; object-fit: contain; transition: opacity .15s linear; }
+  .stage.busy img { opacity: .85; }
+  .progress { position: absolute; left: var(--pad); right: var(--pad); top: 0; height: 1px; overflow: hidden; opacity: 0; }
+  .stage.busy .progress { opacity: 1; }
+  .progress::after { content: ""; position: absolute; inset: 0; width: 30%; background: var(--text);
+                     animation: run 1s linear infinite; }
+  @keyframes run { from { transform: translateX(-100%); } to { transform: translateX(340%); } }
+
+  .panel { padding: 14px 0 calc(14px + env(safe-area-inset-bottom, 0px)); }
+  .vtitle { display: flex; justify-content: space-between; align-items: baseline; padding: 0 var(--pad) 12px; }
+  .vtitle .name { font-size: 22px; font-weight: 500; letter-spacing: -.025em; }
+
+  .tabs { display: flex; gap: 20px; padding: 0 var(--pad) 10px; }
+  .tab { color: var(--muted); padding: 2px 0; }
+  .tab[aria-selected="true"] { color: var(--text); text-decoration: underline; text-underline-offset: 3px; text-decoration-thickness: 1px; }
+  .strip { display: flex; gap: 10px; overflow-x: auto; padding: 0 var(--pad) 2px; scrollbar-width: none; }
+  .strip::-webkit-scrollbar { display: none; }
+  .film { flex: 0 0 auto; width: 72px; text-align: left; }
+  .film .pic { width: 72px; height: 72px; background: var(--tile); display: flex; align-items: center; justify-content: center; }
+  .film .pic img { width: 100%; height: 100%; object-fit: cover; }
+  .film .fname { margin-top: 6px; color: var(--muted); font-size: 12px; line-height: 1.2; letter-spacing: 0;
+                 display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; min-height: 2.4em; }
+  .film[aria-pressed="true"] .fname { color: var(--text); text-decoration: underline; text-underline-offset: 3px; text-decoration-thickness: 1px; }
+
+  .line { display: flex; align-items: center; gap: 18px; padding: 14px var(--pad) 0; }
+  .line .label { width: 44px; flex: 0 0 auto; }
+  .opts { display: flex; flex: 1; justify-content: space-between; }
+  .opt { padding: 4px 0; color: var(--muted); }
+  .opt[aria-pressed="true"] { color: var(--text); text-decoration: underline; text-underline-offset: 3px; text-decoration-thickness: 1px; }
+  .tog { display: inline-flex; align-items: center; gap: 7px; padding: 4px 0; color: var(--muted); }
+  .tog::before { content: ""; width: 7px; height: 7px; border-radius: 50%; border: 1px solid currentColor; }
+  .tog[aria-pressed="true"] { color: var(--text); }
+  .tog[aria-pressed="true"]::before { background: currentColor; }
+
+  .actions { display: flex; align-items: center; gap: 18px; padding: 18px var(--pad) 0; }
+  .btn { flex: 1; height: 44px; background: var(--btn-bg); color: var(--btn-text); font-weight: 500; }
+  .link { color: var(--muted); padding: 12px 0; }
+  .note { padding: 0 var(--pad); margin: 0; color: var(--muted); max-width: 44ch; }
+  button:disabled { opacity: .4; cursor: default; }
+
+  .toast { position: fixed; left: var(--pad); right: var(--pad); bottom: calc(16px + env(safe-area-inset-bottom, 0px));
+           background: var(--btn-bg); color: var(--btn-text); padding: 12px 14px; z-index: 20;
+           opacity: 0; pointer-events: none; transition: opacity .15s linear; }
+  .toast.show { opacity: 1; }
+  @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
+</style>
+</head>
+<body>
+<header class="hero">
+  <div class="hero-row"><h1 id="appName">Проявка</h1><span class="total" id="total"></span></div>
+  <p class="sub" id="sub"></p>
+</header>
+<main id="feed"></main>
+<div id="sentinel"></div>
+
+<section class="viewer" id="viewer" hidden aria-label="Просмотр кадра" data-i18n-aria="Frame viewer">
+  <div class="vbar cap"><span id="vnum"></span><span id="vtime" class="muted"></span><span id="vpos" class="muted"></span></div>
+  <div class="stage" id="stage"><div class="progress"></div><img id="vimg" alt="" decoding="async"></div>
+  <div class="panel">
+    <div class="vtitle"><span class="name" id="vname"></span><span class="cap muted" id="vwhen"></span></div>
+    <div id="controls">
+      <div class="tabs cap" role="tablist">
+        <button class="tab" role="tab" data-tab="film" aria-selected="true" data-i18n="Film">Плёнка</button>
+        <button class="tab" role="tab" data-tab="leak" aria-selected="false" data-i18n="Leak">Засвет</button>
+      </div>
+      <div class="strip" id="strip" role="listbox" aria-label="Плёнка"></div>
+      <div class="line"><span class="cap muted label" data-i18n="Strength">Сила</span><div class="opts cap" id="strength" role="group" aria-label="Сила эффекта" data-i18n-aria="Effect strength"></div></div>
+      <div class="line"><span class="cap muted label" data-i18n="Look">Вид</span>
+        <div class="opts cap">
+          <button class="tog" data-toggle="stamp" aria-pressed="false" data-i18n="Date">Дата</button>
+          <button class="tog" data-toggle="frame" aria-pressed="false" data-i18n="Frame">Рамка</button>
+          <button class="opt" id="bShift" aria-label="Сдвинуть засвет, другой вариант" data-i18n-aria="Shift the leak, another variant" data-i18n="Shift leak">Сдвинуть засвет</button>
+        </div>
+      </div>
+    </div>
+    <p class="note" id="archNote" hidden data-i18n="The original was deleted to free up space. The developed version is kept, but the film can no longer be changed.">Исходник удалён, чтобы освободить место. Готовая версия осталась, но плёнку уже не поменять.</p>
+    <div class="actions">
+      <button class="btn" id="bFile">Отправить файл в чат</button>
+      <button class="link cap" id="bHide" data-i18n="Remove">Убрать</button>
+    </div>
+  </div>
+</section>
+<div class="toast cap" id="toast" role="status"></div>
+
+<script>
+const tg = window.Telegram && window.Telegram.WebApp;
+const $ = (id) => document.getElementById(id);
+const LANG = document.documentElement.lang === "en" ? "en" : "ru";   // подставляет бот
+const T = (ru, en) => (LANG === "en" ? en : ru);
+const MONTHS = LANG === "en"
+  ? ["January","February","March","April","May","June","July","August","September","October","November","December"]
+  : ["января","февраля","марта","апреля","мая","июня","июля","августа","сентября","октября","ноября","декабря"];
+const WEEK = LANG === "en"
+  ? ["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"]
+  : ["воскресенье","понедельник","вторник","среда","четверг","пятница","суббота"];
+const dm = (d, m) => (LANG === "en" ? `${MONTHS[m - 1]} ${d}` : `${d} ${MONTHS[m - 1]}`);
+function translatePage() {
+  document.documentElement.lang = LANG;
+  document.title = T("Проявка", "Proyavka");
+  $("appName").textContent = T("Проявка", "Proyavka");
+  if (LANG !== "en") return;
+  document.querySelectorAll("[data-i18n]").forEach((el) => { el.textContent = el.dataset.i18n; });
+  document.querySelectorAll("[data-i18n-aria]").forEach((el) => el.setAttribute("aria-label", el.dataset.i18nAria));
+  $("bFile").textContent = "Send file to chat";
+}
+
+let token = "", photos = [], total = 0, loading = false, finished = false, jobs = 0;
+let presets = [], leaks = [], strengths = [25, 50, 75, 100, 125, 150], cur = -1, tab = "film";
+let groups = {};            // день -> { grid, count, n }
+let since = 0;              // метка времени сервера для опроса изменений
+const chains = {};          // id -> очередь отправки правок (чтобы порядок тапов сохранялся)
+
+const pad2 = (n) => String(n).padStart(2, "0");
+function plural(n, one, few, many) {
+  const a = n % 10, b = n % 100;
+  if (a === 1 && b !== 11) return one;
+  if (a >= 2 && a <= 4 && (b < 12 || b > 14)) return few;
+  return many;
+}
+function toast(text) {
+  const t = $("toast"); t.textContent = text; t.classList.add("show");
+  clearTimeout(toast.h); toast.h = setTimeout(() => t.classList.remove("show"), 2200);
+}
+function haptic(kind) { try { tg.HapticFeedback.selectionChanged(); if (kind) tg.HapticFeedback.notificationOccurred(kind); } catch (e) {} }
+function url(path, extra) { return `${path}?s=${encodeURIComponent(token)}${extra || ""}`; }
+function presetName(key) { const f = presets.find((x) => x.key === key); return f ? f.name : key; }
+function prevUrl(p, film, leak) {
+  const lk = leak ? `&lk=${leak}&ls=${p.leak_seed || 0}` : "";
+  return url(`/img/preview/${p.id}/${film}`, `&st=${p.strength}${lk}`);
+}
+function previewUrl(p) { return prevUrl(p, p.preset, p.leak); }
+function leakName(key) { const l = leaks.find((x) => x.key === key); return l ? l.name : ""; }
+function viewUrl(p) { return url(`/img/view/${p.id}`, `&v=${p.v}`); }
+function indexOf(id) { return photos.findIndex((x) => x.id === id); }
+
+async function api(path, body) {
+  const opts = { headers: { "X-Token": token } };
+  if (body !== undefined) { opts.method = "POST"; opts.headers["Content-Type"] = "application/json"; opts.body = JSON.stringify(body); }
+  const r = await fetch(path, opts);
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j.error || T(`Сервер ответил ${r.status}`, `Server responded ${r.status}`));
+  return j;
+}
+
+/* ---------- тема как в Telegram ---------- */
+function applyTheme() {
+  const dark = tg && tg.colorScheme ? tg.colorScheme === "dark" : matchMedia("(prefers-color-scheme: dark)").matches;
+  document.documentElement.dataset.theme = dark ? "dark" : "light";
+  const bg = dark ? "#000000" : "#ffffff";
+  try { tg.setHeaderColor(bg); tg.setBackgroundColor(bg); tg.setBottomBarColor && tg.setBottomBarColor(bg); } catch (e) {}
+}
+
+/* ---------- лента ---------- */
+function dayKey(p) { return (p.taken || "").slice(0, 10); }
+function dayTitle(key) {
+  const [y, m, d] = key.split("-").map(Number);
+  const wd = WEEK[new Date(y, m - 1, d).getDay()];
+  return `${dm(d, m)}${new Date().getFullYear() === y ? "" : " " + y}, ${wd}`;
+}
+
+function renderHeader() {
+  $("total").textContent = total ? pad2(total) : "";
+  const parts = [];
+  if (photos.length) {
+    const p = photos[0];
+    const [, m, d] = dayKey(p).split("-").map(Number);
+    parts.push(T(`Последний кадр ${dm(d, m)} в ${p.taken.slice(11, 16)}`, `Last frame ${dm(d, m)} at ${p.taken.slice(11, 16)}`));
+  }
+  if (jobs) parts.push(T(`В работе: ${jobs}`, `In progress: ${jobs}`));
+  $("sub").textContent = parts.join(". ");
+}
+
+function makeCell(p, i) {
+  const b = document.createElement("button");
+  b.className = "cell";
+  b.dataset.i = i;
+  b.innerHTML = `<div class="tile"><img loading="lazy" decoding="async" alt=""></div>` +
+                `<div class="cell-cap cap"><span>${pad2(p.id)}</span><span class="state-dot"></span><span class="name muted"></span></div>`;
+  b.onclick = () => openViewer(Number(b.dataset.i));
+  fillCell(b, p);
+  return b;
+}
+function fillCell(el, p) {
+  el.classList.toggle("archived", !!p.archived);
+  el.classList.toggle("pending", !!p.pending);
+  el.setAttribute("aria-label", T(`Кадр ${p.id}, ${p.preset_name}${p.pending ? ", проявляется" : ""}`, `Frame ${p.id}, ${p.preset_name}${p.pending ? ", developing" : ""}`));
+  const img = el.querySelector("img");
+  const src = url(`/img/thumb/${p.id}`, `&v=${p.v}`);
+  if (p.v && img.getAttribute("src") !== src) img.src = src;
+  el.querySelector(".name").textContent = p.preset_name;
+}
+function updateCell(i) {
+  const el = document.querySelector(`.cell[data-i="${i}"]`);
+  if (el) fillCell(el, photos[i]);
+}
+
+function appendPhotos(list, start) {
+  const frag = document.createDocumentFragment();
+  list.forEach((p, j) => {
+    const k = dayKey(p);
+    let g = groups[k];
+    if (!g) {
+      const sec = document.createElement("section");
+      sec.className = "day";
+      sec.innerHTML = `<div class="day-head cap"><span>${dayTitle(k)}</span><span class="muted"></span></div><div class="grid"></div>`;
+      g = groups[k] = { grid: sec.querySelector(".grid"), count: sec.querySelector(".day-head .muted"), n: 0 };
+      frag.appendChild(sec);
+    }
+    g.grid.appendChild(makeCell(p, start + j));
+    g.n += 1;
+    g.count.textContent = pad2(g.n);
+  });
+  $("feed").appendChild(frag);
+}
+
+function rebuildFeed() {
+  groups = {};
+  $("feed").innerHTML = "";
+  if (!photos.length) {
+    $("feed").innerHTML = T(`<div class="state"><strong>Пока пусто</strong><p>Сними кадр: через полминуты он появится здесь и в чате.</p></div>`,
+    `<div class="state"><strong>Nothing yet</strong><p>Take a shot: in half a minute it will appear here and in the chat.</p></div>`);
+  } else appendPhotos(photos, 0);
+  renderHeader();
+}
+
+async function loadMore() {
+  if (loading || finished) return;
+  loading = true;
+  try {
+    const j = await api(`/api/photos?offset=${photos.length}&limit=60`);
+    const start = photos.length;
+    total = j.total;
+    photos = photos.concat(j.photos.filter((p) => indexOf(p.id) < 0));
+    if (!j.photos.length || photos.length >= total) finished = true;
+    if (start === 0) rebuildFeed(); else { appendPhotos(photos.slice(start), start); renderHeader(); }
+  } catch (e) {
+    $("feed").innerHTML = T(`<div class="state"><strong>Лента не загрузилась</strong><p>${e.message}</p></div>`,
+      `<div class="state"><strong>Feed did not load</strong><p>${e.message}</p></div>`);
+  } finally { loading = false; }
+}
+
+/* ---------- опрос изменений: готовые кадры, экспорт, новые снимки ---------- */
+function mergeFromServer(np) {
+  const i = indexOf(np.id);
+  if (np.hidden) {
+    if (i >= 0) { photos.splice(i, 1); return "rebuild"; }
+    return null;
+  }
+  if (i < 0) {
+    if (photos.length && np.id < photos[photos.length - 1].id && !finished) return null;   // ещё не догружено
+    photos.push(np);
+    photos.sort((a, b) => b.id - a.id);
+    return "rebuild";
+  }
+  const local = photos[i];
+  // пока наши правки летят на сервер, не затираем выбор на экране
+  if (chains[np.id] && chains[np.id].busy) { local.v = np.v; local.exporting = np.exporting; return i; }
+  photos[i] = np;
+  return i;
+}
+
+async function poll() {
+  if (!token || document.hidden) return schedulePoll();
+  try {
+    const j = await api(`/api/updates?since=${since}`);
+    since = j.now;
+    total = j.total;
+    jobs = j.jobs;
+    const curId = cur >= 0 && photos[cur] ? photos[cur].id : null;
+    let rebuild = false;
+    const changed = new Set();
+    for (const np of j.photos) {
+      const r = mergeFromServer(np);
+      if (r === "rebuild") rebuild = true; else if (r !== null) changed.add(np.id);
+    }
+    if (rebuild) {
+      rebuildFeed();
+      if (curId !== null) { cur = indexOf(curId); if (cur < 0) closeViewer(); }
+    } else {
+      changed.forEach((id) => updateCell(indexOf(id)));
+      renderHeader();
+    }
+    if (curId !== null && cur >= 0 && (changed.has(curId) || rebuild)) refreshViewerImage();
+  } catch (e) { /* сеть моргнула — попробуем в следующий раз */ }
+  schedulePoll();
+}
+function schedulePoll() {
+  clearTimeout(poll.t);
+  const busy = jobs > 0 || photos.some((p) => p.pending || p.exporting);
+  poll.t = setTimeout(poll, busy ? 1000 : 5000);
+}
+document.addEventListener("visibilitychange", () => { if (!document.hidden) poll(); });
+
+/* ---------- просмотр ---------- */
+function openViewer(i) {
+  cur = i;
+  $("viewer").hidden = false;
+  document.body.style.overflow = "hidden";
+  if (tg) tg.BackButton.show();
+  renderViewer();
+}
+function closeViewer() {
+  $("viewer").hidden = true;
+  document.body.style.overflow = "";
+  cur = -1;
+  if (tg) tg.BackButton.hide();
+}
+
+function setImage(src) {
+  const img = $("vimg");
+  if (img.getAttribute("src") === src) return;
+  const pre = new Image();
+  pre.decoding = "async";
+  pre.onload = () => { if (img.dataset.want === src) img.src = src; };
+  img.dataset.want = src;
+  pre.src = src;
+}
+function refreshViewerImage() {
+  const p = photos[cur];
+  if (!p) return;
+  // пока кадр проявляется — показываем превью выбранной плёнки, потом подменяем чистовиком
+  if (p.pending || !p.v) setImage(previewUrl(p)); else setImage(viewUrl(p));
+  $("stage").classList.toggle("busy", !!p.pending);
+  $("bFile").textContent = p.exporting ? T("Файл готовится", "Preparing file") : T("Отправить файл в чат", "Send file to chat");
+  $("vname").textContent = p.preset_name;
+  $("vwhen").textContent = p.leak ? T("Засвет", "Leak") + `: ${leakName(p.leak)}` : (p.auto_reason ? T("Авто", "Auto") + `: ${p.auto_reason}` : "");
+}
+
+function renderStrip(p) {
+  const strip = $("strip");
+  document.querySelectorAll(".tab").forEach((t) => t.setAttribute("aria-selected", String(t.dataset.tab === tab)));
+  strip.setAttribute("aria-label", tab === "film" ? T("Плёнка", "Film") : T("Засвет", "Leak"));
+  const items = tab === "film"
+    ? presets.map((f) => ({ key: f.key, name: f.name, title: f.when, src: prevUrl(p, f.key, p.leak), on: p.preset === f.key }))
+    : [{ key: "", name: T("Без засвета", "No leak"), title: "", src: prevUrl(p, p.preset, ""), on: !p.leak }]
+        .concat(leaks.map((l) => ({ key: l.key, name: l.name, title: l.desc, src: prevUrl(p, p.preset, l.key), on: p.leak === l.key })));
+  const frag = document.createDocumentFragment();
+  for (const it of items) {
+    const b = document.createElement("button");
+    b.className = "film";
+    b.dataset.key = it.key;
+    b.setAttribute("role", "option");
+    b.setAttribute("aria-pressed", String(it.on));
+    b.title = it.title;
+    b.innerHTML = `<div class="pic"><img loading="lazy" decoding="async" alt="" src="${it.src}"></div><div class="fname">${it.name}</div>`;
+    b.onclick = () => {
+      if (b.getAttribute("aria-pressed") === "true") return;
+      apply(tab === "film" ? { preset: it.key } : { leak: it.key });
+    };
+    frag.appendChild(b);
+  }
+  strip.replaceChildren(frag);
+  const sel = strip.querySelector('[aria-pressed="true"]');
+  if (sel) strip.scrollLeft = sel.offsetLeft - strip.clientWidth / 2 + sel.clientWidth / 2;
+}
+
+document.querySelectorAll(".tab").forEach((t) => {
+  t.onclick = () => { if (tab !== t.dataset.tab) { tab = t.dataset.tab; haptic(); if (photos[cur]) renderStrip(photos[cur]); } };
+});
+
+function renderViewer() {
+  const p = photos[cur];
+  if (!p) return closeViewer();
+  $("vimg").alt = T("Кадр", "Frame") + ` ${p.id}`;
+  $("vnum").textContent = T("Кадр", "Frame") + ` ${pad2(p.id)}`;
+  $("vtime").textContent = [p.taken ? p.taken.slice(11, 16) : "", p.iso ? `ISO ${p.iso}` : ""].filter(Boolean).join("   ");
+  $("vpos").textContent = `${cur + 1} / ${total}`;
+  $("controls").hidden = p.archived;
+  $("archNote").hidden = !p.archived;
+
+  if (!p.archived) {
+    renderStrip(p);
+    $("strength").replaceChildren(...strengths.map((s) => {
+      const b = document.createElement("button");
+      b.className = "opt";
+      b.textContent = s;
+      b.dataset.s = s;
+      b.setAttribute("aria-label", T("Сила", "Strength") + ` ${s}%`);
+      b.setAttribute("aria-pressed", String(p.strength === s));
+      b.onclick = () => { if (b.getAttribute("aria-pressed") !== "true") apply({ strength: s }); };
+      return b;
+    }));
+    document.querySelectorAll("[data-toggle]").forEach((b) => b.setAttribute("aria-pressed", String(!!p[b.dataset.toggle])));
+    $("bShift").disabled = !p.leak;
+  }
+  refreshViewerImage();
+  [cur - 1, cur + 1].forEach((j) => { const n = photos[j]; if (n && n.v && !n.pending) { const im = new Image(); im.decoding = "async"; im.src = viewUrl(n); } });
+  if (cur >= photos.length - 3) loadMore();
+}
+
+/* правка не ждёт отрисовку: сразу меняем кадр у себя, отправляем на сервер и можно идти дальше */
+function apply(changes) {
+  const i = cur, p = photos[i];
+  if (!p) return;
+  const local = Object.assign({}, changes);
+  if (changes.leak_shift) { delete local.leak_shift; local.leak_seed = (p.leak_seed || 0) + 1; if (!p.leak) local.leak = "edge"; }
+  Object.assign(p, local, { pending: true });
+  if (changes.preset) p.preset_name = presetName(changes.preset);
+  haptic();
+  updateCell(i);
+  if (changes.strength || changes.preset || "leak" in changes || changes.leak_shift) {
+    renderStrip(p);                        // превью должны показывать новое сочетание плёнки и засвета
+    $("bShift").disabled = !p.leak;
+  }
+  for (const f of ["stamp", "frame"]) if (f in changes) document.querySelector(`[data-toggle="${f}"]`).setAttribute("aria-pressed", String(!!changes[f]));
+  if (changes.strength) $("strength").querySelectorAll(".opt").forEach((b) => b.setAttribute("aria-pressed", String(Number(b.dataset.s) === changes.strength)));
+  refreshViewerImage();
+  const id = p.id;
+  const c = chains[id] || (chains[id] = { busy: 0, tail: Promise.resolve() });
+  c.busy += 1;
+  c.tail = c.tail.then(async () => {
+    try {
+      const np = await api(`/api/photo/${id}`, changes);
+      const j = indexOf(id);
+      if (j >= 0 && c.busy === 1) { photos[j] = np; updateCell(j); if (cur === j) refreshViewerImage(); }
+    } catch (e) {
+      toast(e.message);
+      haptic("error");
+    } finally {
+      c.busy -= 1;
+    }
+  });
+  jobs = Math.max(jobs, 1);
+  schedulePoll();
+}
+
+document.querySelectorAll("[data-toggle]").forEach((b) => {
+  b.onclick = () => apply({ [b.dataset.toggle]: b.getAttribute("aria-pressed") !== "true" });
+});
+$("bShift").onclick = () => { if (photos[cur] && photos[cur].leak) apply({ leak_shift: 1 }); };
+
+$("bFile").onclick = async () => {
+  const p = photos[cur];
+  if (!p) return;
+  const id = p.id;
+  try {
+    if (chains[id]) await chains[id].tail;          // экспортируем уже с последней выбранной плёнкой
+    const np = await api(`/api/photo/${id}/file`, {});
+    const j = indexOf(id);
+    if (j >= 0) { photos[j].exporting = np.exporting; if (cur === j) refreshViewerImage(); }
+    toast(T("Файл придёт в чат, можно листать дальше", "The file will arrive in the chat, keep browsing"));
+    haptic("success");
+    jobs = Math.max(jobs, 1);
+    schedulePoll();
+  } catch (e) { toast(e.message); }
+};
+
+$("bHide").onclick = () => {
+  const p = photos[cur];
+  const go = async (ok) => {
+    if (!ok) return;
+    try {
+      await api(`/api/photo/${p.id}/hide`, {});
+      photos.splice(cur, 1);
+      total -= 1;
+      rebuildFeed();
+      if (!photos.length) return closeViewer();
+      cur = Math.min(cur, photos.length - 1);
+      renderViewer();
+      toast(T("Кадр убран", "Frame removed"));
+    } catch (e) { toast(e.message); }
+  };
+  if (tg && tg.showConfirm) tg.showConfirm(T(`Убрать кадр ${pad2(p.id)} из ленты и из чата?`, `Remove frame ${pad2(p.id)} from the feed and the chat?`), go);
+  else go(confirm(T(`Убрать кадр ${p.id}?`, `Remove frame ${p.id}?`)));
+};
+
+/* свайпы между кадрами — работают всегда, даже пока кадр проявляется */
+let sx = 0, sy = 0;
+$("stage").addEventListener("touchstart", (e) => { sx = e.touches[0].clientX; sy = e.touches[0].clientY; }, { passive: true });
+$("stage").addEventListener("touchend", (e) => {
+  const dx = e.changedTouches[0].clientX - sx, dy = e.changedTouches[0].clientY - sy;
+  if (Math.abs(dx) < 50 || Math.abs(dx) < Math.abs(dy)) return;
+  const next = cur + (dx < 0 ? 1 : -1);
+  if (photos[next]) { cur = next; haptic(); renderViewer(); }
+}, { passive: true });
+document.addEventListener("keydown", (e) => {
+  if (cur < 0) return;
+  if (e.key === "Escape") closeViewer();
+  if (e.key === "ArrowRight" && photos[cur + 1]) { cur++; renderViewer(); }
+  if (e.key === "ArrowLeft" && photos[cur - 1]) { cur--; renderViewer(); }
+});
+
+/* ---------- запуск ---------- */
+(async function init() {
+  translatePage();
+  if (tg) {
+    tg.ready();
+    tg.expand();
+    try { tg.disableVerticalSwipes && tg.disableVerticalSwipes(); } catch (e) {}
+    tg.BackButton.onClick(closeViewer);
+    tg.onEvent && tg.onEvent("themeChanged", applyTheme);
+  }
+  applyTheme();
+  const initData = tg ? tg.initData : "";
+  if (!initData) {
+    $("feed").innerHTML = T(`<div class="state"><strong>Открой из Telegram</strong><p>Лента работает только внутри бота: кнопка «Проявка» рядом с полем ввода.</p></div>`,
+      `<div class="state"><strong>Open from Telegram</strong><p>The feed works only inside the bot: the Proyavka button next to the input field.</p></div>`);
+    return;
+  }
+  try {
+    token = (await api("/api/auth", { initData })).token;
+    const pj = await api("/api/presets");
+    presets = pj.presets;
+    leaks = pj.leaks || [];
+    strengths = pj.strengths;
+    since = (await api("/api/updates?since=9e12")).now;   // точка отсчёта для опроса
+  } catch (e) {
+    $("feed").innerHTML = T(`<div class="state"><strong>Нет доступа</strong><p>${e.message}</p></div>`, `<div class="state"><strong>No access</strong><p>${e.message}</p></div>`);
+    return;
+  }
+  new IntersectionObserver((es) => { if (es[0].isIntersecting) loadMore(); }, { rootMargin: "800px" }).observe($("sentinel"));
+  await loadMore();
+  schedulePoll();
+})();
+</script>
+</body>
+</html>

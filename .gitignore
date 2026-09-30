@@ -1,0 +1,18 @@
+# секреты и личные настройки — их пишет setup.py, в репозиторий они не попадают никогда
+config.env
+camera-config/
+*.env
+*.keystore
+*.jks
+camera-app/*.properties
+
+# окружение и данные
+.venv/
+__pycache__/
+*.pyc
+proyavka-data/
+
+# сборка приложения для камеры (готовое APK выкладывается в Releases)
+camera-app/.tools/
+camera-app/build/
+*.apk
