@@ -16,6 +16,9 @@ import android.os.Bundle;
 import android.os.Handler;
 import android.os.SystemClock;
 import android.text.InputType;
+import android.text.SpannableStringBuilder;
+import android.text.style.ForegroundColorSpan;
+import android.text.style.StyleSpan;
 import android.view.KeyEvent;
 import android.view.View;
 import android.view.ViewGroup;
@@ -60,9 +63,30 @@ public class WifiActivity extends Activity {
         Row(String ssid, boolean saved, boolean open, int level) {
             this.ssid = ssid; this.saved = saved; this.open = open; this.level = level;
         }
-        @Override public String toString() {
-            String bars = level < 0 ? Cam.L("не рядом", "not nearby") : "▂▄▆█".substring(0, Math.max(1, level));
-            return (saved ? "✓ " : "   ") + ssid + "   " + bars + (open ? Cam.L("  (открытая)", "  (open)") : "");
+        @Override public String toString() { return ssid; }
+
+        /**
+         * Строка списка. Только символы, которые точно есть в шрифте камеры: ✓ и ▂▄▆█ там нет,
+         * поэтому сигнал — палочки |||| (яркие — сила сигнала), а сохранённая сеть подписана словом.
+         */
+        CharSequence label() {
+            SpannableStringBuilder sb = new SpannableStringBuilder(ssid).append("   ");
+            if (level < 0) {
+                color(sb, Cam.L("не рядом", "not nearby"), Cam.GRAY);
+            } else {
+                int start = sb.length();
+                for (int i = 0; i < 4; i++) color(sb, "|", i < Math.max(1, level) ? Color.WHITE : Color.rgb(90, 90, 90));
+                sb.setSpan(new StyleSpan(Typeface.BOLD), start, sb.length(), 0);
+            }
+            if (saved) color(sb, Cam.L("   сохранена", "   saved"), Color.rgb(170, 230, 170));
+            if (open) color(sb, Cam.L("   открытая", "   open"), Cam.GRAY);
+            return sb;
+        }
+
+        private static void color(SpannableStringBuilder sb, String s, int c) {
+            int start = sb.length();
+            sb.append(s);
+            sb.setSpan(new ForegroundColorSpan(c), start, sb.length(), 0);
         }
     }
 
@@ -96,6 +120,7 @@ public class WifiActivity extends Activity {
                 TextView t = (TextView) super.getView(pos, v, parent);
                 t.setTextColor(Color.WHITE);
                 t.setTextSize(19);
+                t.setText(getItem(pos).label());
                 return t;
             }
         };
@@ -188,7 +213,7 @@ public class WifiActivity extends Activity {
         String cur = Cam.currentSsid(this, wifi);
         status.setText((cur != null ? Cam.L("Подключено: ", "Connected: ") + cur + ".  " : "") +
                 (saved.isEmpty() ? Cam.L("Выбери сеть — телефон с точкой доступа или дом", "Pick a network — phone hotspot or home")
-                        : Cam.L("✓ — сохранённые сети", "✓ — saved networks")));
+                        : Cam.L("Сохранённые сети — сверху", "Saved networks are on top")));
     }
 
     private static int level(ScanResult r) { return WifiManager.calculateSignalLevel(r.level, 5); }
