@@ -82,7 +82,8 @@ DB_PATH = BASE / "filmbot.db"
 STATE_FILE = BASE / "state.json"
 
 API = f"https://api.telegram.org/bot{BOT_TOKEN}"
-EXTS = {".jpg", ".jpeg", ".hif", ".heif", ".heic"}
+EXTS = {".jpg", ".jpeg", ".hif", ".heif", ".heic", ".png", ".webp"}   # png/webp — только свои фото из телефона
+UPLOAD_MAX = int(float(os.environ.get("UPLOAD_MAX_MB", "50")) * 1024 * 1024)   # «+» в «Проявке»: предел одного файла
 SSH_BIN = os.environ.get("SSH_BIN", "ssh")
 # одно постоянное соединение на все запросы к VPS (ControlMaster), без нового рукопожатия каждый раз
 SSH_CMD = [SSH_BIN, "-i", SSH_KEY, "-o", "BatchMode=yes", "-o", "ConnectTimeout=10",
@@ -1671,8 +1672,16 @@ def find_duplicate(f, fp):
 
 
 def ingest(f, state):
-    t0 = time.time()
     fp = fingerprint(f)
+    try:
+        return _ingest(f, state, fp)
+    finally:
+        with PENDING_LOCK:
+            PENDING_FP.discard(fp)
+
+
+def _ingest(f, state, fp):
+    t0 = time.time()
     dup = find_duplicate(f, fp)
     if dup:
         remove(str(f))
@@ -1791,6 +1800,73 @@ def preview_file(ph, key, strength, leak="", lseed=0):
     return Path(FAST.submit(job_preview, snap, key, strength, str(path), leak).result(timeout=120))
 
 
+def sniff_ext(head):
+    """Тип файла по первым байтам, а не по имени: телефоны называют файлы как угодно."""
+    if head[:3] == b"\xff\xd8\xff":
+        return ".jpg"
+    if head[:8] == b"\x89PNG\r\n\x1a\n":
+        return ".png"
+    if head[:4] == b"RIFF" and head[8:12] == b"WEBP":
+        return ".webp"
+    if head[4:8] == b"ftyp" and head[8:12] in (b"heic", b"heix", b"hevc", b"hevx", b"mif1", b"msf1", b"heim", b"heis"):
+        return ".heic"
+    return None
+
+
+PENDING_FP = set()          # отпечатки принятых загрузок, которые ещё не дошли до базы
+PENDING_LOCK = threading.Lock()
+
+
+def receive_upload(stream, length, name):
+    """Своё фото из телефона («+» в «Проявке»): принять потоком, проверить и отдать в обычный приём."""
+    if length <= 0:
+        raise ValueError(L("пустой файл", "empty file"))
+    if length > UPLOAD_MAX:
+        raise ValueError(L(f"файл больше {UPLOAD_MAX // 1048576} МБ", f"file is larger than {UPLOAD_MAX // 1048576} MB"))
+    tmp = TMP / f"up_{secrets.token_hex(8)}.part"
+    h = hashlib.sha1()
+    hashed, left, head = 0, length, b""
+    try:
+        with open(tmp, "wb") as f:
+            while left:
+                chunk = stream.read(min(left, 262144))
+                if not chunk:
+                    raise ValueError(L("загрузка оборвалась", "upload was interrupted"))
+                if len(head) < 16:
+                    head = (head + chunk)[:16]
+                if hashed < 262144:            # тот же отпечаток, что у кадров с камеры (fingerprint)
+                    part = chunk[:262144 - hashed]
+                    h.update(part)
+                    hashed += len(part)
+                f.write(chunk)
+                left -= len(chunk)
+        ext = sniff_ext(head)
+        if not ext:
+            raise ValueError(L("это не фото (нужен JPEG, HEIC, PNG или WebP)", "not a photo (JPEG, HEIC, PNG or WebP expected)"))
+        fp = f"{h.hexdigest()}:{length}"
+        dup = q("SELECT id, hidden FROM photos WHERE fp=? LIMIT 1", (fp,))
+        if dup:     # удалённые кадры тоже помнятся по отпечатку — повторная загрузка их не вернёт
+            return {"ok": True, "duplicate": dup[0]["id"], "deleted": bool(dup[0]["hidden"])}
+        with PENDING_LOCK:      # тот же файл уже принят и ждёт обработки (выбрали одно фото дважды)
+            if fp in PENDING_FP:
+                return {"ok": True, "duplicate": -1, "deleted": False}
+            PENDING_FP.add(fp)
+        stem = "".join(c for c in Path(name).stem if c.isalnum() or c in "-_.")[:40] or "photo"
+        dst = INCOMING / f"{stem}{ext}"
+        while dst.exists():
+            dst = INCOMING / f"{stem}_{secrets.token_hex(2)}{ext}"
+        try:
+            os.replace(tmp, dst)
+        except OSError:
+            with PENDING_LOCK:
+                PENDING_FP.discard(fp)
+            raise
+        VPS_EVENTS.put("")                     # разбудить приём, не ждать секунду
+        return {"ok": True, "duplicate": None}
+    finally:
+        remove(str(tmp))
+
+
 class Handler(BaseHTTPRequestHandler):
     server_version = "filmbot"
 
@@ -1816,7 +1892,12 @@ class Handler(BaseHTTPRequestHandler):
     def authed(self, qs):
         tok = self.headers.get("X-Token") or (qs.get("s") or [""])[0]
         exp = SESSIONS.get(tok)
-        return bool(tok) and exp is not None and exp > time.time()
+        now = time.time()
+        if not tok or exp is None or exp <= now:
+            return False
+        if exp - now < SESSION_TTL - 600:      # пока «Проявкой» пользуются, сессия продлевается сама
+            SESSIONS[tok] = now + SESSION_TTL
+        return True
 
     def file(self, path):
         if not has(path):
@@ -1887,14 +1968,28 @@ class Handler(BaseHTTPRequestHandler):
         parts = [p for p in u.path.split("/") if p]
         qs = parse_qs(u.query)
         try:
+            if parts == ["api", "upload"]:      # тело — сам файл, а не JSON, поэтому до self.body()
+                if not self.authed(qs):
+                    # дочитать и выбросить: иначе соединение рвётся и вместо «войди заново» человек видит «нет связи»
+                    left = min(int(self.headers.get("Content-Length") or 0), UPLOAD_MAX)
+                    while left > 0:
+                        chunk = self.rfile.read(min(left, 262144))
+                        if not chunk:
+                            break
+                        left -= len(chunk)
+                    return self.err(401, L("нужна авторизация через Telegram", "Telegram authorization required"))
+                return self.js(receive_upload(self.rfile, int(self.headers.get("Content-Length") or 0),
+                                              (qs.get("name") or [""])[0]))
             data = self.body()
             if parts == ["api", "auth"]:
                 if not check_init_data(data.get("initData", "")):
                     return self.err(403, L("открой ленту из своего бота в Telegram", "open the feed from your bot in Telegram"))
-                tok = secrets.token_urlsafe(24)
                 now = time.time()
                 for k in [k for k, v in SESSIONS.items() if v < now]:
                     SESSIONS.pop(k, None)
+                # повторный вход из уже открытой ленты продлевает прежний токен: на нём ссылки на все картинки
+                old = str(data.get("token") or "")
+                tok = old if len(old) >= 32 and old not in SESSIONS else secrets.token_urlsafe(24)
                 SESSIONS[tok] = now + SESSION_TTL
                 return self.js({"token": tok})
             if not self.authed(qs):

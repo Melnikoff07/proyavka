@@ -43,6 +43,18 @@
   .hero-row { display: flex; justify-content: space-between; align-items: baseline; }
   .hero h1, .hero .total { margin: 0; font-size: 44px; line-height: .95; font-weight: 500; letter-spacing: -.035em; }
   .hero .sub { margin-top: 12px; color: var(--muted); font-size: 13px; max-width: 32ch; }
+  .hero-right { display: flex; align-items: center; gap: 14px; }
+  .add { width: 36px; height: 36px; border: 1px solid var(--text); font-size: 22px; line-height: 1; font-weight: 400;
+         display: inline-flex; align-items: center; justify-content: center; align-self: center; }
+
+  /* загрузка своих фото: полоска внизу */
+  .uploader { position: fixed; left: var(--pad); right: var(--pad); bottom: calc(16px + env(safe-area-inset-bottom, 0px));
+              background: var(--btn-bg); color: var(--btn-text); z-index: 25; padding: 12px 14px 0; }
+  .uploader[hidden] { display: none; }
+  .up-row { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; padding-bottom: 12px; }
+  .up-row button { color: inherit; opacity: .7; }
+  .up-bar { height: 2px; margin: 0 -14px; background: rgba(127,127,127,.35); }
+  .up-bar i { display: block; height: 100%; width: 0; background: var(--btn-text); transition: width .15s linear; }
 
   /* день: линия, дата слева, счётчик справа */
   .day { content-visibility: auto; contain-intrinsic-size: auto 600px; padding: 0 var(--pad) 28px; }
@@ -124,7 +136,10 @@
 </head>
 <body>
 <header class="hero">
-  <div class="hero-row"><h1 id="appName">Проявка</h1><span class="total" id="total"></span></div>
+  <div class="hero-row"><h1 id="appName">Проявка</h1>
+    <div class="hero-right"><span class="total" id="total"></span>
+      <button class="add" id="bAdd" aria-label="Добавить фото" data-i18n-aria="Add photos">+</button></div></div>
+  <input type="file" id="picker" accept="image/*" multiple hidden>
   <p class="sub" id="sub"></p>
 </header>
 <main id="feed"></main>
@@ -157,6 +172,10 @@
     </div>
   </div>
 </section>
+<div class="uploader" id="uploader" hidden role="status">
+  <div class="up-row cap"><span id="upText"></span><button id="upCancel" data-i18n="Cancel">Отмена</button></div>
+  <div class="up-bar"><i id="upBar"></i></div>
+</div>
 <div class="toast cap" id="toast" role="status"></div>
 
 <script>
@@ -210,13 +229,28 @@ function leakName(key) { const l = leaks.find((x) => x.key === key); return l ? 
 function viewUrl(p) { return url(`/img/view/${p.id}`, `&v=${p.v}`); }
 function indexOf(id) { return photos.findIndex((x) => x.id === id); }
 
-async function api(path, body) {
+async function api(path, body, retried) {
   const opts = { headers: { "X-Token": token } };
   if (body !== undefined) { opts.method = "POST"; opts.headers["Content-Type"] = "application/json"; opts.body = JSON.stringify(body); }
   const r = await fetch(path, opts);
   const j = await r.json().catch(() => ({}));
+  if (r.status === 401 && !retried && token && await reauth()) return api(path, body, true);
   if (!r.ok) throw new Error(j.error || T(`Сервер ответил ${r.status}`, `Server responded ${r.status}`));
   return j;
+}
+
+/* сессия истекла (лента была открыта очень долго): войти заново с тем же токеном — ссылки на картинки не ломаются */
+async function reauth() {
+  try {
+    const r = await fetch("/api/auth", { method: "POST", headers: { "Content-Type": "application/json" },
+                                        body: JSON.stringify({ initData: tg ? tg.initData : "", token }) });
+    if (!r.ok) throw new Error();
+    token = (await r.json()).token;
+    return true;
+  } catch (e) {
+    toast(T("Открой «Проявку» заново", "Reopen Proyavka"));
+    return false;
+  }
 }
 
 /* ---------- тема как в Telegram ---------- */
@@ -556,6 +590,87 @@ document.addEventListener("keydown", (e) => {
   if (e.key === "ArrowRight" && photos[cur + 1]) { cur++; renderViewer(); }
   if (e.key === "ArrowLeft" && photos[cur - 1]) { cur--; renderViewer(); }
 });
+
+/* ---------- свои фото: «+», загрузка по одному с прогрессом ---------- */
+const UPLOAD_MAX = 50 * 1024 * 1024;
+let uploading = null;      // { cancel, xhr }
+
+$("bAdd").onclick = () => { if (uploading) return toast(T("Загрузка уже идёт", "Upload in progress")); $("picker").click(); };
+$("picker").onchange = () => {
+  const files = [...$("picker").files];
+  $("picker").value = "";
+  if (files.length) uploadAll(files);
+};
+$("upCancel").onclick = () => {
+  if (!uploading) return;
+  uploading.cancel = true;
+  if (uploading.xhr) uploading.xhr.abort();
+};
+
+function upShow(i, n, part) {
+  const pct = Math.round(((i + part) / n) * 100);
+  $("upText").textContent = T(`Загружаю ${i + 1} из ${n} · ${pct}%`, `Uploading ${i + 1} of ${n} · ${pct}%`);
+  $("upBar").style.width = pct + "%";
+}
+
+function uploadOne(file, onProgress) {
+  return new Promise((resolve, reject) => {
+    const x = new XMLHttpRequest();
+    uploading.xhr = x;
+    x.open("POST", "/api/upload?name=" + encodeURIComponent(file.name || "photo.jpg"));
+    x.setRequestHeader("X-Token", token);
+    x.setRequestHeader("Content-Type", file.type || "application/octet-stream");
+    x.upload.onprogress = (e) => { if (e.lengthComputable) onProgress(e.loaded / e.total); };
+    x.onload = () => {
+      let j = {};
+      try { j = JSON.parse(x.responseText); } catch (e) {}
+      if (x.status === 200) return resolve(j);
+      const e = new Error(j.error || (x.status === 413 ? T("файл больше 50 МБ", "file is larger than 50 MB") : T(`сервер ответил ${x.status}`, `server responded ${x.status}`)));
+      e.status = x.status;
+      reject(e);
+    };
+    x.onerror = () => reject(new Error(T("нет связи", "network error")));
+    x.onabort = () => reject(new Error("abort"));
+    x.send(file);
+  });
+}
+
+async function uploadAll(files) {
+  uploading = { cancel: false, xhr: null };
+  let added = 0, dups = 0;
+  const failed = [];
+  $("uploader").hidden = false;
+  for (let i = 0; i < files.length && !uploading.cancel; i++) {
+    const f = files[i];
+    upShow(i, files.length, 0);
+    if (f.size > UPLOAD_MAX) { failed.push(`${f.name}: ${T("больше 50 МБ", "larger than 50 MB")}`); continue; }
+    try {
+      let r;
+      try { r = await uploadOne(f, (p) => upShow(i, files.length, p)); }
+      catch (e) {
+        if (e.status !== 401 || !(await reauth())) throw e;
+        r = await uploadOne(f, (p) => upShow(i, files.length, p));      // сессия истекла — вошли заново и повторили
+      }
+      if (r.duplicate) dups++; else added++;
+    } catch (e) {
+      if (uploading.cancel) break;
+      failed.push(`${f.name}: ${e.message}`);
+    }
+  }
+  const cancelled = uploading.cancel;
+  uploading = null;
+  $("uploader").hidden = true;
+  const parts = [];
+  if (added) parts.push(T(`добавлено ${added}`, `added ${added}`));
+  if (dups) parts.push(T(`уже были ${dups}`, `already there ${dups}`));
+  if (failed.length) parts.push(T(`не вышло ${failed.length}`, `failed ${failed.length}`));
+  if (cancelled) parts.unshift(T("Отменено", "Cancelled"));
+  if (failed.length && !added && !dups && !cancelled) toast(failed[0]);     // всё упало — показать причину
+  else toast((parts.join(", ") || T("Ничего не загружено", "Nothing uploaded")).replace(/^./, (c) => c.toUpperCase()));
+  if (failed.length) console.warn("upload failed:", failed);
+  haptic(failed.length ? "warning" : "success");
+  if (added) { jobs = Math.max(jobs, 1); poll(); }
+}
 
 /* ---------- запуск ---------- */
 (async function init() {

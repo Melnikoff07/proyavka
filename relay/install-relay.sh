@@ -93,6 +93,16 @@ server {
     ssl_certificate_key /etc/letsencrypt/live/$DOMAIN/privkey.pem;
     client_max_body_size 1m;
     include snippets/proyavka-camera.conf;
+    location = /api/upload {          # «+» в «Проявке»: свои фото с телефона, файл идёт в бота потоком
+        proxy_pass http://127.0.0.1:8088;
+        proxy_set_header Host \$host;
+        proxy_http_version 1.1;
+        proxy_request_buffering off;
+        client_max_body_size 50m;
+        client_body_timeout 120s;
+        proxy_read_timeout 300s;
+        proxy_send_timeout 300s;
+    }
     location / {
         proxy_pass http://127.0.0.1:8088;
         proxy_set_header Host \$host;
