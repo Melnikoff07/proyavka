@@ -672,7 +672,8 @@ def init_db():
         if "view" not in cols:
             db.execute("ALTER TABLE photos ADD COLUMN view TEXT")
         for col, decl in (("rev", "INTEGER DEFAULT 0"), ("rendered_rev", "INTEGER DEFAULT 0"), ("updated", "REAL DEFAULT 0"),
-                          ("leak_kind", "TEXT DEFAULT 'edge'"), ("leak_seed", "INTEGER DEFAULT 0"), ("fp", "TEXT")):
+                          ("leak_kind", "TEXT DEFAULT 'edge'"), ("leak_seed", "INTEGER DEFAULT 0"), ("fp", "TEXT"),
+                          ("msg_at", "REAL")):
             if col not in cols:
                 db.execute(f"ALTER TABLE photos ADD COLUMN {col} {decl}")
         db.execute("CREATE INDEX IF NOT EXISTS photos_fp ON photos(fp)")
@@ -752,14 +753,14 @@ def caption(ph):
 def main_kb(ph):
     pid = ph["id"]
     if not has(ph["work"]):
-        return {"inline_keyboard": [[btn(L("🗄 В архиве", "🗄 Archived"), "x"), btn(L("🗑 Убрать", "🗑 Remove"), f"del:{pid}")]]}
+        return {"inline_keyboard": [[btn(L("🗄 В архиве", "🗄 Archived"), "x"), btn(L("🗑 Удалить", "🗑 Delete"), f"del:{pid}")]]}
     on = lambda f: "✅ " if ph[f] else ""
     return {"inline_keyboard": [
         [btn(f"🎞 {pname(ph['preset'])} ▾", f"m:{pid}"), btn(L("🔍 Сравнить", "🔍 Compare"), f"c:{pid}")],
         [btn("➖", f"s:{pid}:-"), btn(L("Сила", "Strength") + f" {ph['strength']}%", "x"), btn("➕", f"s:{pid}:+")],
         [btn(on("stamp") + L("📅 Дата", "📅 Date"), f"t:{pid}:stamp"), btn(on("frame") + L("🖼 Рамка", "🖼 Frame"), f"t:{pid}:frame"),
          btn(on("leak") + L("✨ Засвет ▾", "✨ Leak ▾"), f"lm:{pid}")],
-        [btn(L("⬇️ Файл", "⬇️ File"), f"f:{pid}"), btn(L("🗑 Убрать", "🗑 Remove"), f"del:{pid}")],
+        [btn(L("⬇️ Файл", "⬇️ File"), f"f:{pid}"), btn(L("🗑 Удалить", "🗑 Delete"), f"del:{pid}")],
     ]}
 
 
@@ -808,14 +809,69 @@ def send_new(ph):
         return
     with EDIT_LOCK:
         res = tg("sendPhoto", chat_id=CHAT_ID, photo=ph["file_id"], caption=caption(ph), reply_markup=main_kb(ph))
-        upd(ph["id"], msg_id=res["message_id"], file_id=res["photo"][-1]["file_id"])
+        upd(ph["id"], msg_id=res["message_id"], msg_at=time.time(), file_id=res["photo"][-1]["file_id"])
+
+
+MSG_DELETE_WINDOW = 47 * 3600     # Telegram даёт боту удалить сообщение только в первые 48 часов
+
+
+def delete_photos(ids):
+    """Удалить кадры насовсем: из ленты, из чата и с диска. В базе остаётся строка с отпечатком (fp),
+    поэтому повторная выгрузка того же кадра с камеры или телефона его не вернёт."""
+    now = time.time()
+    gone = []
+    for pid in ids:
+        ph = get(pid)
+        if not ph or ph["hidden"]:
+            continue
+        # rev+1 — результаты рисования, которое уже идёт, будут выброшены (_view_done это проверяет)
+        run("UPDATE photos SET hidden=1, src=NULL, work=NULL, view=NULL, thumb=NULL, file_id=NULL, "
+            "rev=rev+1, updated=? WHERE id=?", (now, pid))
+        for p in (ph["src"], ph["work"], ph["view"], ph["thumb"]):
+            remove(p)
+        for p in PREVIEWS.glob(f"{pid}_*.jpg"):
+            remove(str(p))
+        gone.append(ph)
+    if gone:
+        NET.submit(_delete_messages, gone)
+    return len(gone)
+
+
+def _delete_messages(phs):
+    fresh, old = [], []
+    for ph in phs:
+        if ph["msg_id"]:
+            sent = ph.get("msg_at") or ph["created"] or 0
+            (fresh if time.time() - sent < MSG_DELETE_WINDOW else old).append(ph["msg_id"])
+    for i in range(0, len(fresh), 100):
+        chunk = fresh[i:i + 100]
+        if not safe("deleteMessages", chat_id=CHAT_ID, message_ids=chunk):
+            for mid in chunk:                    # на всякий случай по одному
+                if not safe("deleteMessage", chat_id=CHAT_ID, message_id=mid):
+                    old.append(mid)
+    for mid in old:                              # старше 48 часов: удалить нельзя — меняем фото на заглушку
+        with open(deleted_placeholder(), "rb") as f:
+            if not safe("editMessageMedia", files={"f": ("deleted.jpg", f)}, chat_id=CHAT_ID, message_id=mid,
+                        media={"type": "photo", "media": "attach://f", "caption": L("Удалено", "Deleted")},
+                        reply_markup={"inline_keyboard": []}):
+                safe("editMessageReplyMarkup", chat_id=CHAT_ID, message_id=mid, reply_markup={"inline_keyboard": []})
+
+
+def deleted_placeholder():
+    path = BASE / f"deleted_{LANG}.jpg"
+    if not path.exists():
+        img = Image.new("RGB", (640, 400), (24, 24, 24))
+        d = ImageDraw.Draw(img)
+        f = font(40)
+        txt = L("удалено", "deleted")
+        x0, y0, x1, y1 = d.textbbox((0, 0), txt, font=f)
+        d.text(((640 - (x1 - x0)) // 2, (400 - (y1 - y0)) // 2 - y0), txt, fill=(140, 140, 140), font=f)
+        save_atomic(img, str(path), 85)
+    return path
 
 
 def hide_photo(ph):
-    upd(ph["id"], hidden=1, updated=time.time())
-    if not safe("deleteMessage", chat_id=CHAT_ID, message_id=ph["msg_id"]):
-        safe("editMessageReplyMarkup", chat_id=CHAT_ID, message_id=ph["msg_id"],
-             reply_markup={"inline_keyboard": []})
+    delete_photos([ph["id"]])
 
 
 # ================= задачи в отдельных процессах =================
@@ -823,7 +879,12 @@ def hide_photo(ph):
 def save_atomic(img, path, quality):
     tmp = f"{path}.{os.getpid()}.{threading.get_ident()}.tmp"   # уникально: несколько процессов могут писать один файл
     img.save(tmp, "JPEG", quality=quality, subsampling=0 if quality >= 90 else 2)
-    os.replace(tmp, path)
+    try:
+        os.replace(tmp, path)
+    except PermissionError:          # Windows: файл как раз читает другой процесс — его копия не хуже
+        if not os.path.exists(path):
+            raise
+        os.remove(tmp)
     return path
 
 
@@ -1024,7 +1085,10 @@ def _view_done(pid, rev, chat, fut):
     else:
         view, thumb = fut.result()
         cur = get(pid)
-        if cur and cur["rev"] == rev:
+        if not cur or cur["hidden"]:            # кадр удалили, пока он рисовался — не оставлять файлы
+            for p in (view, thumb, str(TMP / f"chat_{pid}_{rev}.jpg")):
+                remove(p)
+        elif cur["rev"] == rev:
             upd(pid, view=view, thumb=thumb, rendered_rev=rev, updated=time.time())
             if chat:
                 queue_tg_update(pid)
@@ -1064,6 +1128,8 @@ def _export_done(pid, ph, out, fut):
         note = None if has(ph["src"]) else L("Оригинал уже удалён для экономии места, это версия для чата.",
                                          "The original was deleted to save space; this is the chat version.")
         cur = get(pid) or ph
+        if cur["hidden"]:                       # удалили, пока готовился файл
+            return
         with open(out, "rb") as f:
             tg("sendDocument", files={"document": (f"{Path(ph['name']).stem}_{ph['preset']}.jpg", f)},
                chat_id=CHAT_ID, reply_to_message_id=cur["msg_id"], caption=note)
@@ -1111,7 +1177,7 @@ def _tg_upload(pid, rev, path):
         if res is None:
             res = tg("sendPhoto", files={"photo": ("p.jpg", f)}, chat_id=CHAT_ID,
                      caption=caption(ph), reply_markup=main_kb(ph))
-            upd(pid, msg_id=res["message_id"])
+            upd(pid, msg_id=res["message_id"], msg_at=time.time())
         upd(pid, file_id=res["photo"][-1]["file_id"])
 
 
@@ -1420,7 +1486,7 @@ def on_callback(cb, state):
     dev = L("Проявляю…", "Developing…")
     notes = {"p": dev, "cp": dev, "s": dev, "t": dev, "l": dev, "ls": dev,
              "f": L("Готовлю файл, пришлю в чат", "Preparing the file, will send it to the chat"),
-             "c": L("Собираю лист…", "Building the sheet…")}
+             "c": L("Собираю лист…", "Building the sheet…"), "dely": L("Удаляю", "Deleting")}
     safe("answerCallbackQuery", callback_query_id=cb["id"], text=notes.get(kind))
     if kind == "x":
         return
@@ -1474,7 +1540,10 @@ def on_callback(cb, state):
         NET.submit(send_contact, ph)
     elif kind == "o":
         send_new(ph)
-    elif kind == "del":
+    elif kind == "del":       # сначала спросить: удаление стирает и файлы
+        safe("editMessageReplyMarkup", chat_id=CHAT_ID, message_id=mid, reply_markup={"inline_keyboard": [
+            [btn(L("🗑 Да, удалить", "🗑 Yes, delete"), f"dely:{ph['id']}"), btn(L("← Нет", "← No"), f"b:{ph['id']}")]]})
+    elif kind == "dely":
         hide_photo(ph)
 
 
@@ -1726,8 +1795,8 @@ def process_incoming(state):
         n = DUP_REPORT["n"]
         DUP_REPORT["n"] = 0
         word = "повтор" if n % 10 == 1 and n % 100 != 11 else ("повтора" if 2 <= n % 10 <= 4 and not 12 <= n % 100 <= 14 else "повторов")
-        safe("sendMessage", chat_id=CHAT_ID, text=L(f"Пропущено {n} {word}: эти кадры уже были в ленте.",
-                                                    f"Skipped {n} duplicate(s): these frames are already in the feed."))
+        safe("sendMessage", chat_id=CHAT_ID, text=L(f"Пропущено {n} {word}: эти кадры уже были в ленте или удалены.",
+                                                    f"Skipped {n} duplicate(s): these frames are already in the feed or were deleted."))
 
 
 def ingest_loop(state):
@@ -1811,6 +1880,38 @@ def sniff_ext(head):
     if head[4:8] == b"ftyp" and head[8:12] in (b"heic", b"heix", b"hevc", b"hevx", b"mif1", b"msf1", b"heim", b"heis"):
         return ".heic"
     return None
+
+
+BATCH_MAX = 500
+
+
+def batch_ids(data):
+    ids = data.get("ids")
+    if not isinstance(ids, list) or not ids or len(ids) > BATCH_MAX:
+        raise ValueError(L(f"выбери от 1 до {BATCH_MAX} кадров", f"select 1 to {BATCH_MAX} frames"))
+    try:
+        ids = list(dict.fromkeys(int(i) for i in ids))
+    except (TypeError, ValueError):
+        raise ValueError(L("неверный список кадров", "invalid frame list"))
+    marks = ",".join("?" * len(ids))
+    return [r["id"] for r in q(f"SELECT id FROM photos WHERE hidden=0 AND id IN ({marks}) ORDER BY id", ids)]
+
+
+def batch_action(data):
+    """Действия над выбранными кадрами из «Проявки»: удалить, прислать файлы."""
+    action = data.get("action")
+    ids = batch_ids(data)
+    if action == "delete":
+        return {"ok": True, "done": delete_photos(ids)}
+    if action == "files":
+        sent = 0
+        for pid in ids:
+            ph = get(pid)
+            if ph and (has(ph["work"]) or has(ph["src"])):
+                export_photo(pid)
+                sent += 1
+        return {"ok": True, "done": sent, "skipped": len(ids) - sent}
+    raise ValueError(L("неизвестное действие", "unknown action"))
 
 
 PENDING_FP = set()          # отпечатки принятых загрузок, которые ещё не дошли до базы
@@ -1939,7 +2040,7 @@ class Handler(BaseHTTPRequestHandler):
                 off = int((qs.get("offset") or ["0"])[0])
                 lim = min(120, int((qs.get("limit") or ["60"])[0]))
                 total = q("SELECT COUNT(*) AS n FROM photos WHERE hidden=0")[0]["n"]
-                rows = q("SELECT * FROM photos WHERE hidden=0 ORDER BY id DESC LIMIT ? OFFSET ?", (lim, off))
+                rows = q("SELECT * FROM photos WHERE hidden=0 ORDER BY taken DESC, id DESC LIMIT ? OFFSET ?", (lim, off))
                 return self.js({"total": total, "photos": [photo_json(r) for r in rows]})
             if len(parts) == 3 and parts[0] == "img" and parts[1] in ("thumb", "view"):
                 ph = get(int(parts[2]))
@@ -1994,6 +2095,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self.js({"token": tok})
             if not self.authed(qs):
                 return self.err(401, L("нужна авторизация через Telegram", "Telegram authorization required"))
+            if parts == ["api", "batch"]:
+                return self.js(batch_action(data))
             if len(parts) >= 3 and parts[:2] == ["api", "photo"]:
                 ph = get(int(parts[2]))
                 if not ph or ph["hidden"]:

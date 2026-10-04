@@ -63,7 +63,30 @@
   @media (min-width: 600px) { .grid { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
   @media (min-width: 900px) { .grid { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
 
-  .cell { display: block; width: 100%; text-align: left; }
+  .cell { display: block; width: 100%; text-align: left; position: relative;
+          -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; }
+  .tile img { -webkit-touch-callout: none; pointer-events: none; }
+
+  /* режим выбора: долгое нажатие на кадр */
+  .check { display: none; position: absolute; top: 8px; left: 8px; width: 22px; height: 22px; border-radius: 50%;
+           border: 1.5px solid var(--text); background: var(--bg); }
+  .selecting .check { display: block; }
+  .cell.sel .check { background: var(--text); }
+  .cell.sel .check::after { content: ""; position: absolute; left: 7px; top: 3px; width: 5px; height: 10px;
+                            border: solid var(--bg); border-width: 0 2px 2px 0; transform: rotate(45deg); }
+  .selecting .cell:not(.sel) .tile img { opacity: .55; }
+  .day-head .daysel { display: none; color: var(--text); }
+  .selecting .day-head .daysel { display: inline; }
+  .selecting .day-head .cnt { display: none; }
+  body.selecting { padding-bottom: calc(120px + env(safe-area-inset-bottom, 0px)); }
+  .selbar { position: fixed; left: 0; right: 0; bottom: 0; z-index: 15; background: var(--btn-bg); color: var(--btn-text);
+            padding: 12px var(--pad) calc(12px + env(safe-area-inset-bottom, 0px)); }
+  .selbar[hidden] { display: none; }
+  .sel-top { display: flex; justify-content: space-between; align-items: baseline; padding-bottom: 14px; }
+  .sel-top button { color: inherit; opacity: .7; }
+  .sel-actions { display: flex; justify-content: space-between; gap: 8px; }
+  .sel-actions button { color: inherit; padding: 6px 0; }
+  .sel-actions button.danger { color: #ff5a4e; }
   .tile { aspect-ratio: 1; background: var(--tile); display: flex; align-items: center; justify-content: center; }
   .tile img { width: 84%; height: 84%; object-fit: contain; }
   .cell.archived .tile img { opacity: .45; }
@@ -168,10 +191,19 @@
     <p class="note" id="archNote" hidden data-i18n="The original was deleted to free up space. The developed version is kept, but the film can no longer be changed.">Исходник удалён, чтобы освободить место. Готовая версия осталась, но плёнку уже не поменять.</p>
     <div class="actions">
       <button class="btn" id="bFile">Отправить файл в чат</button>
-      <button class="link cap" id="bHide" data-i18n="Remove">Убрать</button>
+      <button class="link cap" id="bHide" data-i18n="Delete">Удалить</button>
     </div>
   </div>
 </section>
+<div class="selbar" id="selbar" hidden role="toolbar" aria-label="Выбранные кадры" data-i18n-aria="Selected frames">
+  <div class="sel-top cap"><span id="selCount"></span><button id="selCancel" data-i18n="Cancel">Отмена</button></div>
+  <div class="sel-actions cap">
+    <button id="sFilm" data-i18n="Film" hidden>Плёнка</button>
+    <button id="sLeak" data-i18n="Leak" hidden>Засвет</button>
+    <button id="sFiles" data-i18n="Files">Файлы</button>
+    <button id="sDelete" class="danger" data-i18n="Delete">Удалить</button>
+  </div>
+</div>
 <div class="uploader" id="uploader" hidden role="status">
   <div class="up-row cap"><span id="upText"></span><button id="upCancel" data-i18n="Cancel">Отмена</button></div>
   <div class="up-bar"><i id="upBar"></i></div>
@@ -281,19 +313,51 @@ function renderHeader() {
   $("sub").textContent = parts.join(". ");
 }
 
+/* порядок ленты — по времени съёмки: старое фото из галереи телефона встаёт в свой день, а не наверх */
+function byTaken(a, b) { return (b.taken || "").localeCompare(a.taken || "") || b.id - a.id; }
+
 function makeCell(p, i) {
   const b = document.createElement("button");
   b.className = "cell";
   b.dataset.i = i;
-  b.innerHTML = `<div class="tile"><img loading="lazy" decoding="async" alt=""></div>` +
+  b.dataset.id = p.id;
+  b.innerHTML = `<div class="tile"><img loading="lazy" decoding="async" alt=""></div><span class="check"></span>` +
                 `<div class="cell-cap cap"><span>${pad2(p.id)}</span><span class="state-dot"></span><span class="name muted"></span></div>`;
-  b.onclick = () => openViewer(Number(b.dataset.i));
+  bindPress(b);
   fillCell(b, p);
   return b;
 }
+
+/* касание: коротко — открыть (или отметить в режиме выбора), долго — включить режим выбора */
+function bindPress(b) {
+  let timer = null, sx = 0, sy = 0, long = false;
+  const start = (x, y) => {
+    long = false; sx = x; sy = y;
+    clearTimeout(timer);
+    timer = setTimeout(() => { long = true; haptic(); if (!selecting) enterSelect(); toggleSel(Number(b.dataset.id), true); }, 450);
+  };
+  const move = (x, y) => { if (Math.abs(x - sx) > 10 || Math.abs(y - sy) > 10) clearTimeout(timer); };
+  const stop = () => clearTimeout(timer);
+  b.addEventListener("touchstart", (e) => start(e.touches[0].clientX, e.touches[0].clientY), { passive: true });
+  b.addEventListener("touchmove", (e) => move(e.touches[0].clientX, e.touches[0].clientY), { passive: true });
+  b.addEventListener("touchend", stop);
+  b.addEventListener("touchcancel", stop);
+  b.addEventListener("mousedown", (e) => { if (e.button === 0) start(e.clientX, e.clientY); });
+  b.addEventListener("mousemove", (e) => move(e.clientX, e.clientY));
+  b.addEventListener("mouseup", stop);
+  b.addEventListener("mouseleave", stop);
+  b.addEventListener("contextmenu", (e) => e.preventDefault());
+  b.onclick = () => {
+    if (long) { long = false; return; }          // это был отпуск после долгого нажатия
+    if (selecting) toggleSel(Number(b.dataset.id));
+    else openViewer(Number(b.dataset.i));
+  };
+}
+
 function fillCell(el, p) {
   el.classList.toggle("archived", !!p.archived);
   el.classList.toggle("pending", !!p.pending);
+  el.classList.toggle("sel", selected.has(p.id));
   el.setAttribute("aria-label", T(`Кадр ${p.id}, ${p.preset_name}${p.pending ? ", проявляется" : ""}`, `Frame ${p.id}, ${p.preset_name}${p.pending ? ", developing" : ""}`));
   const img = el.querySelector("img");
   const src = url(`/img/thumb/${p.id}`, `&v=${p.v}`);
@@ -313,8 +377,11 @@ function appendPhotos(list, start) {
     if (!g) {
       const sec = document.createElement("section");
       sec.className = "day";
-      sec.innerHTML = `<div class="day-head cap"><span>${dayTitle(k)}</span><span class="muted"></span></div><div class="grid"></div>`;
-      g = groups[k] = { grid: sec.querySelector(".grid"), count: sec.querySelector(".day-head .muted"), n: 0 };
+      sec.innerHTML = `<div class="day-head cap"><span>${dayTitle(k)}</span><span class="muted cnt"></span>` +
+                      `<button class="cap daysel"></button></div><div class="grid"></div>`;
+      g = groups[k] = { grid: sec.querySelector(".grid"), count: sec.querySelector(".day-head .cnt"),
+                        btn: sec.querySelector(".daysel"), n: 0 };
+      g.btn.onclick = () => selectDay(k);
       frag.appendChild(sec);
     }
     g.grid.appendChild(makeCell(p, start + j));
@@ -322,6 +389,92 @@ function appendPhotos(list, start) {
     g.count.textContent = pad2(g.n);
   });
   $("feed").appendChild(frag);
+  if (selecting) updateSelUI();
+}
+
+/* ---------- режим выбора ---------- */
+let selecting = false;
+const selected = new Set();
+
+function enterSelect() {
+  selecting = true;
+  document.body.classList.add("selecting");
+  $("selbar").hidden = false;
+  if (tg) tg.BackButton.show();
+  updateSelUI();
+}
+function exitSelect() {
+  selecting = false;
+  selected.clear();
+  document.body.classList.remove("selecting");
+  $("selbar").hidden = true;
+  if (tg && cur < 0) tg.BackButton.hide();
+  document.querySelectorAll(".cell.sel").forEach((el) => el.classList.remove("sel"));
+}
+function toggleSel(id, on) {
+  if (on === undefined ? selected.has(id) : !on) selected.delete(id); else selected.add(id);
+  const el = document.querySelector(`.cell[data-id="${id}"]`);
+  if (el) el.classList.toggle("sel", selected.has(id));
+  haptic();
+  updateSelUI();
+}
+function dayIds(k) { return photos.filter((p) => dayKey(p) === k).map((p) => p.id); }
+function selectDay(k) {
+  const ids = dayIds(k);
+  const all = ids.every((id) => selected.has(id));
+  ids.forEach((id) => { if (all) selected.delete(id); else selected.add(id); });
+  ids.forEach((id) => { const el = document.querySelector(`.cell[data-id="${id}"]`); if (el) el.classList.toggle("sel", !all); });
+  haptic();
+  updateSelUI();
+}
+function updateSelUI() {
+  const n = selected.size;
+  $("selCount").textContent = n ? T(`Выбрано: ${n}`, `Selected: ${n}`) : T("Нажимай на кадры", "Tap frames to select");
+  document.querySelectorAll(".sel-actions button").forEach((b) => { b.disabled = !n; });
+  for (const [k, g] of Object.entries(groups)) {
+    const ids = dayIds(k);
+    g.btn.textContent = ids.length && ids.every((id) => selected.has(id)) ? T("Снять день", "Unselect day") : T("Выбрать день", "Select day");
+  }
+}
+function selIds() { return photos.filter((p) => selected.has(p.id)).map((p) => p.id); }
+
+$("selCancel").onclick = exitSelect;
+$("sFiles").onclick = async () => {
+  const ids = selIds();
+  try {
+    const r = await api("/api/batch", { action: "files", ids });
+    let msg = T(`Пришлю ${r.done} ${plural(r.done, "файл", "файла", "файлов")} в чат`, `Sending ${r.done} file${r.done === 1 ? "" : "s"} to the chat`);
+    if (r.skipped) msg += T(` · ${r.skipped} в архиве`, ` · ${r.skipped} archived`);
+    toast(msg);
+    haptic("success");
+    exitSelect();
+    jobs = Math.max(jobs, 1); schedulePoll();
+  } catch (e) { toast(e.message); }
+};
+$("sDelete").onclick = () => {
+  const ids = selIds();
+  const n = ids.length;
+  const go = async (ok) => {
+    if (!ok) return;
+    try {
+      const r = await api("/api/batch", { action: "delete", ids });
+      const gone = new Set(ids);
+      photos = photos.filter((p) => !gone.has(p.id));
+      total = Math.max(0, total - r.done);
+      exitSelect();
+      rebuildFeed();
+      toast(T(`Удалено: ${r.done}`, `Deleted: ${r.done}`));
+      haptic("success");
+    } catch (e) { toast(e.message); }
+  };
+  const q = T(`Удалить ${n} ${plural(n, "кадр", "кадра", "кадров")} из ленты, чата и с диска? Это нельзя отменить.`,
+              `Delete ${n} frame${n === 1 ? "" : "s"} from the feed, the chat and the disk? This can't be undone.`);
+  if (tg && tg.showConfirm) tg.showConfirm(q, go); else go(confirm(q));
+};
+
+function onBack() {
+  if (cur >= 0) closeViewer();
+  else if (selecting) exitSelect();
 }
 
 function rebuildFeed() {
@@ -341,7 +494,7 @@ async function loadMore() {
     const j = await api(`/api/photos?offset=${photos.length}&limit=60`);
     const start = photos.length;
     total = j.total;
-    photos = photos.concat(j.photos.filter((p) => indexOf(p.id) < 0));
+    photos = photos.concat(j.photos.filter((p) => indexOf(p.id) < 0)).sort(byTaken);
     if (!j.photos.length || photos.length >= total) finished = true;
     if (start === 0) rebuildFeed(); else { appendPhotos(photos.slice(start), start); renderHeader(); }
   } catch (e) {
@@ -354,13 +507,14 @@ async function loadMore() {
 function mergeFromServer(np) {
   const i = indexOf(np.id);
   if (np.hidden) {
+    selected.delete(np.id);
     if (i >= 0) { photos.splice(i, 1); return "rebuild"; }
     return null;
   }
   if (i < 0) {
-    if (photos.length && np.id < photos[photos.length - 1].id && !finished) return null;   // ещё не догружено
+    if (photos.length && byTaken(np, photos[photos.length - 1]) > 0 && !finished) return null;   // ещё не догружено
     photos.push(np);
-    photos.sort((a, b) => b.id - a.id);
+    photos.sort(byTaken);
     return "rebuild";
   }
   const local = photos[i];
@@ -414,7 +568,7 @@ function closeViewer() {
   $("viewer").hidden = true;
   document.body.style.overflow = "";
   cur = -1;
-  if (tg) tg.BackButton.hide();
+  if (tg && !selecting) tg.BackButton.hide();
 }
 
 function setImage(src) {
@@ -568,11 +722,12 @@ $("bHide").onclick = () => {
       if (!photos.length) return closeViewer();
       cur = Math.min(cur, photos.length - 1);
       renderViewer();
-      toast(T("Кадр убран", "Frame removed"));
+      toast(T("Кадр удалён", "Frame deleted"));
     } catch (e) { toast(e.message); }
   };
-  if (tg && tg.showConfirm) tg.showConfirm(T(`Убрать кадр ${pad2(p.id)} из ленты и из чата?`, `Remove frame ${pad2(p.id)} from the feed and the chat?`), go);
-  else go(confirm(T(`Убрать кадр ${p.id}?`, `Remove frame ${p.id}?`)));
+  const q = T(`Удалить кадр ${pad2(p.id)} из ленты, чата и с диска? Это нельзя отменить.`,
+              `Delete frame ${pad2(p.id)} from the feed, the chat and the disk? This can't be undone.`);
+  if (tg && tg.showConfirm) tg.showConfirm(q, go); else go(confirm(q));
 };
 
 /* свайпы между кадрами — работают всегда, даже пока кадр проявляется */
@@ -679,7 +834,7 @@ async function uploadAll(files) {
     tg.ready();
     tg.expand();
     try { tg.disableVerticalSwipes && tg.disableVerticalSwipes(); } catch (e) {}
-    tg.BackButton.onClick(closeViewer);
+    tg.BackButton.onClick(onBack);
     tg.onEvent && tg.onEvent("themeChanged", applyTheme);
   }
   applyTheme();
