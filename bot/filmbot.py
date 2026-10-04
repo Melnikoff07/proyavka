@@ -7,6 +7,7 @@ filmbot v5 — камера → сервер-приёмник → домашни
 Mini App: лента-контактный лист по дням, просмотр со свайпами и живыми превью плёнок.
 Хранилище чистится само: старые оригиналы и рабочие копии удаляются по лимитам.
 """
+import collections
 import hashlib
 import hmac
 import io
@@ -280,7 +281,8 @@ def preset_lut(key):
             b, g, r = np.meshgrid(x, x, x, indexing="ij")          # красный меняется быстрее всех
             rgb = np.stack([r.ravel(), g.ravel(), b.ravel()], axis=1)
             out = color_fn(rgb, PRESETS[key]).astype(np.float32)
-            LUT_CACHE[key] = ImageFilter.Color3DLUT(n, out.ravel().tolist(), channels=3)
+            # numpy-таблица вместо списка: 0,4 МБ вместо 3,5 МБ на плёнку в каждом процессе, результат тот же
+            LUT_CACHE[key] = ImageFilter.Color3DLUT(n, np.ascontiguousarray(out.ravel()), channels=3)
         return LUT_CACHE[key]
 
 
@@ -318,21 +320,21 @@ def grain_layer(w, h, p, k, rng):
     amp = p["grain"] * min(k, 1.5) * 255 * GRAIN_GAIN
     chroma = 0 if p["bw"] else p["grain_color"] * 0.6
 
-    def octave(size, weight, chroma_amt):
+    def noise(size, weight):
+        """Одноканальный шум, растянутый до кадра: втрое дешевле, чем растягивать цветной."""
         gh, gw = max(1, round(h / size)), max(1, round(w / size))
-        n = rng.standard_normal((gh, gw), dtype=np.float32) * (amp * weight)
-        if chroma_amt > 0:
-            c = rng.standard_normal((gh, gw), dtype=np.float32) * (amp * chroma_amt)
-            arr = np.stack([n + c, n, n - c], axis=2)
-        else:
-            arr = np.repeat(n[..., None], 3, axis=2)
-        arr += 128
-        np.clip(arr, 0, 255, out=arr)
-        return Image.fromarray(arr.astype(np.uint8)).resize((w, h), Image.BICUBIC)
+        n = rng.standard_normal((gh, gw), dtype=np.float32)
+        n *= amp * weight
+        n += 128
+        np.clip(n, 0, 255, out=n)
+        return Image.fromarray(n.astype(np.uint8)).resize((w, h), Image.BICUBIC)
 
-    fine = octave(gs, 0.75, chroma)
-    coarse = octave(gs * 2.5, 0.45, 0)   # крупное зерно
-    return ImageChops.add(fine, coarse, scale=1.0, offset=-128)
+    lum = ImageChops.add(noise(gs, 0.75), noise(gs * 2.5, 0.45), scale=1.0, offset=-128)   # мелкое + крупное зерно
+    if chroma <= 0:
+        return Image.merge("RGB", (lum, lum, lum))
+    c = noise(gs, chroma)   # цветной шум: к красному прибавляется, из синего вычитается
+    return Image.merge("RGB", (ImageChops.add(lum, c, scale=1.0, offset=-128), lum,
+                               ImageChops.subtract(lum, c, scale=1.0, offset=128)))
 
 
 def vignette_layer(w, h, strength):
@@ -562,7 +564,7 @@ def source_image(ph, mode):
         img.thumbnail((VIEW_EDGE, VIEW_EDGE), Image.LANCZOS)
         with BASE_LOCK:
             BASE_CACHE[key] = img
-            while len(BASE_CACHE) > 8:
+            while len(BASE_CACHE) > 4:     # ~7 МБ на кадр в каждом процессе-работнике
                 BASE_CACHE.pop(next(iter(BASE_CACHE)))
     return img
 
@@ -648,30 +650,38 @@ def auto_pick(img, iso, hour):
 # ================= база (потокобезопасно) =================
 DB_LOCK = threading.RLock()      # доступ к sqlite
 EDIT_LOCK = threading.RLock()    # перерисовка кадра + правка сообщения
-db = sqlite3.connect(DB_PATH, check_same_thread=False, timeout=5)
-db.row_factory = sqlite3.Row
-db.execute("PRAGMA journal_mode=WAL")
-db.execute("PRAGMA synchronous=NORMAL")
-db.execute("PRAGMA busy_timeout=5000")
-with DB_LOCK:
-    db.execute("""CREATE TABLE IF NOT EXISTS photos(
-        id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, src TEXT, work TEXT, thumb TEXT,
-        taken TEXT, iso INTEGER, auto_key TEXT, auto_reason TEXT,
-        preset TEXT, strength INTEGER DEFAULT 100,
-        stamp INTEGER DEFAULT 0, frame INTEGER DEFAULT 0, leak INTEGER DEFAULT 0,
-        msg_id INTEGER, file_id TEXT, hidden INTEGER DEFAULT 0, created REAL)""")
-    cols = {r[1] for r in db.execute("PRAGMA table_info(photos)")}
-    if "view" not in cols:
-        db.execute("ALTER TABLE photos ADD COLUMN view TEXT")
-    for col, decl in (("rev", "INTEGER DEFAULT 0"), ("rendered_rev", "INTEGER DEFAULT 0"), ("updated", "REAL DEFAULT 0"),
-                      ("leak_kind", "TEXT DEFAULT 'edge'"), ("leak_seed", "INTEGER DEFAULT 0"), ("fp", "TEXT")):
-        if col not in cols:
-            db.execute(f"ALTER TABLE photos ADD COLUMN {col} {decl}")
-    db.execute("CREATE INDEX IF NOT EXISTS photos_fp ON photos(fp)")
-    for old, new in OLD_KEYS.items():
-        db.execute("UPDATE photos SET preset=? WHERE preset=?", (new, old))
-        db.execute("UPDATE photos SET auto_key=? WHERE auto_key=?", (new, old))
-    db.commit()
+db = None                        # открывается в init_db() только в главном процессе: работникам база не нужна
+
+
+def init_db():
+    global db
+    db = sqlite3.connect(DB_PATH, check_same_thread=False, timeout=5)
+    db.row_factory = sqlite3.Row
+    db.execute("PRAGMA journal_mode=WAL")
+    db.execute("PRAGMA synchronous=NORMAL")
+    db.execute("PRAGMA busy_timeout=5000")
+    with DB_LOCK:
+        db.execute("""CREATE TABLE IF NOT EXISTS photos(
+            id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, src TEXT, work TEXT, thumb TEXT,
+            taken TEXT, iso INTEGER, auto_key TEXT, auto_reason TEXT,
+            preset TEXT, strength INTEGER DEFAULT 100,
+            stamp INTEGER DEFAULT 0, frame INTEGER DEFAULT 0, leak INTEGER DEFAULT 0,
+            msg_id INTEGER, file_id TEXT, hidden INTEGER DEFAULT 0, created REAL)""")
+        cols = {r[1] for r in db.execute("PRAGMA table_info(photos)")}
+        if "view" not in cols:
+            db.execute("ALTER TABLE photos ADD COLUMN view TEXT")
+        for col, decl in (("rev", "INTEGER DEFAULT 0"), ("rendered_rev", "INTEGER DEFAULT 0"), ("updated", "REAL DEFAULT 0"),
+                          ("leak_kind", "TEXT DEFAULT 'edge'"), ("leak_seed", "INTEGER DEFAULT 0"), ("fp", "TEXT")):
+            if col not in cols:
+                db.execute(f"ALTER TABLE photos ADD COLUMN {col} {decl}")
+        db.execute("CREATE INDEX IF NOT EXISTS photos_fp ON photos(fp)")
+        # мини-приложение каждые 1–5 секунд спрашивает «что изменилось» и листает ленту — без индексов это полный перебор
+        db.execute("CREATE INDEX IF NOT EXISTS photos_updated ON photos(updated)")
+        db.execute("CREATE INDEX IF NOT EXISTS photos_feed ON photos(hidden, id)")
+        for old, new in OLD_KEYS.items():
+            db.execute("UPDATE photos SET preset=? WHERE preset=?", (new, old))
+            db.execute("UPDATE photos SET auto_key=? WHERE auto_key=?", (new, old))
+        db.commit()
 
 
 def q(sql, args=()):
@@ -834,12 +844,19 @@ def job_prepare(src, work_path, edge):
     return taken, iso, auto_key, reason
 
 
-def job_view(ph, view_path, thumb_path):
-    img = render(ph, mode="view")
+def job_view(ph, view_path, thumb_path, chat_path=None):
+    """Один рендер на правку: версия для чата (WORK_EDGE), из неё уменьшаются «Проявка» и миниатюра.
+    Раньше чат и «Проявка» рисовались по отдельности — это лишние ~300 мс процессора на каждую правку.
+    Без chat_path (догрузка старых кадров) рисуется только версия для «Проявки»."""
+    if chat_path:
+        img = render(ph)
+        save_atomic(img, chat_path, 92)
+        img.thumbnail((VIEW_EDGE, VIEW_EDGE), Image.LANCZOS)
+    else:
+        img = render(ph, mode="view")
     save_atomic(img, view_path, 88)
-    t = img.copy()
-    t.thumbnail((500, 500))
-    save_atomic(t, thumb_path, 85)
+    img.thumbnail((500, 500))
+    save_atomic(img, thumb_path, 85)
     return view_path, thumb_path
 
 
@@ -882,7 +899,7 @@ EXPORTING = {}
 def _worker_init(nice):
     try:
         os.nice(nice)
-    except OSError:
+    except (OSError, AttributeError):   # AttributeError — Windows, где нет nice (запуск для разработки)
         pass
 
 
@@ -912,32 +929,94 @@ def dispatcher():
 
 def jobs_in_work():
     with JOB_LOCK:
-        return len(VIEW_INFLIGHT) + sum(EXPORTING.values())
+        return len(VIEW_INFLIGHT) + len(RQ_QUEUED) + sum(EXPORTING.values())
 
 
-def schedule_view(pid):
-    """Перерисовать кадр для экрана. Если уже рисуется — дорисуем последнее состояние после."""
+# Очередь отрисовки. Сразу в процессы отдаётся не больше задач, чем они успевают (VIEW_SLOTS): иначе сотня кадров
+# из пакетной правки встала бы в очередь пула, и превью плёнок в «Проявке» ждали бы их все.
+# Срочность: 0 — правка одного кадра (человек ждёт), 1 — пакетная правка и новые кадры, 2 — фоновая догрузка.
+# Внутри одной срочности пользователи обслуживаются по кругу, чтобы один большой пакет не задерживал остальных.
+VIEW_SLOTS = max(1, FAST_WORKERS - 1) if FAST_WORKERS > 2 else FAST_WORKERS
+RQ_PENDING = {0: {}, 1: {}, 2: {}}    # срочность -> {пользователь: deque[pid]} (порядок ключей = очередь по кругу)
+RQ_QUEUED = {}                        # pid -> (срочность, нужен ли чат)
+VIEW_CHAT = {}                        # pid в работе -> нужна ли версия для чата
+
+
+def schedule_view(pid, prio=0, chat=True, uid=0):
+    """Перерисовать кадр. Если уже рисуется — дорисуем последнее состояние следом."""
     with JOB_LOCK:
         if pid in VIEW_INFLIGHT:
             VIEW_DIRTY.add(pid)
+            VIEW_CHAT[pid] = VIEW_CHAT.get(pid, False) or chat
             return
-        VIEW_INFLIGHT.add(pid)
-    _submit_view(pid)
+        if pid in RQ_QUEUED:
+            old_prio, old_chat = RQ_QUEUED[pid]
+            RQ_QUEUED[pid] = (min(prio, old_prio), old_chat or chat)
+            if prio < old_prio:                  # стал срочнее — переносим в нужную очередь
+                for dq in RQ_PENDING[old_prio].values():
+                    if pid in dq:
+                        dq.remove(pid)
+                RQ_PENDING[prio].setdefault(uid, collections.deque()).append(pid)
+        else:
+            RQ_QUEUED[pid] = (prio, chat)
+            RQ_PENDING[prio].setdefault(uid, collections.deque()).append(pid)
+    _pump()
+
+
+def _pump():
+    """Раздать задачи из очереди, пока есть свободные места в процессах."""
+    while True:
+        with JOB_LOCK:
+            if len(VIEW_INFLIGHT) >= VIEW_SLOTS:
+                return
+            pick = None
+            for prio in (0, 1, 2):
+                users = RQ_PENDING[prio]
+                while users and pick is None:
+                    uid = next(iter(users))
+                    dq = users.pop(uid)
+                    if dq:
+                        pid = dq.popleft()
+                        if dq:
+                            users[uid] = dq      # в конец круга
+                        if pid in RQ_QUEUED:
+                            pick = (pid, RQ_QUEUED.pop(pid)[1])
+                if pick:
+                    break
+            if pick is None:
+                return
+            VIEW_INFLIGHT.add(pick[0])
+            VIEW_CHAT[pick[0]] = pick[1]
+        _submit_view(pick[0])
+
+
+def queue_size():
+    with JOB_LOCK:
+        return len(RQ_QUEUED)
+
+
+def _release(pid):
+    with JOB_LOCK:
+        VIEW_INFLIGHT.discard(pid)
+        VIEW_DIRTY.discard(pid)
+        VIEW_CHAT.pop(pid, None)
 
 
 def _submit_view(pid):
     ph = get(pid)
     if not ph or ph["hidden"] or not has(ph["work"]):
-        with JOB_LOCK:
-            VIEW_INFLIGHT.discard(pid)
-            VIEW_DIRTY.discard(pid)
+        _release(pid)
+        _pump()
         return
     rev = ph["rev"]
-    fut = FAST.submit(job_view, ph, str(VIEWS / f"{pid}.jpg"), str(THUMBS / f"{pid}.jpg"))
-    fut.add_done_callback(lambda f: EVENTS.put((_view_done, (pid, rev, f))))
+    with JOB_LOCK:
+        chat = VIEW_CHAT.get(pid, True) and bool(ph["msg_id"] or not ph["file_id"])
+    chat_path = str(TMP / f"chat_{pid}_{rev}.jpg") if chat else None
+    fut = FAST.submit(job_view, ph, str(VIEWS / f"{pid}.jpg"), str(THUMBS / f"{pid}.jpg"), chat_path)
+    fut.add_done_callback(lambda f: EVENTS.put((_view_done, (pid, rev, chat, f))))
 
 
-def _view_done(pid, rev, fut):
+def _view_done(pid, rev, chat, fut):
     err = fut.exception()
     if err:
         log.warning("view #%d: %s", pid, err)
@@ -946,14 +1025,18 @@ def _view_done(pid, rev, fut):
         cur = get(pid)
         if cur and cur["rev"] == rev:
             upd(pid, view=view, thumb=thumb, rendered_rev=rev, updated=time.time())
-            queue_tg_update(pid)
+            if chat:
+                queue_tg_update(pid)
     with JOB_LOCK:
         again = pid in VIEW_DIRTY
         VIEW_DIRTY.discard(pid)
         if not again:
             VIEW_INFLIGHT.discard(pid)
+            VIEW_CHAT.pop(pid, None)
     if again:
         _submit_view(pid)
+    else:
+        _pump()
 
 
 def export_photo(pid):
@@ -1058,6 +1141,9 @@ def tg_worker():
             if not ph or ph["hidden"] or not has(ph["work"]):
                 continue
             path = TMP / f"chat_{pid}_{ph['rev']}.jpg"
+            if path.exists():                  # обычно уже нарисован вместе с версией для «Проявки»
+                ready[pid] = (ph["rev"], path)
+                continue
             inflight[pid] = (ph["rev"], FAST.submit(job_chat, ph, str(path)), path)
         if inflight:
             done, _ = futures_wait([v[1] for v in inflight.values()], timeout=0.5, return_when=FIRST_COMPLETED)
@@ -1146,6 +1232,9 @@ def cleanup():
     now = time.time()
     for p in PREVIEWS.iterdir():
         if p.is_file() and now - p.stat().st_mtime > 86400:
+            remove(p)
+    for p in TMP.iterdir():                 # версии для чата, которые устарели, пока ждали отправки
+        if p.is_file() and now - p.stat().st_mtime > 3600:
             remove(p)
     # 1) старые оригиналы (они есть на карте камеры)
     for r in q("SELECT id, src FROM photos WHERE src IS NOT NULL AND created < ?", (now - ORIG_DAYS * 86400,)):
@@ -1601,7 +1690,7 @@ def ingest(f, state):
     os.replace(tmp_work, work)
     shutil.move(str(f), src)
     upd(pid, src=str(src), work=str(work))
-    schedule_view(pid)   # после отрисовки кадр сам уйдёт в чат
+    schedule_view(pid, prio=1)   # после отрисовки кадр сам уйдёт в чат
     log.info("#%d %s → %s, подготовка %.1fs", pid, f.name, preset, time.time() - t0)
     return True
 
@@ -1849,7 +1938,7 @@ def backfill_views():
     """Кадрам от прошлых версий дорисовать картинки для «Проявки»."""
     for r in q("SELECT id FROM photos WHERE view IS NULL AND work IS NOT NULL AND hidden=0 ORDER BY id DESC"):
         run("UPDATE photos SET rev=rev+1 WHERE id=?", (r["id"],))
-        schedule_view(r["id"])
+        schedule_view(r["id"], prio=2, chat=False)   # только картинка для «Проявки», в чате всё уже есть
 
 
 def start_web():
@@ -1872,6 +1961,7 @@ def save_state(state):
 
 
 def main():
+    init_db()
     state = load_state()
     state.setdefault("default", "auto")
     state["default"] = canon(state["default"])
