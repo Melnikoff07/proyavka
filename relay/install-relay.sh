@@ -99,6 +99,7 @@ server {
     location = /api/upload {          # «+» в «Проявке»: свои фото с телефона, файл идёт в бота потоком
         proxy_pass http://127.0.0.1:8088;
         proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
         proxy_http_version 1.1;
         proxy_request_buffering off;
         client_max_body_size 50m;
@@ -109,6 +110,7 @@ server {
     location / {
         proxy_pass http://127.0.0.1:8088;
         proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
         proxy_read_timeout 120s;
     }
 }

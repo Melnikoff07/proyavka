@@ -4,6 +4,14 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
 <title>Проявка</title>
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Проявка">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#000000" media="(prefers-color-scheme: dark)">
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -39,13 +47,16 @@
   .muted { color: var(--muted); }
 
   /* шапка: заголовок и число кадров на одной линии */
-  .hero { padding: 22px var(--pad) 26px; }
+  .hero { padding: calc(22px + env(safe-area-inset-top, 0px)) var(--pad) 26px; }
   .hero-row { display: flex; justify-content: space-between; align-items: baseline; }
   .hero h1, .hero .total { margin: 0; font-size: 44px; line-height: .95; font-weight: 500; letter-spacing: -.035em; }
   .hero .sub { margin-top: 12px; color: var(--muted); font-size: 13px; max-width: 32ch; }
   .hero-right { display: flex; align-items: center; gap: 14px; }
-  .add { width: 36px; height: 36px; border: 1px solid var(--text); font-size: 22px; line-height: 1; font-weight: 400;
+  .add, .more { width: 36px; height: 36px; border: 1px solid var(--text); font-size: 22px; line-height: 1; font-weight: 400;
          display: inline-flex; align-items: center; justify-content: center; align-self: center; }
+
+  .more { border: 0; font-size: 20px; letter-spacing: .05em; }
+  .more[hidden], .add[hidden] { display: none; }
 
   /* загрузка своих фото: полоска внизу */
   .uploader { position: fixed; left: var(--pad); right: var(--pad); bottom: calc(16px + env(safe-area-inset-bottom, 0px));
@@ -177,6 +188,59 @@
   .note { padding: 0 var(--pad); margin: 0; color: var(--muted); max-width: 44ch; }
   button:disabled { opacity: .4; cursor: default; }
 
+  /* устройства: список, привязка по QR */
+  /* настройки: всё, что раньше было командами бота */
+  .settings { position: fixed; inset: 0; z-index: 12; background: var(--bg); overflow-y: auto; overscroll-behavior: contain;
+              padding-top: env(safe-area-inset-top, 0px); padding-bottom: calc(28px + env(safe-area-inset-bottom, 0px)); }
+  .settings[hidden] { display: none; }
+  .settings a { color: inherit; text-underline-offset: 3px; }
+  .st-sec { border-top: 1px solid var(--rule); padding: 16px 0 18px; }
+  .st-h { padding: 0 var(--pad) 10px; }
+  .st-row { display: flex; justify-content: space-between; align-items: center; gap: 16px; padding: 7px var(--pad); }
+  .st-row > .cap { flex: 0 0 auto; }
+  .st-val { text-align: right; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+            text-decoration: underline; text-underline-offset: 3px; text-decoration-thickness: 1px; }
+  .st-opts { flex: 0 0 auto; gap: 18px; justify-content: flex-end; }
+  .st-select { font: inherit; color: var(--text); background: var(--tile); border: 0; padding: 8px 10px; min-width: 0; max-width: 60%; }
+  .st-big { padding: 0 var(--pad); font-size: 24px; font-weight: 500; letter-spacing: -.02em; }
+  .st-bar { margin: 10px var(--pad) 0; height: 2px; background: var(--rule); }
+  .st-bar i { display: block; height: 100%; width: 0; background: var(--text); }
+  .st-p { padding: 8px var(--pad) 0; margin: 0; max-width: 56ch; }
+  .st-link { display: block; padding: 12px var(--pad) 0; color: var(--text); text-decoration: underline; text-underline-offset: 3px; }
+  .st-link:disabled { text-decoration: none; color: var(--muted); opacity: 1; }
+  .st-grid { padding: 14px var(--pad) 0; }
+  .kv { display: grid; grid-template-columns: auto 1fr; gap: 6px 14px; padding: 10px var(--pad) 0; }
+  .kv b { font-weight: 500; user-select: all; -webkit-user-select: all; word-break: break-all; }
+  .kv b.pw { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; font-size: 17px; letter-spacing: .06em; }
+  .st-user { display: flex; align-items: baseline; gap: 12px; padding: 10px var(--pad); border-top: 1px solid var(--rule); }
+  .st-user:first-child { border-top: 0; }
+  .st-user .dn { flex: 1; min-width: 0; }
+  .st-user .dn span { display: block; }
+  .st-user button { color: var(--muted); flex: 0 0 auto; }
+  .tg-form { padding: 12px var(--pad) 0; margin-top: 0; }
+  .tg-form input, #joinName { text-transform: none; letter-spacing: 0; }
+  .dev { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; padding: 10px var(--pad);
+         border-top: 1px solid var(--rule); }
+  .dev:last-child { border-bottom: 1px solid var(--rule); }
+  .dev .dn { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .dev button { color: var(--muted); flex: 0 0 auto; }
+  .dev .cap { white-space: nowrap; }
+  .pair { padding: 0 var(--pad) 8px; }
+  .qr { width: 200px; max-width: 70vw; margin: 4px 0 12px; background: #fff; }
+  .qr svg { display: block; width: 100%; height: auto; }
+  .linkbox { width: 100%; font: inherit; font-size: 12px; color: var(--text); background: var(--tile); border: 0;
+             padding: 10px; margin-top: 10px; }
+  .pairform { display: flex; gap: 10px; margin-top: 16px; }
+  .pairform input { flex: 1; min-width: 0; font: inherit; color: var(--text); background: var(--tile); border: 0; padding: 0 12px; height: 44px; }
+  .pairform .btn { flex: 0 0 auto; padding: 0 18px; }
+  .pairform input { text-transform: uppercase; letter-spacing: .08em; }
+  .pairform input::placeholder { text-transform: none; letter-spacing: 0; }
+  .pastebtn { color: var(--muted); padding: 12px 0 0; }
+  .paircode { font-size: 34px; font-weight: 500; letter-spacing: .06em; margin: 2px 0 10px; user-select: all; -webkit-user-select: all; }
+  .vleft { display: flex; gap: 12px; align-items: baseline; }
+  .vback { padding: 0 6px 0 0; }
+  .vback[hidden] { display: none; }
+
   .toast { position: fixed; left: var(--pad); right: var(--pad); bottom: calc(16px + env(safe-area-inset-bottom, 0px));
            background: var(--btn-bg); color: var(--btn-text); padding: 12px 14px; z-index: 20;
            opacity: 0; pointer-events: none; transition: opacity .15s linear; }
@@ -188,16 +252,18 @@
 <header class="hero">
   <div class="hero-row"><h1 id="appName">Проявка</h1>
     <div class="hero-right"><span class="total" id="total"></span>
-      <button class="add" id="bAdd" aria-label="Добавить фото" data-i18n-aria="Add photos">+</button></div></div>
+      <button class="add" id="bAdd" aria-label="Добавить фото" data-i18n-aria="Add photos">+</button>
+      <button class="more" id="bMenu" aria-label="Устройства" data-i18n-aria="Devices">⋯</button></div></div>
   <input type="file" id="picker" accept="image/*,.dng,.arw,.cr2,.cr3,.nef,.raf,.orf,.rw2,.pef,.srw" multiple hidden>
   <input type="file" id="lutPicker" accept=".cube" hidden>
   <p class="sub" id="sub"></p>
+  <p class="sub" id="iosHint" hidden data-i18n="To install as an app: Share → Add to Home Screen.">Поставить как приложение: «Поделиться» → «На экран „Домой“».</p>
 </header>
 <main id="feed"></main>
 <div id="sentinel"></div>
 
 <section class="viewer" id="viewer" hidden aria-label="Просмотр кадра" data-i18n-aria="Frame viewer">
-  <div class="vbar cap"><span id="vnum"></span><span id="vtime" class="muted"></span><span id="vpos" class="muted"></span></div>
+  <div class="vbar cap"><span class="vleft"><button class="vback" id="vBack" hidden aria-label="Назад" data-i18n-aria="Back">←</button><span id="vnum"></span></span><span id="vtime" class="muted"></span><span id="vpos" class="muted"></span></div>
   <div class="stage" id="stage"><div class="progress"></div><img id="vimg" alt="" decoding="async">
     <div class="cropbox" id="cropbox" hidden><i data-h="nw"></i><i data-h="ne"></i><i data-h="sw"></i><i data-h="se"></i></div></div>
   <div class="panel">
@@ -250,14 +316,74 @@
   <div class="line" id="shStrLine"><span class="cap muted label" data-i18n="Strength">Сила</span><div class="opts cap" id="shStrength" role="group"></div></div>
   <div class="actions"><button class="btn" id="shApply" disabled></button></div>
 </div>
+<section class="settings" id="settings" hidden aria-label="Настройки" data-i18n-aria="Settings">
+  <div class="vbar cap"><span class="vleft"><button class="vback" id="stBack" aria-label="Назад" data-i18n-aria="Back">←</button><span data-i18n="Settings">Настройки</span></span><span></span><span></span></div>
+  <div class="st-sec" style="border-top:0">
+    <div class="st-row"><span class="cap muted" data-i18n="Name">Имя</span><button class="st-val" id="stName"></button></div>
+    <div class="st-row"><span class="cap muted" data-i18n="Language">Язык</span>
+      <div class="opts cap st-opts"><button class="opt" data-lang="ru">Русский</button><button class="opt" data-lang="en">English</button></div></div>
+    <div class="st-row"><span class="cap muted" data-i18n="New frames">Новым кадрам</span><select class="st-select" id="stFilm" aria-label="Плёнка для новых кадров" data-i18n-aria="Film for new frames"></select></div>
+  </div>
+  <div class="st-sec">
+    <div class="st-h cap muted" data-i18n="Storage">Место</div>
+    <div class="st-big" id="stUsed"></div>
+    <div class="st-bar"><i id="stBar"></i></div>
+    <p class="muted st-p" id="stUsedNote"></p>
+    <button class="st-link cap" id="stTrashBtn"></button>
+    <div class="grid st-grid" id="stTrash" hidden></div>
+  </div>
+  <div class="st-sec">
+    <div class="st-h cap muted" data-i18n="Devices">Устройства</div>
+    <div id="dvList"></div>
+    <div class="pair" id="dvPair" hidden>
+      <div class="paircode" id="dvCode"></div>
+      <div class="qr" id="dvQr"></div>
+      <p class="muted" id="dvPairText" style="margin:0"></p>
+      <input class="linkbox" id="dvLink" readonly>
+    </div>
+    <div class="actions"><button class="btn" id="dvNew" data-i18n="Link a device">Привязать устройство</button></div>
+    <div class="actions" id="dvInstallRow" hidden><button class="btn" id="dvInstall" data-i18n="Install as an app">Установить как приложение</button></div>
+    <p class="muted st-p" id="dvNote"></p>
+  </div>
+  <div class="st-sec">
+    <div class="st-h cap muted" data-i18n="Camera">Камера</div>
+    <p class="muted st-p" style="padding-top:0" data-i18n="Files for the memory card, FTP login and step-by-step guides.">Файлы для карты памяти, вход FTP и пошаговые инструкции.</p>
+    <button class="st-link cap" id="stCamBtn" data-i18n="Show camera setup">Показать настройку камеры</button>
+    <div id="stCam" hidden></div>
+  </div>
+  <div class="st-sec">
+    <div class="st-h cap muted">Telegram</div>
+    <div id="stTg"></div>
+  </div>
+  <div class="st-sec" id="stAdmin" hidden>
+    <div class="st-h cap muted" data-i18n="Users">Пользователи</div>
+    <div id="stUsers"></div>
+    <div class="pair" id="stInvite" hidden style="padding-top:12px"></div>
+    <div class="actions"><button class="btn" id="stInviteBtn" data-i18n="Invite a person">Пригласить человека</button></div>
+    <p class="muted st-p" data-i18n="Each person gets their own feed, frames, camera and storage. Technically the server admin can open any file on it.">У каждого своя лента, кадры, камера и место. Технически администратор сервера может открыть любые файлы на нём.</p>
+  </div>
+</section>
 <div class="uploader" id="uploader" hidden role="status">
   <div class="up-row cap"><span id="upText"></span><button id="upCancel" data-i18n="Cancel">Отмена</button></div>
   <div class="up-bar"><i id="upBar"></i></div>
 </div>
+<div class="uploader" id="shareBar" hidden role="status">
+  <div class="up-row cap"><span id="sbText"></span><span><button id="sbClose" data-i18n="Cancel">Отмена</button>&nbsp;&nbsp;&nbsp;<button id="sbSave" style="opacity:1" data-i18n="Save">Сохранить</button></span></div>
+</div>
 <div class="toast cap" id="toast" role="status"></div>
 
 <script>
-const tg = window.Telegram && window.Telegram.WebApp;
+/* внутри Telegram — его Mini App; вне его (браузер, приложение на экране «Домой») — вход ключом устройства */
+const tg = window.Telegram && window.Telegram.WebApp && window.Telegram.WebApp.initData ? window.Telegram.WebApp : null;
+const DEV_KEY = "proyavka.device";
+function stored(k, v) {
+  try {
+    if (v === undefined) return localStorage.getItem(k);
+    if (v === null) localStorage.removeItem(k); else localStorage.setItem(k, v);
+  } catch (e) { return null; }
+}
+const phone = matchMedia("(pointer: coarse)").matches;
+const ios = /iPhone|iPad|iPod/.test(navigator.userAgent) || (/Macintosh/.test(navigator.userAgent) && navigator.maxTouchPoints > 1);
 const $ = (id) => document.getElementById(id);
 let LANG = document.documentElement.lang === "en" ? "en" : "ru";   // язык бота по умолчанию; после входа — язык пользователя
 const T = (ru, en) => (LANG === "en" ? en : ru);
@@ -281,7 +407,12 @@ function translatePage() {
     if (el.dataset.ruAria === undefined) el.dataset.ruAria = el.getAttribute("aria-label") || "";
     el.setAttribute("aria-label", LANG === "en" ? el.dataset.i18nAria : el.dataset.ruAria);
   });
-  $("bFile").textContent = T("Отправить файл в чат", "Send file to chat");
+  $("bFile").textContent = fileLabel(photos[cur]);
+}
+function fileLabel(p) {
+  if (p && p.exporting) return T("Файл готовится", "Preparing file");
+  if (tg) return T("Отправить файл в чат", "Send file to chat");
+  return ios ? T("Сохранить", "Save") : T("Скачать", "Download");
 }
 
 let token = "", photos = [], total = 0, loading = false, finished = false, jobs = 0;
@@ -321,19 +452,21 @@ async function api(path, body, retried) {
   const r = await fetch(path, opts);
   const j = await r.json().catch(() => ({}));
   if (r.status === 401 && !retried && token && await reauth()) return api(path, body, true);
-  if (!r.ok) throw new Error(j.error || T(`Сервер ответил ${r.status}`, `Server responded ${r.status}`));
+  if (!r.ok) { const e = new Error(j.error || T(`Сервер ответил ${r.status}`, `Server responded ${r.status}`)); e.status = r.status; throw e; }
   return j;
 }
 
 /* сессия истекла (лента была открыта очень долго): войти заново с тем же токеном — ссылки на картинки не ломаются */
 async function reauth() {
+  let r = null;
   try {
-    const r = await fetch("/api/auth", { method: "POST", headers: { "Content-Type": "application/json" },
-                                        body: JSON.stringify({ initData: tg ? tg.initData : "", token }) });
+    r = await fetch("/api/auth", { method: "POST", headers: { "Content-Type": "application/json" },
+                                        body: JSON.stringify(tg ? { initData: tg.initData, token } : { device: stored(DEV_KEY), cookie: 1, token }) });
     if (!r.ok) throw new Error();
     token = (await r.json()).token;
     return true;
   } catch (e) {
+    if (!tg && r && r.status === 401) { stored(DEV_KEY, null); location.reload(); }
     toast(T("Открой «Проявку» заново", "Reopen Proyavka"));
     return false;
   }
@@ -456,6 +589,7 @@ function enterSelect() {
   $("selbar").hidden = false;
   if (tg) tg.BackButton.show();
   updateSelUI();
+  syncHistory();
 }
 function exitSelect() {
   closeSheet();
@@ -465,6 +599,7 @@ function exitSelect() {
   $("selbar").hidden = true;
   if (tg && cur < 0) tg.BackButton.hide();
   document.querySelectorAll(".cell.sel").forEach((el) => el.classList.remove("sel"));
+  syncHistory();
 }
 function toggleSel(id, on) {
   if (on === undefined ? selected.has(id) : !on) selected.delete(id); else selected.add(id);
@@ -494,8 +629,10 @@ function updateSelUI() {
 function selIds() { return photos.filter((p) => selected.has(p.id)).map((p) => p.id); }
 
 $("selCancel").onclick = exitSelect;
+$("vBack").onclick = () => onBack();
 $("sFiles").onclick = async () => {
   const ids = selIds();
+  if (!tg) { if (await saveFiles(ids)) exitSelect(); return; }
   try {
     const r = await api("/api/batch", { action: "files", ids });
     let msg = T(`Пришлю ${r.done} ${plural(r.done, "файл", "файла", "файлов")} в чат`, `Sending ${r.done} file${r.done === 1 ? "" : "s"} to the chat`);
@@ -518,16 +655,34 @@ $("sDelete").onclick = () => {
       total = Math.max(0, total - r.done);
       exitSelect();
       rebuildFeed();
-      toast(T(`В корзине: ${r.done}. Вернуть — /trash в чате`, `Moved to trash: ${r.done}. Restore with /trash in the chat`));
+      toast(T(`В корзине: ${r.done}. Вернуть — ⋯ → Корзина`, `Moved to trash: ${r.done}. Restore: ⋯ → Trash`));
       haptic("success");
     } catch (e) { toast(e.message); }
   };
-  const q = T(`Убрать ${n} ${plural(n, "кадр", "кадра", "кадров")} из ленты и чата в корзину? Вернуть можно через /trash, пока хватает места.`,
-              `Move ${n} frame${n === 1 ? "" : "s"} from the feed and the chat to the trash? You can bring them back with /trash while there is space.`);
+  const q = T(`Убрать ${n} ${plural(n, "кадр", "кадра", "кадров")} в корзину? Вернуть можно в «⋯» → «Корзина», пока хватает места.`,
+              `Move ${n} frame${n === 1 ? "" : "s"} to the trash? You can bring them back in ⋯ → Trash while there is space.`);
   if (tg && tg.showConfirm) tg.showConfirm(q, go); else go(confirm(q));
 };
 
+/* вне Telegram нет его кнопки «назад»: открытые слои кладём в историю, системный «назад» их закрывает */
+let histPushed = false, histIgnore = false;
+function layerOpen() { return cur >= 0 || selecting || !$("sheet").hidden || !$("settings").hidden || !!crop; }
+function syncHistory() {
+  if (tg) return;
+  const open = layerOpen();
+  if (open && !histPushed) { history.pushState({ layer: 1 }, ""); histPushed = true; }
+  else if (!open && histPushed) { histPushed = false; histIgnore = true; history.back(); }
+}
+addEventListener("popstate", () => {
+  if (tg) return;
+  if (histIgnore) { histIgnore = false; return; }
+  histPushed = false;
+  onBack();
+  syncHistory();
+});
+
 function onBack() {
+  if (!$("settings").hidden) return closeSettings();
   if (crop) exitCrop();
   else if (cur >= 0) closeViewer();
   else if (!$("sheet").hidden) closeSheet();
@@ -586,12 +741,14 @@ function openSheet(kind) {
   sheetButton();
   $("selbar").hidden = true;
   $("sheet").hidden = false;
+  syncHistory();
 }
 function closeSheet() {
   if (!sheet) return;
   sheet = null;
   $("sheet").hidden = true;
   if (selecting) $("selbar").hidden = false;
+  syncHistory();
 }
 function sheetButton() {
   const n = selected.size, any = Object.keys(sheet.pick).length > 0;
@@ -633,8 +790,11 @@ function rebuildFeed() {
   groups = {};
   $("feed").innerHTML = "";
   if (!photos.length) {
-    $("feed").innerHTML = T(`<div class="state"><strong>Пока пусто</strong><p>Сними кадр: через полминуты он появится здесь и в чате.</p></div>`,
-    `<div class="state"><strong>Nothing yet</strong><p>Take a shot: in half a minute it will appear here and in the chat.</p></div>`);
+    $("feed").innerHTML = tg
+      ? T(`<div class="state"><strong>Пока пусто</strong><p>Сними кадр: через полминуты он появится здесь и в чате.</p></div>`,
+          `<div class="state"><strong>Nothing yet</strong><p>Take a shot: in half a minute it will appear here and in the chat.</p></div>`)
+      : T(`<div class="state"><strong>Пока пусто</strong><p>Сними кадр — через полминуты он появится здесь. Камера настраивается в «⋯» → «Камера», а фото с телефона добавляются кнопкой «+».</p></div>`,
+          `<div class="state"><strong>Nothing yet</strong><p>Take a shot — in half a minute it appears here. Set up the camera in ⋯ → Camera; add phone photos with the "+" button.</p></div>`);
   } else appendPhotos(photos, 0);
   renderHeader();
 }
@@ -715,6 +875,7 @@ function openViewer(i) {
   document.body.style.overflow = "hidden";
   if (tg) tg.BackButton.show();
   renderViewer();
+  syncHistory();
 }
 function closeViewer() {
   if (crop) exitCrop(true);
@@ -722,6 +883,7 @@ function closeViewer() {
   document.body.style.overflow = "";
   cur = -1;
   if (tg && !selecting) tg.BackButton.hide();
+  syncHistory();
 }
 
 function setImage(src) {
@@ -739,7 +901,7 @@ function refreshViewerImage() {
   // пока кадр проявляется — показываем превью выбранной плёнки, потом подменяем чистовиком
   if (p.pending || !p.v) setImage(previewUrl(p)); else setImage(viewUrl(p));
   $("stage").classList.toggle("busy", !!p.pending);
-  $("bFile").textContent = p.exporting ? T("Файл готовится", "Preparing file") : T("Отправить файл в чат", "Send file to chat");
+  $("bFile").textContent = fileLabel(p);
   $("vname").textContent = p.preset_name;
   $("vwhen").textContent = p.leak ? T("Засвет", "Leak") + `: ${leakName(p.leak)}` : (p.auto_reason ? T("Авто", "Auto") + `: ${p.auto_reason}` : "");
 }
@@ -861,6 +1023,10 @@ $("bFile").onclick = async () => {
   const p = photos[cur];
   if (!p) return;
   const id = p.id;
+  if (!tg) {
+    if (chains[id]) await chains[id].tail;
+    return saveFiles([id]);
+  }
   try {
     if (chains[id]) await chains[id].tail;          // экспортируем уже с последней выбранной плёнкой
     const np = await api(`/api/photo/${id}/file`, {});
@@ -885,11 +1051,11 @@ $("bHide").onclick = () => {
       if (!photos.length) return closeViewer();
       cur = Math.min(cur, photos.length - 1);
       renderViewer();
-      toast(T("Кадр в корзине. Вернуть — /trash в чате", "Frame moved to trash. Restore with /trash in the chat"));
+      toast(T("Кадр в корзине. Вернуть — ⋯ → Корзина", "Frame moved to trash. Restore: ⋯ → Trash"));
     } catch (e) { toast(e.message); }
   };
-  const q = T(`Убрать кадр ${pad2(p.id)} из ленты и чата в корзину? Вернуть можно через /trash, пока хватает места.`,
-              `Move frame ${pad2(p.id)} from the feed and the chat to the trash? You can bring it back with /trash while there is space.`);
+  const q = T(`Убрать кадр ${pad2(p.id)} в корзину? Вернуть можно в «⋯» → «Корзина», пока хватает места.`,
+              `Move frame ${pad2(p.id)} to the trash? You can bring it back in ⋯ → Trash while there is space.`);
   if (tg && tg.showConfirm) tg.showConfirm(q, go); else go(confirm(q));
 };
 
@@ -910,6 +1076,398 @@ document.addEventListener("keydown", (e) => {
   if (e.key === "ArrowRight" && photos[cur + 1]) { cur++; renderViewer(); }
   if (e.key === "ArrowLeft" && photos[cur - 1]) { cur--; renderViewer(); }
 });
+
+/* ---------- файлы вне Telegram: компьютер скачивает, телефон сохраняет через «Поделиться» ---------- */
+const SHARE_MAX = 30;
+let shared = null;           // готовые файлы, ждут нажатия «Сохранить»
+
+function download(href) {
+  const a = document.createElement("a");
+  a.href = href; a.download = ""; a.rel = "noopener";
+  document.body.appendChild(a); a.click(); a.remove();
+}
+async function saveFiles(ids) {
+  if (!ids.length) return false;
+  // iPhone сохраняет в «Фото» только через «Поделиться»; Android и компьютер — обычным скачиванием (галерея видит «Загрузки»)
+  const canShareFiles = ios && navigator.canShare && navigator.canShare({ files: [new File([""], "x.jpg", { type: "image/jpeg" })] });
+  if (!canShareFiles) {
+    if (ids.length === 1) download(url(`/img/full/${ids[0]}`));
+    else if (phone) ids.forEach((id, i) => setTimeout(() => download(url(`/img/full/${id}`)), i * 700));   // на телефоне архив неудобен
+    else download(url("/api/zip", `&ids=${ids.join(",")}`));
+    toast(ids.length === 1 ? T("Готовлю файл, скачается сам", "Preparing the file, it will download")
+                           : T("Собираю архив, скачается сам", "Building the archive, it will download"));
+    haptic("success");
+    return true;
+  }
+  if (ids.length > SHARE_MAX) { toast(T(`За раз — до ${SHARE_MAX} кадров`, `Up to ${SHARE_MAX} frames at a time`)); return false; }
+  if (uploading || shared) { toast(T("Подожди, идёт загрузка", "Wait, a transfer is in progress")); return false; }
+  uploading = { cancel: false, xhr: null };
+  $("uploader").hidden = false;
+  const files = [];
+  try {
+    for (let i = 0; i < ids.length && !uploading.cancel; i++) {
+      $("upText").textContent = T(`Готовлю ${i + 1} из ${ids.length}`, `Preparing ${i + 1} of ${ids.length}`);
+      $("upBar").style.width = Math.round((i / ids.length) * 100) + "%";
+      const r = await fetch(url(`/img/full/${ids[i]}`));
+      if (!r.ok) continue;
+      const m = /filename\*=UTF-8''([^;]+)/.exec(r.headers.get("Content-Disposition") || "");
+      files.push(new File([await r.blob()], m ? decodeURIComponent(m[1]) : `${ids[i]}.jpg`, { type: "image/jpeg" }));
+    }
+  } catch (e) { toast(T("нет связи", "network error")); }
+  const cancelled = uploading.cancel;
+  uploading = null;
+  $("uploader").hidden = true;
+  if (cancelled || !files.length) return false;
+  shared = files;
+  try { await navigator.share({ files }); shared = null; haptic("success"); return true; }
+  catch (e) {
+    if (e.name === "AbortError") { shared = null; return true; }
+  }
+  // файлы готовились дольше, чем браузер разрешает открыть «Поделиться» без нового нажатия
+  $("sbText").textContent = T(`Готово: ${files.length} ${plural(files.length, "файл", "файла", "файлов")}`,
+                              `Ready: ${files.length} file${files.length === 1 ? "" : "s"}`);
+  $("shareBar").hidden = false;
+  return true;
+}
+$("sbSave").onclick = async () => {
+  const files = shared;
+  $("shareBar").hidden = true;
+  shared = null;
+  if (!files) return;
+  try { await navigator.share({ files }); haptic("success"); } catch (e) { if (e.name !== "AbortError") toast(e.message); }
+};
+$("sbClose").onclick = () => { shared = null; $("shareBar").hidden = true; };
+
+/* ---------- устройства ---------- */
+let installPrompt = null;
+addEventListener("beforeinstallprompt", (e) => { e.preventDefault(); installPrompt = e; });
+const standalone = matchMedia("(display-mode: standalone)").matches || navigator.standalone === true;
+
+function deviceName() {
+  const ua = navigator.userAgent;
+  const os = /iPhone/.test(ua) ? "iPhone" : ios ? "iPad" : /Android/.test(ua) ? "Android" : /Windows/.test(ua) ? "Windows"
+           : /Mac OS X/.test(ua) ? "Mac" : /Linux/.test(ua) ? "Linux" : "";
+  const br = /YaBrowser/.test(ua) ? "Yandex" : /Edg\//.test(ua) ? "Edge" : /OPR\//.test(ua) ? "Opera" : /Firefox|FxiOS/.test(ua) ? "Firefox"
+           : /Chrome|CriOS/.test(ua) ? "Chrome" : /Safari/.test(ua) ? "Safari" : "";
+  return [os, br].filter(Boolean).join(" · ") + (standalone ? T(" (приложение)", " (app)") : "");
+}
+const when = (ts) => { const d = new Date(ts * 1000); return `${pad2(d.getDate())}.${pad2(d.getMonth() + 1)} ${pad2(d.getHours())}:${pad2(d.getMinutes())}`; };
+
+/* ---------- настройки ---------- */
+let me = null, userLimits = [];
+const fmtB = (b) => (b >= 1e9 ? `${+(b / 1e9).toFixed(1)} ${T("ГБ", "GB")}` : `${Math.round(b / 1e6)} ${T("МБ", "MB")}`);
+function ask(q, go) { if (tg && tg.showConfirm) tg.showConfirm(q, go); else go(confirm(q)); }
+function openLink(u) {
+  if (tg && tg.openTelegramLink && u.startsWith("https://t.me/")) tg.openTelegramLink(u);
+  else window.open(u, "_blank", "noopener");
+}
+async function copyText(t, note) { try { await navigator.clipboard.writeText(t); toast(note); } catch (e) {} }
+
+async function openSettings() {
+  for (const id of ["dvPair", "stInvite", "stTrash", "stCam"]) $(id).hidden = true;
+  $("dvInstallRow").hidden = !installPrompt;
+  $("dvNote").textContent = tg ? T("Привяжи компьютер или телефон — «Проявка» откроется там в браузере, без Telegram.",
+                                   "Link a computer or a phone — Proyavka opens there in a browser, without Telegram.")
+    : ios && !standalone ? T("Чтобы поставить как приложение: «Поделиться» → «На экран „Домой“».", "To install as an app: Share → Add to Home Screen.")
+    : "";
+  $("settings").hidden = false;
+  $("settings").scrollTop = 0;
+  document.body.style.overflow = "hidden";
+  if (tg) tg.BackButton.show();
+  syncHistory();
+  await renderMe();
+  renderDevices();
+  if (me && me.admin) renderUsers();
+}
+function closeSettings() {
+  $("settings").hidden = true;
+  document.body.style.overflow = cur >= 0 ? "hidden" : "";
+  if (tg && cur < 0 && !selecting) tg.BackButton.hide();
+  syncHistory();
+}
+async function renderMe(j) {
+  try { me = j || await api("/api/me"); } catch (e) { return toast(e.message); }
+  $("stName").textContent = me.name || T("указать", "set");
+  document.querySelectorAll("[data-lang]").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.lang === me.lang)));
+  const films = [{ key: "auto", name: T("Авто по ситуации", "Auto by scene") }].concat(presets);
+  $("stFilm").replaceChildren(...films.map((f) => Object.assign(document.createElement("option"), { value: f.key, textContent: f.name })));
+  $("stFilm").value = me.default_film;
+  $("stUsed").textContent = T(`${fmtB(me.used)} из ${fmtB(me.limit)}`, `${fmtB(me.used)} of ${fmtB(me.limit)}`);
+  $("stBar").style.width = Math.min(100, (me.used / me.limit) * 100) + "%";
+  $("stUsedNote").textContent = T(`Кадров в ленте: ${me.frames}. Когда место кончается, сначала чистится корзина, потом самые старые оригиналы — и так оригиналы живут ${me.orig_days} дн.`,
+                                  `Frames in the feed: ${me.frames}. When space runs out, the trash goes first, then the oldest originals — originals are kept ${me.orig_days} days anyway.`);
+  $("stTrashBtn").textContent = me.trash ? T(`Корзина: ${me.trash}`, `Trash: ${me.trash}`) : T("Корзина пуста", "The trash is empty");
+  $("stTrashBtn").disabled = !me.trash;
+  $("stAdmin").hidden = !me.admin;
+  renderTg();
+}
+async function saveMe(changes) {
+  try { await renderMe(await api("/api/me", changes)); haptic("success"); return true; }
+  catch (e) { toast(e.message); return false; }
+}
+$("bMenu").onclick = openSettings;
+$("stBack").onclick = () => onBack();
+$("stName").onclick = async () => {
+  const n = prompt(T("Как тебя зовут?", "What's your name?"), me ? me.name : "");
+  if (n && n.trim()) saveMe({ name: n.trim() });
+};
+document.querySelectorAll("[data-lang]").forEach((b) => {
+  b.onclick = async () => { if (me && b.dataset.lang !== me.lang && await saveMe({ lang: b.dataset.lang })) location.reload(); };
+});
+$("stFilm").onchange = async () => {
+  if (await saveMe({ default_film: $("stFilm").value })) toast(T("Так будут проявляться новые кадры", "New frames will be developed like this"));
+};
+
+$("stTrashBtn").onclick = async () => {
+  const box = $("stTrash");
+  if (!box.hidden) { box.hidden = true; return; }
+  let j;
+  try { j = await api("/api/trash"); } catch (e) { return toast(e.message); }
+  box.replaceChildren(...j.photos.map((p) => {
+    const b = document.createElement("button");
+    b.className = "cell";
+    b.innerHTML = `<div class="tile"><img loading="lazy" decoding="async" alt="" src="${esc(url(`/img/thumb/${p.id}`, `&v=${p.v}`))}"></div>` +
+                  `<div class="cell-cap cap"><span>${pad2(p.id)}</span><span class="name muted">${T("вернуть", "restore")}</span></div>`;
+    b.onclick = async () => {
+      try {
+        await api(`/api/photo/${p.id}/restore`, {});
+        b.remove();
+        toast(T("Кадр вернулся в ленту", "The frame is back in the feed"));
+        haptic("success");
+        jobs = Math.max(jobs, 1); poll(); renderMe();
+      } catch (e) { toast(e.message); }
+    };
+    return b;
+  }));
+  box.hidden = false;
+};
+
+$("stCamBtn").onclick = async () => {
+  const box = $("stCam");
+  if (!box.hidden) { box.hidden = true; return; }
+  let c;
+  try { c = await api("/api/camera"); } catch (e) { return toast(e.message); }
+  const guide = (u) => `<a href="${esc(u)}" target="_blank" rel="noopener">${T("пошагово", "step by step")}</a>`;
+  box.innerHTML =
+    `<p class="st-p" style="padding-top:14px"><b>${T("Sony с приложениями", "Sony with apps")}</b> (a6000–a6500, a7 II, RX100 III–V…)</p>` +
+    `<p class="st-p">${T("1. Поставь приложение Proyavka.apk", "1. Install the Proyavka.apk app")} — ${guide(c.guide_app)}.<br>` +
+    `${T("2. На карте памяти создай папку PROYAVKA и положи в неё config.txt.", "2. On the memory card create a folder PROYAVKA and put config.txt into it.")}<br>` +
+    `${T("3. В камере: Приложение → Проявка → Wi-Fi → выбери сеть. Дальше камера подключается сама.", "3. On the camera: Application → Proyavka → Wi-Fi → pick a network. After that it connects by itself.")}<br>` +
+    `${T("4. Снимай → Проявка → Отправить новые.", "4. Shoot → Proyavka → Send new.")}</p>` +
+    (c.config ? `<button class="st-link cap" id="camConf">${T("Скачать config.txt", "Download config.txt")}</button>` : "") +
+    `<p class="st-p" style="padding-top:18px"><b>${T("Камеры с отправкой по FTP", "Cameras with FTP transfer")}</b> (A7C II, A7 IV, A1…)</p>` +
+    `<div class="kv"><span class="muted">${T("сервер", "server")}</span><b>${esc(c.domain)}</b><span class="muted">${T("порт", "port")}</span><b>21</b>` +
+    `<span class="muted">${T("логин", "user")}</span><b class="pw">${esc(c.ftp_user)}</b><span class="muted">${T("пароль", "password")}</span><b class="pw">${esc(c.ftp_pass)}</b>` +
+    `<span class="muted">${T("папка", "folder")}</span><b>upload</b></div>` +
+    `<p class="st-p">${T("FTPS (явный TLS), пассивный режим. Камере нужен корневой сертификат cacert.pem в корне карты", "FTPS (explicit TLS), passive mode. The camera needs the cacert.pem root certificate in the root of the card")} — ${guide(c.guide_ftp)}.</p>` +
+    (c.cert ? `<button class="st-link cap" id="camCert">${T("Скачать cacert.pem", "Download cacert.pem")}</button>` : "") +
+    `<button class="st-link cap" id="camPw">${T("Новый пароль FTP", "New FTP password")}</button>`;
+  $("camPw").onclick = () => ask(T("Сменить пароль FTP? Старый перестанет работать — на камере нужно будет ввести новый.",
+                                   "Change the FTP password? The old one stops working — you'll need to enter the new one on the camera."),
+    async (ok) => {
+      if (!ok) return;
+      try { await api("/api/camera/password", {}); $("stCam").hidden = true; $("stCamBtn").click(); toast(T("Пароль сменён", "Password changed")); haptic("success"); }
+      catch (e) { toast(e.message); }
+    });
+  if ($("camConf")) $("camConf").onclick = () => download(url("/api/camera/config.txt"));
+  if ($("camCert")) $("camCert").onclick = () => download(url("/api/camera/cacert.pem"));
+  box.hidden = false;
+};
+
+function renderTg() {
+  const t = me.telegram, box = $("stTg");
+  if (t.bot && t.linked) {
+    box.innerHTML = `<p class="st-p" style="padding-top:0">${T(`Привязан: кадры приходят и в бота @${esc(t.bot)}, с кнопками под каждым.`, `Linked: frames also arrive in @${esc(t.bot)}, with buttons under each.`)}</p>` +
+      (t.can_unlink ? `<button class="st-link cap" id="tgUnlink">${T("Отвязать Telegram", "Unlink Telegram")}</button>` : "");
+  } else if (t.bot) {
+    box.innerHTML = `<p class="st-p" style="padding-top:0">${T(`Кадры могут приходить и в Telegram-бота @${esc(t.bot)} — с кнопками плёнок под каждым. Нажми и в боте «Старт».`, `Frames can also arrive in the Telegram bot @${esc(t.bot)} — with film buttons under each. Tap, then Start in the bot.`)}</p>` +
+      `<div class="actions"><button class="btn" id="tgLink">${T("Привязать Telegram", "Link Telegram")}</button></div>`;
+  } else if (me.admin) {
+    box.innerHTML = `<p class="st-p" style="padding-top:0">${T("Telegram-бот не подключён — «Проявка» работает и без него. Чтобы кадры приходили ещё и в Telegram: открой @BotFather → /newbot, придумай имя и вставь сюда токен, который он пришлёт.",
+                                                               "No Telegram bot — Proyavka works without it. To also get frames in Telegram: open @BotFather → /newbot, pick a name and paste the token it sends here.")}</p>` +
+      `<form class="pairform tg-form" id="tgForm"><input id="tgToken" placeholder="123456:ABC-…" autocomplete="off" autocapitalize="off" spellcheck="false"><button class="btn">${T("Подключить", "Connect")}</button></form>`;
+  } else {
+    box.innerHTML = `<p class="st-p" style="padding-top:0">${T("На этом сервере Telegram не подключён.", "Telegram is not connected on this server.")}</p>`;
+  }
+  if ($("tgLink")) $("tgLink").onclick = async () => {
+    try { const j = await api("/api/tg/link", {}); openLink(j.url); } catch (e) { toast(e.message); }
+  };
+  if ($("tgUnlink")) $("tgUnlink").onclick = () => ask(T("Отвязать Telegram? Кадры перестанут приходить в бота, в «Проявке» всё останется.", "Unlink Telegram? Frames stop arriving in the bot; everything stays in Proyavka."),
+    async (ok) => { if (ok) try { await renderMe(await api("/api/tg/unlink", {})); } catch (e) { toast(e.message); } });
+  if ($("tgForm")) $("tgForm").onsubmit = async (e) => {
+    e.preventDefault();
+    const token = $("tgToken").value.trim();
+    if (!token) return;
+    try {
+      const j = await api("/api/tg/bot", { token });
+      toast(T(`Бот @${j.bot} подключён`, `Bot @${j.bot} connected`));
+      haptic("success");
+      renderMe(j);
+    } catch (err) { toast(err.message); }
+  };
+}
+document.addEventListener("visibilitychange", () => { if (!document.hidden && !$("settings").hidden) renderMe(); });   // вернулись из Telegram
+
+async function renderUsers(list) {
+  let j = list;
+  if (!j) { try { j = await api("/api/users"); } catch (e) { return toast(e.message); } }
+  if (j.limits) userLimits = j.limits;
+  $("stUsers").replaceChildren(...j.users.map((u) => {
+    const row = document.createElement("div");
+    row.className = "st-user";
+    const gb = Math.round(u.limit / 1e8) / 10;
+    row.innerHTML = `<div class="dn"><span>${esc(u.name)}${u.admin ? T(" — администратор", " — admin") : ""}</span>` +
+      `<span class="cap muted">${u.frames} · ${fmtB(u.used)} / ${fmtB(u.limit)}${u.telegram ? " · Telegram" : ""}</span></div>` +
+      `<button class="cap" data-act="limit">${gb} ${T("ГБ", "GB")} ▸</button>` +
+      (u.admin ? "" : `<button class="cap" data-act="del">${T("Удалить", "Remove")}</button>`);
+    row.querySelector('[data-act="limit"]').onclick = async () => {      // лимит по кругу; свой у администратора — тоже
+      const next = userLimits.find((x) => x > gb) || userLimits[0];
+      try {
+        renderUsers(await api(`/api/user/${u.id}/limit`, { gb: next }));
+        if (u.admin) renderMe();
+      } catch (e) { toast(e.message); }
+    };
+    if (!u.admin) {
+      row.querySelector('[data-act="del"]').onclick = () => ask(T(`Удалить «${u.name}»? Все его кадры и файлы будут стёрты, камера отключена.`, `Remove "${u.name}"? All their frames and files will be erased and the camera disconnected.`),
+        async (ok) => { if (ok) try { renderUsers(await api(`/api/user/${u.id}/delete`, {})); toast(T("Пользователь удалён", "User removed")); } catch (e) { toast(e.message); } });
+    }
+    return row;
+  }));
+}
+$("stInviteBtn").onclick = async () => {
+  try {
+    const j = await api("/api/invite", {});
+    $("stInvite").innerHTML = `<div class="paircode">${esc(j.code)}</div>${j.qr ? `<div class="qr">${j.qr}</div>` : ""}` +
+      `<p class="muted" style="margin:0">${T(`Одноразовое, живёт ${j.days} дней. Человек вводит код на экране входа «Проявки», открывает ссылку или сканирует QR${j.tg_url ? "; вторая ссылка — сразу в Telegram-бота" : ""}.`,
+                                             `Single use, valid for ${j.days} days. The person enters the code on the Proyavka sign-in screen, opens the link or scans the QR code${j.tg_url ? "; the second link goes straight to the Telegram bot" : ""}.`)}</p>` +
+      `<input class="linkbox" readonly value="${esc(j.url)}">` + (j.tg_url ? `<input class="linkbox" readonly value="${esc(j.tg_url)}">` : "");
+    $("stInvite").querySelectorAll("input").forEach((i) => { i.onfocus = () => i.select(); });
+    $("stInvite").hidden = false;
+    haptic("success");
+    copyText(j.url, T("Ссылка скопирована", "Link copied"));
+  } catch (e) { toast(e.message); }
+};
+async function renderDevices() {
+  try {
+    const j = await api("/api/devices");
+    $("dvList").replaceChildren(...j.devices.map((d) => {
+      const row = document.createElement("div");
+      row.className = "dev";
+      row.innerHTML = `<span class="dn">${esc(d.name)}${d.current ? T(" — это устройство", " — this device") : ""}</span>` +
+                      `<span class="cap muted">${when(d.seen)}</span><button class="cap">${T("Отключить", "Remove")}</button>`;
+      row.querySelector("button").onclick = () => {
+        const q = d.current ? T("Отключить это устройство? Чтобы вернуться, понадобится новая ссылка.", "Remove this device? You will need a new link to come back.")
+                            : T(`Отключить «${d.name}»?`, `Remove "${d.name}"?`);
+        const go = async (ok) => {
+          if (!ok) return;
+          try {
+            await api(`/api/device/${d.id}/delete`, {});
+            if (d.current) { stored(DEV_KEY, null); location.replace("/"); return; }
+            renderDevices();
+          } catch (e) { toast(e.message); }
+        };
+        if (tg && tg.showConfirm) tg.showConfirm(q, go); else go(confirm(q));
+      };
+      return row;
+    }));
+  } catch (e) { toast(e.message); }
+}
+$("dvNew").onclick = async () => {
+  try {
+    const j = await api("/api/devices/new", {});
+    $("dvQr").innerHTML = j.qr || "";
+    $("dvQr").hidden = !j.qr;
+    $("dvLink").value = j.url;
+    $("dvCode").textContent = j.code;
+    $("dvPairText").textContent = T("Введи код в «Проявке» на новом устройстве (на iPhone — уже в приложении с экрана «Домой») или отсканируй QR. Одноразовый, 10 минут.",
+                                    "Enter the code in Proyavka on the new device (on iPhone — in the app from the Home Screen) or scan the QR code. Single use, 10 minutes.");
+    $("dvPair").hidden = false;
+    haptic("success");
+    try { await navigator.clipboard.writeText(j.code); toast(T("Код скопирован", "Code copied")); } catch (e) {}
+  } catch (e) { toast(e.message); }
+};
+$("dvLink").onfocus = () => $("dvLink").select();
+$("dvInstall").onclick = async () => {
+  if (!installPrompt) return;
+  installPrompt.prompt();
+  try { await installPrompt.userChoice; } catch (e) {}
+  installPrompt = null;
+  $("dvInstallRow").hidden = true;
+};
+
+/* вход вне Telegram: ссылка с кодом (#pair=…) -> ключ устройства в браузере */
+function showPairing(msg) {
+  $("bAdd").hidden = true;
+  $("bMenu").hidden = true;
+  const iosBrowser = ios && !standalone;
+  $("feed").innerHTML = `<div class="state"><strong>${T("Привяжи это устройство", "Link this device")}</strong>` +
+    `<p>${T("Введи код: «⋯» → «Привязать устройство» в «Проявке» на другом устройстве, команда /link в боте или код приглашения. Свой первый код администратор видит в конце установки.",
+            "Enter a code: ⋯ → Link a device in Proyavka on another device, the /link command in the bot, or an invite code. The admin sees the first code at the end of setup.")}</p>` +
+    (iosBrowser ? `<p style="margin-top:10px">${T("На iPhone вход из браузера в приложение не переносится. Чтобы «Проявка» была приложением: «Поделиться» → «На экран „Домой“», открой иконку и введи код там.",
+                                                  "On iPhone a browser sign-in does not carry over to the app. To use Proyavka as an app: Share → Add to Home Screen, open the icon and enter the code there.")}</p>` : "") +
+    (msg ? `<p style="margin-top:10px;color:var(--text)">${esc(msg)}</p>` : "") +
+    `<form class="pairform" id="pairForm"><input id="pairInput" placeholder="${T("Код, например K7QM-2XPF", "Code, e.g. K7QM-2XPF")}" autocomplete="one-time-code" autocapitalize="characters" spellcheck="false">` +
+    `<button class="btn">${T("Войти", "Sign in")}</button></form>` +
+    (navigator.clipboard && navigator.clipboard.readText ? `<button class="pastebtn cap" id="pairPaste">${T("Вставить из буфера", "Paste from clipboard")}</button>` : "") +
+    `</div>`;
+  const go = (v) => {
+    const m = /pair=([\w-]+)/.exec(v);
+    const code = (m ? m[1] : v).replace(/[^0-9a-z]/gi, "");
+    if (code) { location.hash = "pair=" + code; location.reload(); }
+  };
+  $("pairForm").onsubmit = (e) => { e.preventDefault(); go($("pairInput").value.trim()); };
+  if ($("pairPaste")) $("pairPaste").onclick = async () => {
+    try { const v = (await navigator.clipboard.readText()).trim(); $("pairInput").value = v; if (v) go(v); }
+    catch (e) { $("pairInput").focus(); }
+  };
+}
+/* приглашение: код подошёл, осталось назваться */
+function askName(code) {
+  return new Promise((resolve) => {
+    $("bAdd").hidden = true;
+    $("bMenu").hidden = true;
+    $("feed").innerHTML = `<div class="state"><strong>${T("Тебя пригласили в «Проявку»", "You're invited to Proyavka")}</strong>` +
+      `<p>${T("Своя лента, свои кадры и своя камера. Как тебя зовут?", "Your own feed, frames and camera. What's your name?")}</p>` +
+      `<p id="joinErr" style="margin-top:10px;color:var(--text)"></p>` +
+      `<form class="pairform" id="joinForm"><input id="joinName" maxlength="40" autocomplete="name" placeholder="${T("Имя", "Name")}">` +
+      `<button class="btn">${T("Войти", "Join")}</button></form></div>`;
+    $("joinName").focus();
+    $("joinForm").onsubmit = async (e) => {
+      e.preventDefault();
+      const n = $("joinName").value.trim();
+      if (!n) return;
+      try { resolve(await api("/api/pair", { code, name: deviceName(), user_name: n })); }
+      catch (err) { $("joinErr").textContent = err.message; }
+    };
+  });
+}
+async function signIn() {
+  if (tg) return api("/api/auth", { initData: tg.initData });
+  const m = /[#&]pair=([\w-]+)/.exec(location.hash);
+  if (m) {
+    history.replaceState(null, "", location.pathname + location.search);      // код одноразовый, в адресе ему делать нечего
+    try {
+      let a = await api("/api/pair", { code: m[1], name: deviceName() });
+      if (a.need_name) a = await askName(m[1]);           // это приглашение: новый человек
+      stored(DEV_KEY, a.device);
+      if (!stored(DEV_KEY)) toast(T("Браузер не даёт сохранить вход — после закрытия понадобится новая ссылка", "The browser won't keep the sign-in — you'll need a new link next time"));
+      return a;
+    } catch (e) {
+      if (!stored(DEV_KEY)) { showPairing(e.message); return null; }
+      toast(e.message);                      // старая ссылка, но устройство уже привязано — входим как обычно
+    }
+  }
+  if (!stored(DEV_KEY)) {
+    // ключа нет: может, есть cookie (iPhone переносит её из Safari в приложение на экране «Домой»)
+    try { const a = await api("/api/auth", { cookie: 1 }); if (a.device) stored(DEV_KEY, a.device); return a; }
+    catch (e) { showPairing(); return null; }
+  }
+  try { return await api("/api/auth", { device: stored(DEV_KEY) }); }
+  catch (e) {
+    if (e.status === 401) { stored(DEV_KEY, null); showPairing(e.message); return null; }
+    throw e;
+  }
+}
 
 /* ---------- свои LUT ---------- */
 async function reloadPresets() {
@@ -985,6 +1543,7 @@ function enterCrop() {
   pre.onerror = () => { toast(T("Не удалось открыть исходник", "Could not load the original")); exitCrop(); };
   pre.src = src;
   renderRatios();
+  syncHistory();
 }
 function exitCrop(silent) {
   if (!crop) return;
@@ -994,6 +1553,7 @@ function exitCrop(silent) {
   $("vmain").hidden = false;
   $("stage").classList.remove("cropping", "busy");
   if (!silent) refreshViewerImage();
+  syncHistory();
 }
 function imgRect() {
   const ir = $("vimg").getBoundingClientRect(), sr = $("stage").getBoundingClientRect();
@@ -1178,14 +1738,20 @@ async function uploadAll(files) {
     tg.onEvent && tg.onEvent("themeChanged", applyTheme);
   }
   applyTheme();
-  const initData = tg ? tg.initData : "";
-  if (!initData) {
-    $("feed").innerHTML = T(`<div class="state"><strong>Открой из Telegram</strong><p>Лента работает только внутри бота: кнопка «Проявка» рядом с полем ввода.</p></div>`,
-      `<div class="state"><strong>Open from Telegram</strong><p>The feed works only inside the bot: the Proyavka button next to the input field.</p></div>`);
-    return;
+  if (!tg) {
+    matchMedia("(prefers-color-scheme: dark)").addEventListener("change", applyTheme);
+    $("vBack").hidden = false;
+    if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").catch(() => {});
+    if (ios && !standalone && !stored("proyavka.iosHint")) {
+      $("iosHint").hidden = false;
+      $("iosHint").onclick = () => { $("iosHint").hidden = true; stored("proyavka.iosHint", "1"); };
+    }
   }
   try {
-    const a = await api("/api/auth", { initData });
+    const a = await signIn();
+    if (!a) return;
+    $("bAdd").hidden = false;
+    $("bMenu").hidden = false;
     token = a.token;
     if (a.lang && a.lang !== LANG) { LANG = a.lang; translatePage(); }
     const pj = await api("/api/presets");

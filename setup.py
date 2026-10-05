@@ -112,7 +112,16 @@ def run(cmd, check=True, capture=False, **kw):
 
 
 def sudo_write(path, text, mode="644"):
-    run(SUDO + ["install", "-m", mode, "/dev/stdin", str(path)], input=text.encode())
+    # не через «install /dev/stdin»: в Ubuntu 26.04 coreutils на Rust, и их install не читает из потока
+    if IS_ROOT:
+        p = Path(path)
+        tmp = p.with_name(p.name + ".tmp")
+        tmp.write_text(text, encoding="utf-8")
+        os.chmod(tmp, int(mode, 8))
+        os.replace(tmp, p)
+    else:
+        run(SUDO + ["tee", str(path)], input=text.encode(), stdout=subprocess.DEVNULL)
+        run(SUDO + ["chmod", mode, str(path)])
 
 
 def load_env(path=CONF):
@@ -155,6 +164,85 @@ def step_language(env):
     cur = "2" if env.get("LANGUAGE") == "ru" else "1"
     LANG = "en" if ask("1 / 2", cur, check=lambda v: None if v in ("1", "2") else "1 / 2") == "1" else "ru"
     env["LANGUAGE"] = LANG
+
+
+# ---------------- приложение или Telegram ----------------
+WEB_BASE = 900_000_000_000_000      # номер администратора без Telegram (как в filmbot.py)
+
+
+def web_only(env):
+    return not env.get("BOT_TOKEN")
+
+
+def step_channel(env):
+    """Чем пользоваться: приложением (Telegram можно подключить потом) или Telegram-ботом, как раньше."""
+    title(T("1. Как будешь пользоваться «Проявкой»", "1. How you'll use Proyavka"))
+    say(f"  {B}1{X} — " + T("приложение: в браузере на компьютере и как приложение на телефоне (Android, iPhone). "
+                            "Telegram не нужен; подключить его можно потом в настройках приложения.",
+                            "the app: in a browser on a computer and as an app on a phone (Android, iPhone). "
+                            "No Telegram needed; you can connect it later in the app settings."))
+    say(f"  {B}2{X} — " + T("Telegram-бот: кадры приходят в чат с кнопками, приложение открывается из бота.",
+                            "a Telegram bot: frames arrive in a chat with buttons, the app opens from the bot."))
+    cur = "2" if env.get("BOT_TOKEN") else "1"
+    if ask(T("Вариант", "Option"), cur, check=lambda v: None if v in ("1", "2") else "1 / 2") == "2":
+        step_bot(env)
+        return
+    env.pop("BOT_TOKEN", None)                 # чат администратора (если был) остаётся: Telegram можно вернуть
+    if not env.get("CHAT_ID"):
+        env["CHAT_ID"] = str(WEB_BASE)          # администратор приложения — без чата в Telegram
+    ok(T("без Telegram — вход в приложение по QR-коду в конце установки",
+         "no Telegram — you'll sign in to the app with a QR code at the end of setup"))
+
+
+def show_pair_qr(env):
+    """Одноразовый код и QR для входа с телефона или компьютера (выдаёт сам бот: filmbot.py --pair)."""
+    cmd = [str(VENV / "bin" / "python"), str(ROOT / "bot" / "filmbot.py"), "--pair"]
+    if IS_ROOT:
+        cmd = ["runuser", "-u", USER, "--"] + cmd
+    e = dict(os.environ, **env, PYTHONIOENCODING="utf-8")
+    r = subprocess.run(cmd, env=e, cwd=str(ROOT / "bot"), capture_output=True, text=True, encoding="utf-8")
+    lines = [x for x in r.stdout.splitlines()]
+    if r.returncode != 0 or len(lines) < 3:
+        warn(T("не получилось выдать код: ", "could not create a code: ") + (r.stderr.strip().splitlines() or ["?"])[-1])
+        return
+    link, qr, code = lines[0], lines[1:-1], lines[-1]
+    title(T("Вход в «Проявку»", "Sign in to Proyavka"))
+    say(T("Наведи камеру телефона на QR-код — откроется твоя «Проявка». Код одноразовый, работает 10 минут.",
+          "Point your phone camera at the QR code — your Proyavka opens. Single use, valid for 10 minutes."))
+    print("\n".join(qr))
+    say(T("Или открой ссылку в браузере:", "Or open the link in a browser:") + f" {B}{link}{X}")
+    say(T("Или открой сайт и введи код:", "Or open the site and enter the code:") + f" {B}{code}{X}")
+    say(D + T("iPhone: сначала открой сайт в Safari → «Поделиться» → «На экран „Домой“», запусти «Проявку» с иконки "
+              "и введи код уже там — вход из браузера в приложение на iPhone не переносится.",
+              "iPhone: first open the site in Safari → Share → Add to Home Screen, launch Proyavka from the icon "
+              "and enter the code there — on iPhone a browser sign-in doesn't carry over to the app.") + X)
+    say(D + T("Потом там же: ⋯ → «Привязать устройство» — для компьютера и других телефонов. "
+              "Новый код здесь: python3 setup.py → «Войти с нового устройства».",
+              "Then in the app: ⋯ → Link a device — for a computer and other phones. "
+              "A new code here: python3 setup.py → Sign in from a new device.") + X)
+
+
+def menu_telegram(env):
+    """Подключить или сменить бота. Без Telegram — только токен: свой чат каждый привязывает в приложении."""
+    if env.get("BOT_TOKEN") and int(env.get("CHAT_ID") or WEB_BASE) < WEB_BASE:
+        step_bot(env)                          # бот и свой чат были с установки — сменить их
+    else:
+        title(T("Telegram-бот", "Telegram bot"))
+        say(T("Открой в Telegram @BotFather → /newbot → придумай имя. Он пришлёт токен вида 123456:ABC-…",
+              "In Telegram open @BotFather → /newbot → pick a name. It sends a token like 123456:ABC-…"))
+        while True:
+            token = ask(T("Токен бота", "Bot token"), env.get("BOT_TOKEN"),
+                        check=lambda v: None if re.match(r"^\d+:[\w-]{30,}$", v) else T("не похоже на токен", "doesn't look like a token"))
+            me = tg(token, "getMe")
+            if me.get("ok"):
+                break
+            warn(T("Telegram не принял токен: ", "Telegram rejected the token: ") + str(me.get("description")))
+        env["BOT_TOKEN"] = token
+        ok(T("бот", "bot") + f" @{me['result']['username']}")
+        say(T("Теперь в «Проявке»: ⋯ → Telegram → «Привязать Telegram» — и кадры будут приходить и в бота.",
+              "Now in Proyavka: ⋯ → Telegram → Link Telegram — and frames will arrive in the bot too."))
+    save_env(env)
+    restart_bot()
 
 
 # ---------------- Telegram ----------------
@@ -279,7 +367,7 @@ def step_mode(env):
               "Press Enter. If you have your own domain pointing to this IP, you can type it instead.") + X)
     env["DOMAIN"] = ask(T("Имя сервера", "Server name"), env.get("DOMAIN") or dom)
     env.setdefault("CAMERA_TOKEN", secrets.token_urlsafe(32))
-    env.setdefault("FTP_PASS", secrets.token_urlsafe(12))
+    env.setdefault("FTP_PASS", "".join(secrets.choice("abcdefghijkmnpqrstuvwxyz23456789") for _ in range(10)))   # вводят на камере
 
 
 def step_server(env):
@@ -353,6 +441,7 @@ def step_home(env):
     say(T("Ставлю библиотеки Python (на Raspberry Pi это пара минут)…",
           "Installing Python libraries (a couple of minutes on a Raspberry Pi)…"))
     run([str(VENV / "bin" / "pip"), "install", "-q", "-r", str(ROOT / "bot" / "requirements.txt")], capture=True)
+    ensure_raw(env)
     env.setdefault("BASE_DIR", "/var/lib/proyavka/data" if IS_ROOT else str(Path.home() / "proyavka-data"))
     env.setdefault("REMOTE_DIR", "/srv/camera/upload/")
     env.setdefault("STORAGE_GB", "20")
@@ -487,6 +576,12 @@ def step_camera(env, first=False):
 
 def show_camera_help(env):
     title(T("Дальше — камера", "Next — the camera"))
+    if web_only(env):
+        say(T(f"В «Проявке» открой {B}⋯ → Камера{X}: там файлы для карты памяти (config.txt, cacert.pem), вход FTP "
+              "и пошаговые инструкции для Sony с приложениями и для камер с отправкой по FTP.",
+              f"In Proyavka open {B}⋯ → Camera{X}: files for the memory card (config.txt, cacert.pem), the FTP login "
+              "and step-by-step guides for Sony cameras with apps and for cameras with FTP upload."))
+        return
     say(T(f"Открой своего бота в Telegram и отправь ему {B}/camera{X}.",
           f"Open your bot in Telegram and send it {B}/camera{X}."))
     say(T("Он пришлёт всё, что нужно положить на карту памяти, и пошаговую инструкцию:",
@@ -502,6 +597,19 @@ def show_camera_help(env):
 
 
 # ---------------- обслуживание ----------------
+def ensure_raw(env):
+    """RAW_FILES=1 — нужна библиотека rawpy (LibRaw). Не встала (нет сборки под эту систему) — RAW выключаем."""
+    if env.get("RAW_FILES", "1") != "1" or not (VENV / "bin" / "pip").exists():      # RAW по умолчанию включён
+        return
+    r = run([str(VENV / "bin" / "pip"), "install", "-q", "rawpy"], check=False, capture=True)
+    if r.returncode == 0:
+        ok(T("RAW включён (библиотека rawpy установлена)", "RAW is on (the rawpy library is installed)"))
+    else:
+        env["RAW_FILES"] = "0"
+        warn(T("не удалось поставить rawpy — RAW выключен, кадры в JPEG работают как обычно. ",
+               "could not install rawpy — RAW is off, JPEG frames work as usual. ") + (r.stdout.strip().splitlines() or [""])[-1])
+
+
 def menu_storage(env):
     title(T("Хранение и скорость", "Storage and speed"))
     num = T("нужно число", "a number is needed")
@@ -513,6 +621,10 @@ def menu_storage(env):
     env["FAST_WORKERS"] = ask(T("Процессов для обработки (больше — быстрее, но горячее)",
                                 "Processing workers (more — faster, but hotter)"),
                               env.get("FAST_WORKERS", "2"), check=lambda v: None if v.isdigit() and int(v) > 0 else num)
+    env["RAW_FILES"] = "1" if yes(T("Принимать RAW (ARW, CR3, NEF, RAF, DNG…)? Если камера шлёт RAW+JPEG, берётся JPEG",
+                                    "Accept RAW (ARW, CR3, NEF, RAF, DNG…)? If the camera sends RAW+JPEG, the JPEG is used"),
+                                  env.get("RAW_FILES", "1") == "1") else "0"
+    ensure_raw(env)
     save_env(env)
     restart_bot()
     ok(T("сохранено, бот перезапущен", "saved, the bot was restarted"))
@@ -540,6 +652,7 @@ def menu_update(env):
 def finish_update(env):
     """Вторая половина обновления, уже новым кодом: библиотеки, настройки сервера, перезапуск бота."""
     run([str(VENV / "bin" / "pip"), "install", "-q", "-r", str(ROOT / "bot" / "requirements.txt")], capture=True)
+    ensure_raw(env)
     say(T("Обновляю настройки сервера-приёмника (nginx, FTP, приёмник камеры)…",
           "Updating the receiving server (nginx, FTP, camera receiver)…"))
     push_server(env)
@@ -562,6 +675,8 @@ def prepare_root():
     if run(["id", "proyavka"], check=False, capture=True).returncode != 0:
         run(["useradd", "--system", "--create-home", "--home-dir", "/var/lib/proyavka",
              "--shell", "/usr/sbin/nologin", "proyavka"])
+    # домашняя папка (в ней данные) могла пропасть — например, при переустановке «с нуля»
+    run(["install", "-d", "-o", "proyavka", "-g", "proyavka", "-m", "750", "/var/lib/proyavka"])
     if ROOT != OPT:
         say(T(f"Переношу программу в {OPT} — оттуда её будет запускать система.",
               f"Moving the program to {OPT} — the system will run it from there."))
@@ -590,7 +705,7 @@ def install(env):
         die(T("нужен Linux с systemd (Raspberry Pi OS, Debian, Ubuntu)", "Linux with systemd is required (Raspberry Pi OS, Debian, Ubuntu)"))
     if IS_ROOT:
         prepare_root()
-    step_bot(env)
+    step_channel(env)
     save_env(env)
     step_mode(env)
     save_env(env)
@@ -600,8 +715,13 @@ def install(env):
     step_camera(env, first=True)
     own_files()
     show_camera_help(env)
-    say(f"\n{G}{B}" + T("Готово!", "Done!") + X + T(" Сними кадр — через полминуты он придёт в бота.",
-                                                     " Take a shot — in half a minute it arrives in the bot."))
+    if web_only(env):
+        show_pair_qr(env)
+        say(f"\n{G}{B}" + T("Готово!", "Done!") + X + T(" Сними кадр — через полминуты он появится в «Проявке».",
+                                                         " Take a shot — in half a minute it shows up in Proyavka."))
+    else:
+        say(f"\n{G}{B}" + T("Готово!", "Done!") + X + T(" Сними кадр — через полминуты он придёт в бота.",
+                                                         " Take a shot — in half a minute it arrives in the bot."))
 
 
 def main():
@@ -610,7 +730,8 @@ def main():
         os.execv(sys.executable, [sys.executable, str(OPT / "setup.py")] + sys.argv[1:])   # уже установлено там
     env = load_env()
     # лимиты места флагами: python3 setup.py --storage-gb=0.1 --user-storage-gb=2
-    flags = {"--storage-gb=": "STORAGE_GB", "--user-storage-gb=": "USER_STORAGE_GB", "--daily-limit=": "DAILY_UPLOAD_LIMIT"}
+    flags = {"--storage-gb=": "STORAGE_GB", "--user-storage-gb=": "USER_STORAGE_GB", "--daily-limit=": "DAILY_UPLOAD_LIMIT",
+             "--raw=": "RAW_FILES"}
     changed = False
     for a in sys.argv[1:]:
         for flag, key in flags.items():
@@ -618,6 +739,8 @@ def main():
                 env[key] = a[len(flag):]
                 changed = True
     if changed and env.get("DOMAIN") and "--install" not in sys.argv:
+        LANG = env.get("LANGUAGE", "ru")
+        ensure_raw(env)
         save_env(env)
         restart_bot()
         ok(T("лимиты сохранены, бот перезапущен", "limits saved, the bot was restarted"))
@@ -629,15 +752,16 @@ def main():
         title(T("Обновление", "Update"))
         return finish_update(env)
     while True:
-        items = [(T("Wi-Fi для камеры (файл на карту)", "Wi-Fi for the camera (file for the card)"),
+        items = [(T("Войти с нового устройства (QR-код)", "Sign in from a new device (QR code)"), lambda: show_pair_qr(env)),
+                 (T("Wi-Fi для камеры (файл на карту)", "Wi-Fi for the camera (file for the card)"),
                   lambda: (step_camera(env), own_files(), show_camera_help(env))),
                  (T("Показать, что делать на камере", "Show what to do on the camera"), lambda: show_camera_help(env)),
                  (T("Хранение и скорость", "Storage and speed"), lambda: menu_storage(env)),
                  (T("Язык / Language", "Language / Язык"), lambda: menu_language(env)),
                  (T("Состояние и последние сообщения бота", "Status and recent bot log"), lambda: menu_status(env)),
                  (T("Обновить до новой версии", "Update to the latest version"), lambda: menu_update(env)),
-                 (T("Сменить бота или чат", "Change the bot or chat"),
-                  lambda: (step_bot(env), save_env(env), restart_bot())),
+                 ((T("Подключить Telegram-бота", "Connect a Telegram bot") if web_only(env) else T("Сменить бота или чат", "Change the bot or chat")),
+                  lambda: menu_telegram(env)),
                  (T("Установить заново (сервер, бот, всё)", "Reinstall (server, bot, everything)"), lambda: install(env))]
         say(f"\n{B}" + T("«Проявка» — настройки", "Proyavka — settings") + f"{X}  {D}{env.get('DOMAIN')}{X}")
         for i, (name, _) in enumerate(items, 1):

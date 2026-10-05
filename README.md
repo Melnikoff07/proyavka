@@ -13,6 +13,7 @@ Take a shot, and half a minute later it arrives in a Telegram bot already "on fi
 - full-size export without Telegram compression
 - frames arrive by themselves: over FTP from cameras that support it, or via the app for Sony PlayMemories cameras; phone photos via the "+" button in the Mini App
 - crop (free, 1:1, 4:5, 3:2, 16:9) and batch edits: select a day's frames and change the film or leak, or delete them at once; deleted frames stay in the trash (`/trash`) while there is space
+- open it outside Telegram too: **/link** gives a one-time link and QR code — Proyavka opens in a browser on a computer or installs on a phone as an app (Android and iPhone, via Share → Add to Home Screen); full-size files download or save straight to Photos; **/devices** lists and removes linked devices
 - one bot for several people: family or friends by invite links, each with their own feed, camera and storage
 - English and Russian interface, chosen per user
 - runs on your own server — no subscriptions, no third-party cloud
@@ -39,7 +40,7 @@ You can move processing home and keep the VPS as a mere mailbox — the smallest
 ## Requirements
 
 - **A VPS with Ubuntu 22.04+ or Debian 12+**: 1 CPU and 1–2 GB of RAM is enough. A clean one is best: the wizard installs nginx and vsftpd on it
-- **Telegram** — create a bot in a minute with [@BotFather](https://t.me/BotFather)
+- **Telegram is optional.** Proyavka works as an app in a browser and on a phone; connect a bot right away or later ([@BotFather](https://t.me/BotFather), a minute)
 - No domain needed: the wizard uses a free name like `1-2-3-4.sslip.io` with a Let's Encrypt certificate
 
 ## Install
@@ -54,11 +55,14 @@ python3 setup.py
 
 The wizard asks for a language and does the rest:
 
-1. asks for the bot token and asks you to send `/start` to the bot — that's how it learns where to send frames;
+1. asks how you'll use it: **the app** (no Telegram needed, you can connect it later in the settings) or **a Telegram bot** — then it asks for the bot token and `/start` in it;
 2. gets an HTTPS certificate, sets up FTPS for cameras and the receiver for the camera app;
-3. installs the bot as a service that starts on boot.
+3. installs Proyavka as a service that starts on boot;
+4. in app mode shows a **QR code** in the terminal: point your phone camera at it and you're in your Proyavka. On iPhone first use Share → Add to Home Screen and enter the code in the app. A computer and other phones: ⋯ → Link a device.
 
-Then send **/camera** to your bot — it replies with the files for the memory card and a guide for your camera.
+In the app, ⋯ opens the settings: storage and trash, film for new frames, language, devices, camera setup, Telegram, and for the admin also users and invites.
+
+Next, the camera: ⋯ → Camera in the app (or **/camera** in the bot) — files for the memory card and a guide for your camera.
 
 Running `python3 setup.py` again opens a menu: camera Wi-Fi, language, storage limits, update, bot status.
 

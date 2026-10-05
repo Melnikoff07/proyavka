@@ -2,6 +2,7 @@
 # «Проявка»: камеры пользователей бота на сервере-приёмнике. Бот вызывает этот скрипт через sudo:
 #   proyavka-user add u<id>    stdin: пароль FTP, затем sha256 токена приложения камеры (по строке)
 #   proyavka-user del u<id>
+#   proyavka-user passwd camera|u<id>   stdin: новый пароль FTP (токен приложения не трогает)
 # add заводит виртуального FTP-пользователя vsftpd со своей папкой /srv/camera/u/u<id>/upload
 # и токен для приёмника camera-recv (на сервере хранится только хеш). del убирает всё это вместе с папкой.
 set -eu
@@ -14,7 +15,7 @@ LIST=/etc/vsftpd.userlist             # кому vsftpd вообще разре�
 
 action=${1:-}
 name=${2:-}
-printf '%s' "$name" | grep -Eqx 'u[0-9]{1,15}' || { echo "bad name: $name" >&2; exit 2; }
+printf '%s' "$name" | grep -Eqx 'u[0-9]{1,15}' || { [ "$action" = passwd ] && [ "$name" = camera ]; } || { echo "bad name: $name" >&2; exit 2; }
 [ -f "$PW" ] && [ -f "$TOK" ] && [ -d "$CONF" ] || { echo "server is not prepared for user cameras (run install-relay.sh)" >&2; exit 3; }
 
 exec 9>/etc/proyavka/.users.lock
@@ -46,6 +47,15 @@ add)
     printf 'local_root=%s\n' "$ROOT/$name" > "$CONF/$name"
     echo "added $name"
     ;;
+passwd)
+    IFS= read -r pass
+    [ "${#pass}" -ge 8 ] || { echo "password too short" >&2; exit 2; }
+    grep -q "^$name:" "$PW" || { echo "no such FTP user: $name" >&2; exit 4; }
+    hash=$(printf '%s\n' "$pass" | openssl passwd -6 -stdin)
+    strip "$PW" "^$name:"
+    printf '%s:%s\n' "$name" "$hash" >> "$PW"
+    echo "password changed for $name"
+    ;;
 del)
     strip "$PW" "^$name:"
     strip "$TOK" " $name\$"
@@ -55,7 +65,7 @@ del)
     echo "removed $name"
     ;;
 *)
-    echo "usage: proyavka-user add|del u<id>" >&2
+    echo "usage: proyavka-user add|del u<id> | passwd camera|u<id>" >&2
     exit 2
     ;;
 esac

@@ -10,6 +10,7 @@ Mini App: лента-контактный лист по дням, просмот
 import collections
 import hashlib
 import hmac
+import importlib.util
 import io
 import itertools
 import json
@@ -25,14 +26,17 @@ import shutil
 import socket
 import sqlite3
 import subprocess
+import sys
 import threading
 import time
 import warnings
+import zipfile
 from concurrent.futures import FIRST_COMPLETED, ProcessPoolExecutor, ThreadPoolExecutor
 from concurrent.futures import wait as futures_wait
 from datetime import datetime
+from http.cookies import SimpleCookie
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from urllib.parse import parse_qs, parse_qsl, urlparse
+from urllib.parse import parse_qs, parse_qsl, quote, urlparse
 from pathlib import Path
 
 import numpy as np
@@ -51,7 +55,7 @@ except ImportError:
     pass
 
 # ================= настройки =================
-BOT_TOKEN = os.environ["BOT_TOKEN"]
+BOT_TOKEN = os.environ.get("BOT_TOKEN", "").strip()    # пусто — «Проявка» без Telegram (только приложение)
 CHAT_ID = int(os.environ["CHAT_ID"])
 VPS = os.environ.get("VPS", "local")      # user@host сервера-приёмника; "local" — бот живёт на нём же
 REMOTE_DIR = os.environ.get("REMOTE_DIR", "/srv/camera/upload/")
@@ -124,11 +128,16 @@ WEBAPP_HTML = Path(__file__).resolve().parent / "webapp.html"
 DB_PATH = BASE / "filmbot.db"
 STATE_FILE = BASE / "state.json"
 
-API = f"https://api.telegram.org/bot{BOT_TOKEN}"
+# Пользователи, пришедшие без Telegram (приложение, приглашение кодом), получают номера с WEB_BASE: Telegram до них
+# не дорастёт ещё долго, а папки, FTP-логины и всё, что завязано на номер, работают как раньше.
+WEB_BASE = 900_000_000_000_000
 EXTS = {".jpg", ".jpeg", ".hif", ".heif", ".heic", ".png", ".webp"}   # png/webp — только свои фото из телефона
-# RAW (через LibRaw: pip install rawpy) — по желанию, RAW_FILES=1. Если камера шлёт RAW+JPEG, берётся JPEG.
+# RAW (через LibRaw: pip install rawpy) — включён по умолчанию, RAW_FILES=0 выключает. Если камера шлёт RAW+JPEG, берётся JPEG.
 RAW_EXTS = {".arw", ".cr2", ".cr3", ".nef", ".nrw", ".raf", ".dng", ".orf", ".rw2", ".pef", ".srw", ".3fr", ".iiq"}
-RAW_FILES = os.environ.get("RAW_FILES", "0") == "1"
+RAW_FILES = os.environ.get("RAW_FILES", "1") == "1"
+RAW_MISSING = RAW_FILES and importlib.util.find_spec("rawpy") is None   # включили, а библиотеку не поставили
+if RAW_MISSING:
+    RAW_FILES = False          # иначе каждый RAW падал бы с «No module named 'rawpy'»
 RAW_WAIT = 90          # сек: RAW ждёт, не придёт ли JPEG той же съёмки
 if RAW_FILES:
     EXTS |= RAW_EXTS
@@ -889,8 +898,15 @@ def init_db():
             id INTEGER PRIMARY KEY AUTOINCREMENT, owner INTEGER, name TEXT, size INTEGER, created REAL)""")
         db.execute("""CREATE TABLE IF NOT EXISTS invites(
             code TEXT PRIMARY KEY, created REAL, by INTEGER, used_by INTEGER, used_at REAL)""")
+        if "tg" not in {r[1] for r in db.execute("PRAGMA table_info(users)")}:
+            db.execute("ALTER TABLE users ADD COLUMN tg INTEGER")       # чат в Telegram (пусто — без Telegram)
+        db.execute("""CREATE TABLE IF NOT EXISTS pairs(
+            code TEXT PRIMARY KEY, uid INTEGER, exp REAL, kind TEXT)""")
+        db.execute("""CREATE TABLE IF NOT EXISTS devices(
+            id INTEGER PRIMARY KEY AUTOINCREMENT, owner INTEGER, name TEXT, hash TEXT UNIQUE, created REAL, seen REAL)""")
         db.execute("INSERT OR IGNORE INTO users(id, role, lang, created) VALUES (?, 'admin', ?, ?)", (CHAT_ID, LANG, time.time()))
         db.execute("UPDATE users SET role = CASE WHEN id=? THEN 'admin' ELSE 'user' END", (CHAT_ID,))
+        db.execute("UPDATE users SET tg=id WHERE tg IS NULL AND id < ?", (WEB_BASE,))   # пришедшие через Telegram
         db.execute("CREATE INDEX IF NOT EXISTS photos_owner ON photos(owner, hidden, taken)")
         db.execute("CREATE INDEX IF NOT EXISTS photos_fp ON photos(fp)")
         # мини-приложение каждые 1–5 секунд спрашивает «что изменилось» и листает ленту — без индексов это полный перебор
@@ -1039,11 +1055,49 @@ def upd(pid, **kw):
 
 
 # ================= Telegram =================
+# Telegram необязателен: бота может не быть вовсе, а у пользователя может не быть привязанного чата.
+# Все отправки идут через tg(): номер пользователя превращается в его чат; некуда — NoChat (safe() её глотает).
+class NoChat(Exception):
+    pass
+
+
+def chat_of(uid):
+    if not BOT_TOKEN or uid is None:
+        return None
+    u = USERS.get(uid)
+    return uid if u is None else u.get("tg")       # незнакомцу отвечаем в его же чат
+
+
+def uid_of_tg(tid):
+    if not tid:
+        return None
+    for uid, u in list(USERS.items()):
+        if u.get("tg") == tid:
+            return uid
+    return None
+
+
 def tg(method, files=None, **params):
+    if not BOT_TOKEN:
+        raise NoChat(method)
+    if "chat_id" in params:
+        params["chat_id"] = chat_of(params["chat_id"])
+        if params["chat_id"] is None:
+            raise NoChat(method)
+    sc = params.get("scope")
+    if isinstance(sc, dict) and "chat_id" in sc:
+        c = chat_of(sc["chat_id"])
+        if c is None:
+            raise NoChat(method)
+        params["scope"] = dict(sc, chat_id=c)
+    return tg_send(method, files, **params)
+
+
+def tg_send(method, files=None, **params):
     data = {k: (json.dumps(v, ensure_ascii=False) if isinstance(v, (dict, list)) else v)
             for k, v in params.items() if v is not None}
     for attempt in range(3):
-        r = requests.post(f"{API}/{method}", data=data, files=files, timeout=(10, 120))   # (подключение, ответ)
+        r = requests.post(f"https://api.telegram.org/bot{BOT_TOKEN}/{method}", data=data, files=files, timeout=(10, 120))   # (подключение, ответ)
         j = r.json()
         if j.get("ok"):
             return j["result"]
@@ -1086,6 +1140,8 @@ def _pace_hold(chat_id, seconds):
 def safe(method, **kw):
     try:
         return tg(method, **kw)
+    except NoChat:
+        return None
     except Exception as e:
         log.warning("%s", e)
         return None
@@ -1731,6 +1787,9 @@ TG_COND = threading.Condition()
 
 
 def queue_tg_update(pid, urgent=False):
+    r = q("SELECT owner FROM photos WHERE id=?", (pid,))
+    if not r or chat_of(r[0]["owner"]) is None:
+        return                   # у владельца нет Telegram — кадр живёт только в «Проявке»
     with TG_COND:
         TG_PENDING.add(pid)
         TG_BUSY.add(pid)
@@ -1780,7 +1839,8 @@ def _tg_upload(pid, rev, path):
 def older_unsent(pid):
     """Есть ли более ранний новый кадр, ещё не отправленный в чат (не старше 2 минут, чтобы сбойный не держал очередь)."""
     return q("SELECT COUNT(*) AS n FROM photos WHERE id < ? AND msg_id IS NULL AND hidden=0 "
-             "AND work IS NOT NULL AND created > ?", (pid, time.time() - 120))[0]["n"] > 0
+             "AND work IS NOT NULL AND created > ? AND owner=(SELECT owner FROM photos WHERE id=?)",
+             (pid, time.time() - 120, pid))[0]["n"] > 0
 
 
 def tg_worker():
@@ -2013,6 +2073,10 @@ def help_text(uid):
              L("• /storage — сколько места занято, /trash — корзина: удалённые кадры можно вернуть, пока хватает места.",
                "• /storage — how much space is used, /trash — deleted frames, can be brought back while there is space."),
              L("• /camera — файлы и инструкция для настройки камеры.", "• /camera — files and guide to set up your camera."),
+             L("• /link — «Проявка» в браузере на компьютере или как приложение на телефоне (без Telegram), /devices — "
+               "где она открыта.",
+               "• /link — Proyavka in a browser on a computer or as an app on a phone (no Telegram), /devices — where "
+               "it is open."),
              L("• /lang — сменить язык (English).", "• /lang — switch language (русский)."),
              L("• Свой LUT: пришли файл .cube — он появится среди плёнок, видишь его только ты. Список — /luts.",
                "• Your own LUT: send a .cube file — it appears among the films, only you can see it. List: /luts."),
@@ -2126,20 +2190,31 @@ def on_text(text, uid):
         tg("sendMessage", chat_id=uid, text=text, reply_markup=kb)
     elif t == "/camera":
         send_camera_setup(uid)
+    elif t == "/link":
+        send_link(uid)
+    elif t == "/devices":
+        text, kb = devices_screen(uid)
+        tg("sendMessage", chat_id=uid, text=text, reply_markup=kb)
     elif t == "/lang":
         set_user(uid, lang="en" if user_lang(uid) == "ru" else "ru")
         with speak(uid):
             set_commands(uid)
             tg("sendMessage", chat_id=uid, text=L("Язык: русский.", "Language: English."), reply_markup=menu())
+    elif t.startswith("/start link_"):
+        tg("sendMessage", chat_id=uid, text=L("Этот Telegram уже привязан к «Проявке».", "This Telegram is already linked to Proyavka."))
     elif t == "/invite" and uid == ADMIN:
-        link = make_invite(uid)
+        inv = invite_links(make_invite(uid))
         tg("sendMessage", chat_id=uid, disable_web_page_preview=True, text=L(
-            f"Ссылка-приглашение (одноразовая, живёт {INVITE_DAYS} дней):\n{link}\n\n"
-            "Перешли её тому, кого зовёшь. У него будет своя лента, свои кадры и своя камера; "
-            "его кадры не видны тебе в боте, а твои — ему. Технически администратор сервера может открыть любые файлы на нём.",
-            f"Invite link (single use, valid for {INVITE_DAYS} days):\n{link}\n\n"
-            "Forward it to the person you invite. They get their own feed, frames and camera; "
-            "you don't see their frames in the bot and they don't see yours. Technically, the server admin can open any file on it."))
+            f"Приглашение — одноразовое, живёт {INVITE_DAYS} дней. Перешли одну из ссылок:\n"
+            f"• через Telegram: {inv['tg_url']}\n• в приложении, без Telegram: {inv['url']}\n"
+            f"(или код {inv['code']} на экране входа «Проявки»)\n\n"
+            "У него будет своя лента, свои кадры и своя камера; его кадры не видны тебе, а твои — ему. "
+            "Технически администратор сервера может открыть любые файлы на нём.",
+            f"Invite — single use, valid for {INVITE_DAYS} days. Forward one of the links:\n"
+            f"• via Telegram: {inv['tg_url']}\n• in the app, no Telegram: {inv['url']}\n"
+            f"(or the code {inv['code']} on the Proyavka sign-in screen)\n\n"
+            "They get their own feed, frames and camera; you don't see their frames and they don't see yours. "
+            "Technically, the server admin can open any file on it."))
     elif t == "/users" and uid == ADMIN:
         text, kb = users_screen()
         tg("sendMessage", chat_id=uid, text=text, reply_markup=kb)
@@ -2156,9 +2231,56 @@ def bot_username():
 
 
 def make_invite(by):
-    code = secrets.token_urlsafe(9)          # 12 символов: буквы, цифры, - и _ — годится для ?start=
+    """Одноразовое приглашение: тот же код годится и в «Проявке» (без Telegram), и в боте (/start <код>)."""
+    code = "".join(secrets.choice(PAIR_ALPHABET) for _ in range(PAIR_LEN))
     run("INSERT INTO invites(code, created, by) VALUES (?,?,?)", (code, time.time(), by))
-    return f"https://t.me/{bot_username()}?start={code}"
+    return code
+
+
+def invite_links(code):
+    return {"code": show_code(code), "url": f"{WEBAPP_URL.rstrip('/')}/#pair={code}" if WEBAPP_URL else "",
+            "tg_url": f"https://t.me/{bot_username()}?start={code}" if BOT_TOKEN else ""}
+
+
+INVITED_BY = {}
+
+
+def use_invite(code, new_uid):
+    """Погасить приглашение за новым пользователем. Кто пригласил — в INVITED_BY[new_uid]."""
+    fresh = time.time() - INVITE_DAYS * 86400
+    for c in dict.fromkeys((str(code or "").strip(), norm_code(code))):
+        if c and run_count("UPDATE invites SET used_by=?, used_at=? WHERE code=? AND used_by IS NULL AND created > ?",
+                           (new_uid, time.time(), c, fresh)) == 1:
+            INVITED_BY[new_uid] = q("SELECT by FROM invites WHERE code=?", (c,))[0]["by"]
+            return True
+    return False
+
+
+def invite_open(code):
+    return bool(q("SELECT 1 FROM invites WHERE code=? AND used_by IS NULL AND created > ?",
+                  (norm_code(code), time.time() - INVITE_DAYS * 86400)))
+
+
+JOIN_LOCK = threading.Lock()
+
+
+def join_by_invite(code, name, device_name):
+    """Новый пользователь из «Проявки» по коду приглашения: номер с WEB_BASE, сразу и устройство."""
+    name = re.sub(r"[\x00-\x1f<>]", "", str(name or "")).strip()[:40]
+    if not name:
+        raise ValueError(L("как тебя зовут?", "what is your name?"))
+    with JOIN_LOCK:
+        top = q("SELECT MAX(id) AS m FROM users WHERE id >= ?", (WEB_BASE,))[0]["m"]
+        uid = max(top or WEB_BASE, WEB_BASE) + 1
+        if not use_invite(code, uid):
+            return None
+        run("INSERT INTO users(id, role, name, lang, default_film, created, invited_by) VALUES (?, 'user', ?, ?, 'auto', ?, ?)",
+            (uid, name, cur_lang(), time.time(), INVITED_BY.pop(uid, None)))
+        load_users()
+    log.info("новый пользователь %s (%d) по приглашению, без Telegram", name, uid)
+    with speak(ADMIN):
+        safe("sendMessage", chat_id=ADMIN, text=L("По приглашению пришёл", "Joined by invite") + f": {name}")
+    return create_device(uid, device_name)
 
 
 def tg_name(fr):
@@ -2176,14 +2298,25 @@ def on_stranger(msg):
     lang = "ru" if (fr.get("language_code") or "").split("-")[0] in ("ru", "uk", "be", "kk") else "en"
     _CTX.lang = lang
     text = (msg.get("text") or "").strip()
+    if text.startswith("/start link_"):          # «Подключить Telegram» в настройках «Проявки»
+        owner = take_pair(text.split("link_", 1)[1], "tg")
+        if owner in USERS and not USERS[owner].get("tg"):
+            set_user(owner, tg=uid)
+            log.info("Telegram %d привязан к %d", uid, owner)
+            with speak(owner):
+                set_commands(owner)
+                tg("sendMessage", chat_id=owner, reply_markup=menu(), text=L(
+                    "Telegram привязан к «Проявке». Новые кадры будут приходить и сюда, с кнопками.\n\n",
+                    "Telegram is linked to Proyavka. New frames will arrive here too, with buttons.\n\n") + help_text(owner))
+        else:
+            safe("sendMessage", chat_id=uid, text=L("Ссылка устарела — возьми новую в «Проявке»: ⋯ → Telegram.",
+                                                    "The link has expired — get a new one in Proyavka: ⋯ → Telegram."))
+        return
     if text.startswith("/start "):
         code = text.split(maxsplit=1)[1].strip()
-        fresh = time.time() - INVITE_DAYS * 86400
-        if run_count("UPDATE invites SET used_by=?, used_at=? WHERE code=? AND used_by IS NULL AND created > ?",
-                     (uid, time.time(), code, fresh)) == 1:
-            by = q("SELECT by FROM invites WHERE code=?", (code,))[0]["by"]
-            run("INSERT OR REPLACE INTO users(id, role, name, lang, default_film, created, invited_by) "
-                "VALUES (?, 'user', ?, ?, 'auto', ?, ?)", (uid, tg_name(fr), lang, time.time(), by))
+        if use_invite(code, uid):
+            run("INSERT OR REPLACE INTO users(id, role, name, lang, default_film, created, invited_by, tg) "
+                "VALUES (?, 'user', ?, ?, 'auto', ?, ?, ?)", (uid, tg_name(fr), lang, time.time(), INVITED_BY.pop(uid, None), uid))
             load_users()
             log.info("новый пользователь %s (%d)", tg_name(fr), uid)
             with speak(uid):
@@ -2225,7 +2358,19 @@ def users_screen():
     return "\n".join(lines), {"inline_keyboard": kb}
 
 
-LIMITS_GB = [2, 5, 10, 20, 50, 100]
+LIMITS_GB = [1, 2, 5, 10, 20, 50, 100, 200, 500]
+
+
+def set_limit(uid, gb):
+    """Лимит места. Свой у администратора — это STORAGE_GB в config.env (его же меняет мастер установки)."""
+    global STORAGE_GB
+    if uid == ADMIN:
+        save_config("STORAGE_GB", f"{gb:g}")
+        STORAGE_GB = gb
+        set_user(uid, storage_gb=None)
+    else:
+        set_user(uid, storage_gb=gb)
+    threading.Thread(target=enforce_limit, args=(uid,), daemon=True).start()   # лимит уменьшили — освободить место
 
 
 def delete_user(uid):
@@ -2249,6 +2394,9 @@ def delete_user(uid):
             log.warning("camera of %d: %s", uid, e)
     for tok in [t for t, v in SESSIONS.items() if v[1] == uid]:
         SESSIONS.pop(tok, None)
+        SESSION_DEV.pop(tok, None)
+    run("DELETE FROM devices WHERE owner=?", (uid,))
+    run("DELETE FROM pairs WHERE uid=?", (uid,))
     with speak(uid):
         bye = L("Доступ к боту закрыт.", "Your access to the bot was removed.")
     run("DELETE FROM users WHERE id=?", (uid,))
@@ -2269,6 +2417,8 @@ def set_commands(uid):
         {"command": "trash", "description": L("Корзина: вернуть удалённое", "Trash: bring back deleted frames")},
         {"command": "luts", "description": L("Свои LUT (.cube)", "Your own LUTs (.cube)")},
         {"command": "camera", "description": L("Настройка камеры: файлы и инструкция", "Camera setup: files and guide")},
+        {"command": "link", "description": L("Открыть «Проявку» в браузере, на ПК", "Open Proyavka in a browser, on a PC")},
+        {"command": "devices", "description": L("Устройства с «Проявкой» без Telegram", "Devices using Proyavka outside Telegram")},
         {"command": "lang", "description": L("English", "Русский")},
         {"command": "help", "description": L("Как пользоваться", "How to use")},
     ]
@@ -2300,41 +2450,77 @@ def cam_helper(action, name, stdin=""):
     return res.stdout
 
 
+# пароль FTP вводят на камере: только строчные и цифры без похожих (l/1, o/0) — 32^10 ≈ 10^15 вариантов
+FTP_ALPHABET = "abcdefghijkmnpqrstuvwxyz23456789"
+
+
+def easy_password(n=10):
+    return "".join(secrets.choice(FTP_ALPHABET) for _ in range(n))
+
+
+def new_ftp_password(uid):
+    """Сменить пароль FTP камеры на новый короткий (старый перестаёт работать)."""
+    pw = easy_password()
+    try:
+        if uid == ADMIN:
+            cam_helper("passwd", "camera", pw + "\n")
+            save_config("FTP_PASS", pw)
+            os.environ["FTP_PASS"] = pw
+        else:
+            u = ensure_camera(uid)
+            cam_helper("add", f"u{uid}", f"{pw}\n{hashlib.sha256(u['cam_token'].encode()).hexdigest()}\n")
+            set_user(uid, ftp_pass=pw)
+    except Exception as e:
+        log.warning("ftp password for %d: %s", uid, e)
+        raise RuntimeError(L("Не получилось сменить пароль: сервер-приёмник от прежней версии — администратору: setup.py → «Обновить».",
+                             "Could not change the password: the receiving server is from an older version — admin: setup.py → Update."))
+    log.info("пароль FTP сменён у %d", uid)
+
+
 def ensure_camera(uid):
     """Свои ключи камеры: токен приложения на Sony и FTP-пользователь со своей папкой. Создаются при первом /camera."""
     u = user(uid)
     if u.get("cam_token"):
         return u
-    token, pw = secrets.token_urlsafe(32), secrets.token_urlsafe(12)
+    token, pw = secrets.token_urlsafe(32), easy_password()
     cam_helper("add", f"u{uid}", f"{pw}\n{hashlib.sha256(token.encode()).hexdigest()}\n")
     set_user(uid, cam_token=token, ftp_pass=pw)
     VPS_WATCH_RESTART.set()                   # новая папка — пусть мгновенные уведомления смотрят и её
     return user(uid)
 
 
+def camera_access(uid):
+    """FTP-вход и config.txt для камеры пользователя (у администратора — общий вход и файл мастера установки)."""
+    domain = os.environ.get("DOMAIN", "")
+    if uid == ADMIN:
+        conf = CAMERA_CONFIG.read_bytes() if CAMERA_CONFIG.exists() else None
+        return "camera", os.environ.get("FTP_PASS", "—"), conf
+    try:
+        u = ensure_camera(uid)
+    except Exception as e:
+        log.warning("camera for %d: %s", uid, e)
+        with speak(ADMIN):
+            safe("sendMessage", chat_id=ADMIN, text=L(
+                f"Не получилось завести камеру для {u_name(uid)}: {e}\n"
+                "Скорее всего, сервер-приёмник от прежней версии: запусти setup.py → «Обновить».",
+                f"Could not set up a camera for {u_name(uid)}: {e}\n"
+                "The receiving server is probably from an older version: run setup.py → \"Update\"."))
+        raise RuntimeError(L("Не получилось завести камеру на сервере. Напиши администратору.",
+                             "Could not set up a camera on the server. Please tell the admin."))
+    conf = (L("# Настройки приложения «Проявка» для камеры Sony. Положи на карту в папку PROYAVKA.",
+              "# Settings of the Proyavka app for Sony cameras. Put on the card into the PROYAVKA folder.")
+            + f"\n\nurl = https://{domain}\ntoken = {u['cam_token']}\nlang = {user_lang(uid)}\n").encode()
+    return f"u{uid}", u["ftp_pass"], conf
+
+
 def send_camera_setup(uid):
     """Всё, что нужно положить в камеру, — файлами в чат: скачал, скинул на карту, готово."""
     domain = os.environ.get("DOMAIN", "")
-    if uid == ADMIN:
-        ftp_user, pw, conf = "camera", os.environ.get("FTP_PASS", "—"), None
-    else:
-        try:
-            u = ensure_camera(uid)
-        except Exception as e:
-            log.warning("camera for %d: %s", uid, e)
-            tg("sendMessage", chat_id=uid, text=L("Не получилось завести камеру на сервере. Напиши администратору бота.",
-                                                  "Could not set up a camera on the server. Please tell the bot admin."))
-            with speak(ADMIN):
-                safe("sendMessage", chat_id=ADMIN, text=L(
-                    f"Не получилось завести камеру для {u_name(uid)}: {e}\n"
-                    "Скорее всего, сервер-приёмник от прежней версии: запусти setup.py → «Обновить».",
-                    f"Could not set up a camera for {u_name(uid)}: {e}\n"
-                    "The receiving server is probably from an older version: run setup.py → \"Update\"."))
-            return
-        ftp_user, pw = f"u{uid}", u["ftp_pass"]
-        conf = (L("# Настройки приложения «Проявка» для камеры Sony. Положи на карту в папку PROYAVKA.",
-                  "# Settings of the Proyavka app for Sony cameras. Put on the card into the PROYAVKA folder.")
-                + f"\n\nurl = https://{domain}\ntoken = {u['cam_token']}\nlang = {user_lang(uid)}\n").encode()
+    try:
+        ftp_user, pw, conf = camera_access(uid)
+    except RuntimeError as e:
+        tg("sendMessage", chat_id=uid, text=str(e))
+        return
     guide = f"{PROJECT_URL}/blob/main/docs"
     ext = ".md" if cur_lang() == "en" else ".ru.md"
     text = L(
@@ -2366,9 +2552,6 @@ def send_camera_setup(uid):
     cap = L("config.txt → на карту в папку PROYAVKA", "config.txt → onto the card, into the PROYAVKA folder")
     if conf:
         tg("sendDocument", files={"document": ("config.txt", io.BytesIO(conf))}, chat_id=uid, caption=cap)
-    elif CAMERA_CONFIG.exists():
-        with open(CAMERA_CONFIG, "rb") as f:
-            tg("sendDocument", files={"document": ("config.txt", f)}, chat_id=uid, caption=cap)
     if FTP_ROOT_CERT.exists():
         with open(FTP_ROOT_CERT, "rb") as f:
             tg("sendDocument", files={"document": ("cacert.pem", f)}, chat_id=uid,
@@ -2388,7 +2571,7 @@ def on_callback(cb, uid):
     notes = {"p": dev, "cp": dev, "s": dev, "t": dev, "l": dev, "ls": dev,
              "f": L("Готовлю файл, пришлю в чат", "Preparing the file, will send it to the chat"),
              "c": L("Собираю лист…", "Building the sheet…"), "dely": L("Убираю в корзину", "Moving to trash"),
-             "r": L("Возвращаю", "Restoring")}
+             "r": L("Возвращаю", "Restoring"), "dv": L("Устройство отключено", "Device removed")}
     safe("answerCallbackQuery", callback_query_id=cb["id"], text=notes.get(kind))
     if kind == "x":
         return
@@ -2403,6 +2586,12 @@ def on_callback(cb, uid):
         return
     if kind == "tp":
         send_trash(uid, int(parts[1]), mid)
+        return
+    if kind == "dv":
+        if len(parts) > 1 and parts[1].isdigit():
+            drop_device(uid, int(parts[1]))
+        text, kb = devices_screen(uid)
+        safe("editMessageText", chat_id=uid, message_id=mid, text=text, reply_markup=kb)
         return
     if kind in ("lx", "lxy", "lxb"):
         key = f"lut{parts[1]}" if len(parts) > 1 else ""
@@ -2566,7 +2755,7 @@ def handle_updates(state):
         try:
             if "callback_query" in u:
                 cb = u["callback_query"]
-                uid = cb["from"]["id"]
+                uid = uid_of_tg(cb["from"]["id"])
                 if user(uid):
                     with speak(uid):
                         on_callback(cb, uid)
@@ -2576,11 +2765,11 @@ def handle_updates(state):
             msg = u.get("message") or {}
             if msg.get("chat", {}).get("type") != "private":
                 continue
-            uid = (msg.get("from") or {}).get("id")
+            uid = uid_of_tg((msg.get("from") or {}).get("id"))
             if not user(uid):
                 on_stranger(msg)
                 continue
-            if user(uid)["name"] != tg_name(msg["from"]):       # для /users: имя, как в Telegram
+            if uid < WEB_BASE and user(uid)["name"] != tg_name(msg["from"]):    # для /users: имя, как в Telegram
                 set_user(uid, name=tg_name(msg["from"]))
             with speak(uid):
                 if "document" in msg and (msg["document"].get("file_name") or "").lower().endswith(".cube"):
@@ -2969,6 +3158,337 @@ def ingest_loop(state):
             time.sleep(1)
 
 
+# ================= устройства: «Проявка» в браузере и как приложение =================
+# Вне Telegram устройство входит своим ключом. Привязка — одноразовый код на 10 минут (короткий, чтобы вписать руками,
+# и он же в ссылке и QR): его дают /link в боте или уже привязанное устройство. Браузер меняет код на постоянный ключ;
+# на сервере — только sha256 ключа. Ключ лежит и в localStorage, и в cookie: iPhone при добавлении на экран «Домой»
+# может перенести cookie из Safari, а localStorage — нет. Отозвать — /devices или «Устройства» в «Проявке».
+try:
+    import segno                      # QR-коды; без него — только ссылки
+except ImportError:
+    segno = None
+
+PAIR_TTL = 600                        # коды лежат в таблице pairs: их выдаёт и мастер установки (filmbot.py --pair)
+SESSION_DEV = {}                      # токен сессии -> id устройства, с которого вошли
+AUTH_FAILS = {}                       # ip -> времена неудачных попыток войти кодом или ключом
+FAIL_WINDOW, FAIL_MAX = 600, 20
+FAIL_MAX_ALL = 500                    # неудачных кодов со всех адресов за окно — дальше привязка ждёт
+PAIR_ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"     # без 0/O, 1/I/L — чтобы не путать, вписывая руками
+PAIR_LEN = 8                          # 31^8 ≈ 8·10^11 вариантов на 10 минут при 20 попытках с адреса
+DEV_COOKIE = "proyavka_device"
+ZIP_MAX = 200                         # кадров в одном архиве
+
+
+def key_hash(key):
+    return hashlib.sha256(key.encode()).hexdigest()
+
+
+def new_pair(uid, kind="device"):
+    """Одноразовый код (и ссылка с ним): kind=device — войти новым устройством, tg — привязать Telegram."""
+    if kind == "device" and not WEBAPP_URL:
+        raise RuntimeError(L("«Проявка» не настроена: пустой WEBAPP_URL", "Proyavka is not set up: WEBAPP_URL is empty"))
+    now = time.time()
+    code = "".join(secrets.choice(PAIR_ALPHABET) for _ in range(PAIR_LEN))
+    run("DELETE FROM pairs WHERE exp < ?", (now,))
+    run("INSERT INTO pairs(code, uid, exp, kind) VALUES (?,?,?,?)", (code, uid, now + PAIR_TTL, kind))
+    return code, f"{WEBAPP_URL.rstrip('/')}/#pair={code}"      # код в «#» не уходит на сервер и в журналы nginx
+
+
+def take_pair(code, kind):
+    """Погасить код: пользователь или None. Срабатывает один раз."""
+    code = norm_code(code)
+    with DB_LOCK:
+        row = db.execute("SELECT uid, exp FROM pairs WHERE code=? AND kind=?", (code, kind)).fetchone()
+        if row:
+            db.execute("DELETE FROM pairs WHERE code=?", (code,))
+            db.commit()
+    return row[0] if row and row[1] >= time.time() else None
+
+
+def make_pair(uid):
+    return new_pair(uid)[1]
+
+
+def show_code(code):
+    return f"{code[:4]}-{code[4:]}"
+
+
+def norm_code(code):
+    return re.sub(r"[^A-Z0-9]", "", str(code or "").upper())
+
+
+def qr_svg(text):
+    return segno.make(text, error="m").svg_inline(scale=5, border=2, dark="#000", light="#fff") if segno else None
+
+
+def qr_png(text):
+    buf = io.BytesIO()
+    segno.make(text, error="m").save(buf, kind="png", scale=10, border=3)
+    return buf.getvalue()
+
+
+def clean_device_name(name):
+    name = re.sub(r"[\x00-\x1f<>]", "", str(name or ""))[:60].strip()
+    return name or L("Браузер", "Browser")
+
+
+def pair_device(code, name):
+    """Код из ссылки -> (ключ, пользователь, id устройства) или None. Код срабатывает один раз."""
+    uid = take_pair(code, "device")
+    if uid not in USERS:
+        return None
+    return create_device(uid, name)
+
+
+def create_device(uid, name):
+    key = secrets.token_urlsafe(32)
+    now = time.time()
+    did = run("INSERT INTO devices(owner, name, hash, created, seen) VALUES (?,?,?,?,?)",
+              (uid, clean_device_name(name), key_hash(key), now, now))
+    log.info("устройство #%d привязано к %d", did, uid)
+    return key, uid, did
+
+
+def device_by_key(key):
+    key = str(key or "")
+    if not 20 <= len(key) <= 100:
+        return None
+    rows = q("SELECT * FROM devices WHERE hash=?", (key_hash(key),))
+    if not rows or rows[0]["owner"] not in USERS:
+        return None
+    run("UPDATE devices SET seen=? WHERE id=?", (time.time(), rows[0]["id"]))
+    return rows[0]
+
+
+def user_devices(uid):
+    return q("SELECT id, name, created, seen FROM devices WHERE owner=? ORDER BY seen DESC", (uid,))
+
+
+def drop_device(uid, did):
+    n = run_count("DELETE FROM devices WHERE id=? AND owner=?", (did, uid))
+    for tok in [t for t, d in SESSION_DEV.items() if d == did]:
+        SESSION_DEV.pop(tok, None)
+        SESSIONS.pop(tok, None)
+    return n
+
+
+def too_many_fails(ip, everyone=False):
+    now = time.time()
+    for k in [ip] + (["*"] if everyone else []):
+        if k:
+            AUTH_FAILS[k] = [t for t in AUTH_FAILS.get(k, []) if now - t < FAIL_WINDOW]
+    if everyone and len(AUTH_FAILS.get("*", [])) >= FAIL_MAX_ALL:     # подбор с множества адресов сразу
+        return True
+    return bool(ip) and len(AUTH_FAILS.get(ip, [])) >= FAIL_MAX
+
+
+def note_fail(ip):
+    AUTH_FAILS.setdefault("*", []).append(time.time())
+    if ip:
+        AUTH_FAILS.setdefault(ip, []).append(time.time())
+    time.sleep(0.5)          # подбирать 128-битный код и так безнадёжно, а так ещё и медленно
+
+
+def devices_screen(uid):
+    rows = user_devices(uid)
+    if not rows:
+        return L("Устройств без Telegram пока нет. /link — ссылка и QR, чтобы открыть «Проявку» в браузере "
+                 "на компьютере или поставить на телефон как приложение.",
+                 "No devices outside Telegram yet. /link gives a link and a QR code to open Proyavka in a browser "
+                 "on a computer or install it on a phone as an app."), None
+    lines = [L("Где открыта «Проявка» без Telegram:", "Where Proyavka is open outside Telegram:")]
+    lines += [f"• {r['name']} — " + L("заходил ", "last seen ") + datetime.fromtimestamp(r["seen"]).strftime("%d.%m %H:%M")
+              for r in rows]
+    lines.append(L("\nНажми на устройство, чтобы отключить его.", "\nTap a device to remove it."))
+    return "\n".join(lines), {"inline_keyboard": [[btn("✕ " + r["name"][:30], f"dv:{r['id']}")] for r in rows]}
+
+
+def send_link(uid):
+    try:
+        code, link = new_pair(uid)
+    except RuntimeError as e:
+        tg("sendMessage", chat_id=uid, text=str(e))
+        return
+    site = html_esc(WEBAPP_URL)
+    text = L(f"Код для нового устройства: <code>{show_code(code)}</code>\n(нажми на код — он скопируется; одноразовый, 10 минут)\n\n"
+             f"<b>iPhone:</b> открой {site} в Safari → «Поделиться» → «На экран „Домой“», запусти «Проявку» с иконки "
+             "и вставь код. Вход из браузера в приложение на iPhone не переносится — код вводится уже в приложении.\n"
+             "<b>Android, компьютер:</b> наведи камеру на QR или открой ссылку кнопкой ниже, потом "
+             "«Установить приложение» в меню браузера.\n\nСписок устройств и отключение — /devices.",
+             f"Code for a new device: <code>{show_code(code)}</code>\n(tap the code to copy it; single use, 10 minutes)\n\n"
+             f"<b>iPhone:</b> open {site} in Safari → Share → Add to Home Screen, launch Proyavka from the icon and "
+             "paste the code. On iPhone a browser sign-in does not carry over to the app — enter the code in the app.\n"
+             "<b>Android, computer:</b> point the camera at the QR code or open the link with the button below, then "
+             "Install app in the browser menu.\n\nDevices and removing them: /devices.")
+    kb = {"inline_keyboard": [[{"text": L("Открыть в браузере", "Open in browser"), "url": link}]]}
+    if segno:
+        tg("sendPhoto", files={"photo": ("qr.png", qr_png(link))}, chat_id=uid, caption=text, reply_markup=kb, parse_mode="HTML")
+    else:
+        tg("sendMessage", chat_id=uid, text=text, reply_markup=kb, disable_web_page_preview=True, parse_mode="HTML")
+
+
+def html_esc(t):
+    return str(t).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+
+BOT_RESET = threading.Event()        # бота подключили или сменили — читать обновления с начала
+
+
+def connect_bot(token):
+    """Подключить Telegram-бота из настроек «Проявки»: проверить токен, сохранить в config.env, включить без перезапуска."""
+    global BOT_TOKEN
+    token = str(token or "").strip()
+    if not re.fullmatch(r"\d+:[\w-]{30,}", token):
+        raise ValueError(L("не похоже на токен: цифры, двоеточие, длинная строка", "doesn't look like a token: digits, a colon, a long string"))
+    try:
+        j = requests.post(f"https://api.telegram.org/bot{token}/getMe", timeout=20).json()
+    except Exception as e:
+        raise ValueError(L("Telegram недоступен", "Telegram is unreachable") + f": {e}")
+    if not j.get("ok"):
+        raise ValueError(L("Telegram не принял токен", "Telegram rejected the token") + f": {j.get('description')}")
+    save_config("BOT_TOKEN", token)
+    BOT_TOKEN = token
+    BOT_NAME.clear()
+    BOT_NAME["u"] = j["result"]["username"]
+    BOT_RESET.set()
+    safe("deleteWebhook")
+    log.info("подключён бот @%s", BOT_NAME["u"])
+    return BOT_NAME["u"]
+
+
+def save_config(key, value):
+    """Поменять одну строку в config.env (остальное как было)."""
+    path = Path(os.environ.get("CONFIG_FILE") or Path(__file__).resolve().parent.parent / "config.env")
+    lines = path.read_text(encoding="utf-8").splitlines() if path.exists() else []
+    out, done = [], False
+    for line in lines:
+        if line.split("=", 1)[0].strip() == key:
+            if not done:
+                out.append(f"{key}={value}")
+            done = True
+        else:
+            out.append(line)
+    if not done:
+        out.append(f"{key}={value}")
+    tmp = path.with_name(path.name + ".tmp")
+    tmp.write_text("\n".join(out) + "\n", encoding="utf-8")
+    os.chmod(tmp, 0o600)
+    os.replace(tmp, path)
+
+
+def bot_name_safe():
+    try:
+        return bot_username() if BOT_TOKEN else None
+    except Exception:
+        return None
+
+
+def me_json(uid):
+    u = user(uid) or {}
+    n = q("SELECT SUM(hidden=0) AS n, SUM(hidden=1 AND work IS NOT NULL) AS t FROM photos WHERE owner=?", (uid,))[0]
+    return {"id": uid, "name": u.get("name") or "", "admin": uid == ADMIN, "lang": user_lang(uid),
+            "default_film": u.get("default_film") or "auto", "used": sum(user_usage(uid).values()),
+            "limit": storage_limit(uid) * 1e9, "frames": n["n"] or 0, "trash": n["t"] or 0, "orig_days": ORIG_DAYS,
+            "telegram": {"bot": bot_name_safe(), "linked": bool(u.get("tg")),
+                         "can_unlink": uid >= WEB_BASE and bool(u.get("tg"))}}
+
+
+def set_me(uid, data):
+    kw = {}
+    if "lang" in data:
+        if data["lang"] not in ("ru", "en"):
+            raise ValueError("lang")
+        kw["lang"] = data["lang"]
+    if "default_film" in data:
+        k = canon(str(data["default_film"]))
+        if k != "auto" and not valid_look(k, uid):
+            raise ValueError(L("неизвестная плёнка", "unknown film"))
+        kw["default_film"] = k
+    if "name" in data:
+        name = re.sub(r"[\x00-\x1f<>]", "", str(data["name"])).strip()[:40]
+        if name:
+            kw["name"] = name
+    if kw:
+        set_user(uid, **kw)
+        if "lang" in kw:
+            with speak(uid):
+                set_commands(uid)
+    return me_json(uid)
+
+
+def users_json():
+    rows = q("SELECT u.*, (SELECT COUNT(*) FROM photos p WHERE p.owner=u.id AND p.hidden=0) AS n FROM users u "
+             "ORDER BY u.role='admin' DESC, u.created")
+    return [{"id": u["id"], "name": u["name"] or (L("Администратор", "Admin") if u["id"] == ADMIN else str(u["id"])), "admin": u["id"] == ADMIN, "frames": u["n"],
+             "used": sum(user_usage(u["id"]).values()), "limit": storage_limit(u["id"]) * 1e9, "telegram": bool(u["tg"])}
+            for u in rows]
+
+
+def camera_json(uid):
+    domain = os.environ.get("DOMAIN", "")
+    ftp_user, pw, conf = camera_access(uid)
+    guide = f"{PROJECT_URL}/blob/main/docs"
+    ext = ".md" if cur_lang() == "en" else ".ru.md"
+    return {"domain": domain, "ftp_user": ftp_user, "ftp_pass": pw, "config": bool(conf) or CAMERA_CONFIG.exists(),
+            "cert": FTP_ROOT_CERT.exists(), "guide_app": f"{guide}/sony-app{ext}", "guide_ftp": f"{guide}/ftp-cameras{ext}"}
+
+
+def download_name(ph):
+    return f"{Path(ph['name']).stem}_{ph['preset']}.jpg"
+
+
+def disposition(name):
+    ascii_name = re.sub(r"[^A-Za-z0-9._-]", "_", name) or "photo.jpg"
+    return f"attachment; filename=\"{ascii_name}\"; filename*=UTF-8''{quote(name)}"
+
+
+ICONS = {}
+
+
+def app_icon(size):
+    """Значок приложения: светлое пятно с ореолом халяции на чёрном (рисуется один раз)."""
+    if size not in ICONS:
+        s = size * 2
+        c, r = s / 2, s * 0.24
+        glow = Image.new("RGB", (s, s))
+        ImageDraw.Draw(glow).ellipse((c - r * 1.25, c - r * 1.25, c + r * 1.25, c + r * 1.25), fill=(255, 72, 24))
+        im = glow.filter(ImageFilter.GaussianBlur(s * 0.07))
+        ImageDraw.Draw(im).ellipse((c - r, c - r, c + r, c + r), fill=(255, 248, 236))
+        buf = io.BytesIO()
+        im.resize((size, size), Image.LANCZOS).save(buf, "PNG", optimize=True)
+        ICONS[size] = buf.getvalue()
+    return ICONS[size]
+
+
+def manifest():
+    name = L("Проявка", "Proyavka")
+    icons = [{"src": f"/icon-{n}.png", "sizes": f"{n}x{n}", "type": "image/png", "purpose": "any maskable"} for n in (192, 512)]
+    return {"name": name, "short_name": name, "start_url": "/", "scope": "/", "display": "standalone",
+            "background_color": "#000000", "theme_color": "#000000", "icons": icons}
+
+
+# Сервис-воркер нужен, чтобы «Проявку» можно было поставить как приложение. Хранит только саму страницу —
+# на случай, если сеть пропала; кадры и API идут мимо него.
+SW_JS = """const CACHE = "proyavka-shell-v1";
+self.addEventListener("install", () => self.skipWaiting());
+self.addEventListener("activate", (e) => e.waitUntil(self.clients.claim()));
+self.addEventListener("fetch", (e) => {
+  if (e.request.mode !== "navigate") return;
+  e.respondWith(fetch(e.request).then((res) => {
+    if (res.ok) { const copy = res.clone(); caches.open(CACHE).then((c) => c.put("/", copy)); }
+    return res;
+  }).catch(() => caches.match("/")));
+});
+"""
+
+# Страница — из одного файла, поэтому скрипт и стили встроенные; зато грузить что-то с чужих адресов и
+# отправлять куда-то, кроме своего сервера, ей нельзя.
+CSP = ("default-src 'self'; script-src 'self' 'unsafe-inline' https://telegram.org; "
+       "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; "
+       "img-src 'self' data: blob:; connect-src 'self'; worker-src 'self'; manifest-src 'self'; "
+       "object-src 'none'; base-uri 'none'; form-action 'none'")
+
+
 # ================= Mini App: веб-сервер =================
 SESSIONS = {}          # token -> (срок годности, пользователь)
 SESSION_TTL = 12 * 3600
@@ -3179,15 +3699,109 @@ class Handler(BaseHTTPRequestHandler):
     def log_message(self, fmt, *args):
         pass
 
-    def send(self, code, body, ctype="application/json; charset=utf-8", cache="no-store"):
+    def send(self, code, body, ctype="application/json; charset=utf-8", cache="no-store", headers=None):
         if isinstance(body, str):
             body = body.encode()
         self.send_response(code)
         self.send_header("Content-Type", ctype)
         self.send_header("Content-Length", str(len(body)))
         self.send_header("Cache-Control", cache)
+        self.common_headers()
+        for k, v in (headers or {}).items():
+            self.send_header(k, v)
         self.end_headers()
         self.wfile.write(body)
+
+    def common_headers(self):
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header("Referrer-Policy", "no-referrer")       # токен сессии бывает в ссылках на картинки
+
+    def device_cookie(self, key):
+        return {"Set-Cookie": f"{DEV_COOKIE}={key}; Path=/; Max-Age=31536000; HttpOnly; Secure; SameSite=Strict"}
+
+    def cookie_key(self):
+        c = SimpleCookie()
+        try:
+            c.load(self.headers.get("Cookie") or "")
+        except Exception:
+            return ""
+        return c[DEV_COOKIE].value if DEV_COOKIE in c else ""
+
+    def ip(self):
+        """Адрес клиента от nginx (бот слушает только 127.0.0.1). Без заголовка — неизвестен."""
+        return self.headers.get("X-Real-IP")
+
+    def new_session(self, uid, old="", did=None):
+        now = time.time()
+        for k in [k for k, v in SESSIONS.items() if v[0] < now]:
+            SESSIONS.pop(k, None)
+            SESSION_DEV.pop(k, None)
+        # повторный вход из уже открытой ленты продлевает прежний токен: на нём ссылки на все картинки
+        old = str(old or "")
+        was = SESSIONS.get(old)
+        tok = old if len(old) >= 32 and (was is None or was[1] == uid) and SESSION_DEV.get(old) in (None, did) else secrets.token_urlsafe(24)
+        SESSIONS[tok] = (now + SESSION_TTL, uid)
+        if did:
+            SESSION_DEV[tok] = did
+        return tok
+
+    def send_full(self, ph):
+        """Кадр в полном размере файлом — «Скачать» вне Telegram."""
+        if has(ph["work"]) or has(ph["src"]):
+            out = TMP / f"dl_{ph['id']}_{secrets.token_hex(4)}.jpg"
+            try:
+                HEAVY.submit(job_full, ph, str(out)).result(timeout=300)
+                body = out.read_bytes()
+            finally:
+                remove(str(out))
+        elif has(ph["view"]):                  # исходник удалён ради места — отдаём то, что осталось
+            body = Path(ph["view"]).read_bytes()
+        else:
+            return self.err(404, L("нет файла", "no file"))
+        return self.send(200, body, "image/jpeg", "private, no-store", {"Content-Disposition": disposition(download_name(ph))})
+
+    def send_zip(self, rows):
+        """Несколько кадров одним архивом. Пишется на ходу: кадр проявился — сразу ушёл, nginx не ждёт весь архив."""
+        self.send_response(200)
+        self.send_header("Content-Type", "application/zip")
+        self.send_header("Content-Disposition", disposition(f"proyavka_{datetime.now():%Y-%m-%d_%H%M}.zip"))
+        self.send_header("Cache-Control", "no-store")
+        self.common_headers()
+        self.send_header("Connection", "close")
+        self.end_headers()
+        self.close_connection = True
+
+        def start(ph):
+            if not (has(ph["work"]) or has(ph["src"])):
+                return ph, None, None
+            out = TMP / f"zip_{ph['id']}_{secrets.token_hex(4)}.jpg"
+            return ph, out, HEAVY.submit(job_full, ph, str(out))
+
+        todo, jobs, names = list(rows), [], set()
+        try:
+            with zipfile.ZipFile(self.wfile, "w", zipfile.ZIP_STORED) as z:
+                while todo or jobs:
+                    while todo and len(jobs) < 2:          # следующий кадр проявляется, пока текущий уходит
+                        jobs.append(start(todo.pop(0)))
+                    ph, out, fut = jobs.pop(0)
+                    try:
+                        if fut:
+                            fut.result(timeout=300)
+                        src = out if fut else (ph["view"] if has(ph["view"]) else None)
+                        if not src:
+                            continue
+                        name = download_name(ph)
+                        while name in names:
+                            name = f"{Path(name).stem}_{ph['id']}.jpg"
+                        names.add(name)
+                        z.write(src, name)
+                    finally:
+                        if out:
+                            remove(str(out))
+        finally:
+            for ph, out, fut in jobs:              # браузер оборвал скачивание — убрать недоделанное
+                if fut:
+                    fut.add_done_callback(lambda f, o=out: remove(str(o)))
 
     def js(self, obj, code=200):
         self.send(code, json.dumps(obj, ensure_ascii=False))
@@ -3244,7 +3858,14 @@ class Handler(BaseHTTPRequestHandler):
                 if not WEBAPP_HTML.exists():
                     return self.err(500, "webapp.html not found next to filmbot.py")
                 page = WEBAPP_HTML.read_bytes().replace(b'<html lang="ru"', f'<html lang="{LANG}"'.encode(), 1)
-                return self.send(200, page, "text/html; charset=utf-8")
+                return self.send(200, page, "text/html; charset=utf-8", headers={"Content-Security-Policy": CSP})
+            if parts == ["manifest.webmanifest"]:
+                return self.send(200, json.dumps(manifest(), ensure_ascii=False), "application/manifest+json", "max-age=3600")
+            if parts == ["sw.js"]:
+                return self.send(200, SW_JS, "text/javascript; charset=utf-8", "no-cache")
+            if parts in (["icon-192.png"], ["icon-512.png"], ["apple-touch-icon.png"]):
+                size = 180 if parts[0].startswith("apple") else int(parts[0][5:8])
+                return self.send(200, app_icon(size), "image/png", "max-age=86400")
             uid = self.authed(qs)
             if not uid:
                 return self.err(401, L("нужна авторизация через Telegram", "Telegram authorization required"))
@@ -3255,6 +3876,40 @@ class Handler(BaseHTTPRequestHandler):
                           for r in user_luts(uid)]
                 leaks = [{"key": k, "name": tr(v[0]), "desc": tr(v[1])} for k, v in LEAKS.items()]
                 return self.js({"presets": items, "strengths": STRENGTHS, "leaks": leaks})
+            if parts == ["api", "me"]:
+                return self.js(me_json(uid))
+            if parts == ["api", "trash"]:
+                rows = q("SELECT * FROM photos WHERE owner=? AND hidden=1 AND work IS NOT NULL "
+                         "ORDER BY deleted_at DESC, id DESC LIMIT 300", (uid,))
+                return self.js({"photos": [photo_json(r) for r in rows]})
+            if parts == ["api", "camera"]:
+                return self.js(camera_json(uid))
+            if parts in (["api", "camera", "config.txt"], ["api", "camera", "cacert.pem"]):
+                if parts[2] == "cacert.pem":
+                    body = FTP_ROOT_CERT.read_bytes() if FTP_ROOT_CERT.exists() else None
+                else:
+                    body = camera_access(uid)[2]
+                if not body:
+                    return self.err(404, L("нет файла", "no file"))
+                return self.send(200, body, "application/octet-stream", "no-store", {"Content-Disposition": disposition(parts[2])})
+            if parts == ["api", "users"]:
+                if uid != ADMIN:
+                    return self.err(403, L("только для администратора", "admin only"))
+                return self.js({"users": users_json(), "limits": LIMITS_GB})
+            if parts == ["api", "devices"]:
+                me = SESSION_DEV.get(self.headers.get("X-Token") or "")
+                return self.js({"devices": [dict(r, current=r["id"] == me) for r in user_devices(uid)]})
+            if len(parts) == 3 and parts[:2] == ["img", "full"]:
+                ph = self.mine(parts[2], uid)
+                if not ph or ph["hidden"]:
+                    return self.err(404, L("кадр не найден", "frame not found"))
+                return self.send_full(ph)
+            if parts == ["api", "zip"]:
+                ids = [int(x) for x in (qs.get("ids") or [""])[0].split(",") if x.isdigit()][:ZIP_MAX]
+                rows = [ph for ph in (self.mine(i, uid) for i in ids) if ph and not ph["hidden"]]
+                if not rows:
+                    return self.err(404, L("кадры не найдены", "frames not found"))
+                return self.send_zip(rows)
             if parts == ["api", "updates"]:
                 since = float((qs.get("since") or ["0"])[0])
                 now = time.time()
@@ -3323,24 +3978,97 @@ class Handler(BaseHTTPRequestHandler):
                     return self.js(add_lut(uid, (qs.get("name") or ["LUT"])[0], self.rfile.read(length)))
                 return self.js(receive_upload(self.rfile, length, (qs.get("name") or [""])[0], uid))
             data = self.body()
+            if parts == ["api", "pair"]:            # новое устройство: одноразовый код из ссылки -> постоянный ключ
+                if too_many_fails(self.ip(), everyone=True):
+                    return self.err(429, L("слишком много попыток, подожди 10 минут", "too many attempts, wait 10 minutes"))
+                got = pair_device(data.get("code"), data.get("name"))
+                if not got and invite_open(data.get("code")):      # код приглашения: новый пользователь
+                    if not str(data.get("user_name") or "").strip():
+                        return self.js({"need_name": True})
+                    got = join_by_invite(data.get("code"), data.get("user_name"), data.get("name"))
+                if not got:
+                    note_fail(self.ip())
+                    return self.err(403, L("код неверный, устарел или уже использован — возьми новый: /link в боте "
+                                           "или «⋯» → «Привязать устройство» в «Проявке»",
+                                           "the code is wrong, expired or already used — get a new one: /link in the bot "
+                                           "or ⋯ → Link a device in Proyavka"))
+                key, uid, did = got
+                body = {"token": self.new_session(uid, did=did), "device": key, "lang": user_lang(uid)}
+                return self.send(200, json.dumps(body, ensure_ascii=False), headers=self.device_cookie(key))
             if parts == ["api", "auth"]:
-                uid = check_init_data(data.get("initData", ""))
+                key = data.get("device") or (self.cookie_key() if data.get("cookie") else "")
+                if key:                             # браузер или приложение без Telegram
+                    if too_many_fails(self.ip()):
+                        return self.err(429, L("слишком много попыток, подожди 10 минут", "too many attempts, wait 10 minutes"))
+                    dev = device_by_key(key)
+                    if not dev:
+                        note_fail(self.ip())
+                        return self.err(401, L("это устройство отключено — привяжи его заново", "this device was removed — link it again"))
+                    body = {"token": self.new_session(dev["owner"], data.get("token"), dev["id"]), "lang": user_lang(dev["owner"])}
+                    if not data.get("device"):
+                        body["device"] = key        # пришёл по cookie (iPhone перенёс её в приложение) — ключ себе в localStorage
+                    return self.send(200, json.dumps(body, ensure_ascii=False), headers=self.device_cookie(key))
+                if data.get("cookie"):
+                    return self.err(401, L("это устройство ещё не привязано", "this device is not linked yet"))
+                uid = uid_of_tg(check_init_data(data.get("initData", "")))
                 if not uid or uid not in USERS:
                     return self.err(403, L("открой ленту из своего бота в Telegram", "open the feed from your bot in Telegram"))
-                now = time.time()
-                for k in [k for k, v in SESSIONS.items() if v[0] < now]:
-                    SESSIONS.pop(k, None)
-                # повторный вход из уже открытой ленты продлевает прежний токен: на нём ссылки на все картинки
-                old = str(data.get("token") or "")
-                was = SESSIONS.get(old)
-                tok = old if len(old) >= 32 and (was is None or was[1] == uid) else secrets.token_urlsafe(24)
-                SESSIONS[tok] = (now + SESSION_TTL, uid)
-                return self.js({"token": tok, "lang": user_lang(uid)})
+                return self.js({"token": self.new_session(uid, data.get("token")), "lang": user_lang(uid)})
             uid = self.authed(qs)
             if not uid:
                 return self.err(401, L("нужна авторизация через Telegram", "Telegram authorization required"))
             if parts == ["api", "batch"]:
                 return self.js(batch_action(data, uid))
+            if parts == ["api", "me"]:
+                return self.js(set_me(uid, data))
+            if len(parts) == 4 and parts[:2] == ["api", "photo"] and parts[3] == "restore":
+                ph = self.mine(parts[2], uid)
+                if not ph or not ph["hidden"]:
+                    return self.err(404, L("кадр не найден", "frame not found"))
+                restore_photo(ph)
+                return self.js({"ok": True})
+            if parts == ["api", "camera", "password"]:
+                new_ftp_password(uid)
+                return self.js(camera_json(uid))
+            if parts == ["api", "tg", "link"]:
+                if not BOT_TOKEN:
+                    return self.err(400, L("на этом сервере Telegram-бот не подключён", "no Telegram bot on this server"))
+                code = new_pair(uid, "tg")[0]
+                return self.js({"url": f"https://t.me/{bot_username()}?start=link_{code}", "bot": bot_username()})
+            if parts == ["api", "tg", "unlink"]:
+                if uid < WEB_BASE:
+                    return self.err(400, L("ты пришёл через Telegram — отвязать его нельзя", "you joined via Telegram — it can't be unlinked"))
+                safe("deleteMyCommands", scope={"type": "chat", "chat_id": uid})
+                set_user(uid, tg=None)
+                return self.js(me_json(uid))
+            if parts == ["api", "tg", "bot"]:
+                if uid != ADMIN:
+                    return self.err(403, L("только для администратора", "admin only"))
+                bot = connect_bot(data.get("token"))
+                return self.js({"bot": bot, **me_json(uid)})
+            if parts == ["api", "invite"]:
+                if uid != ADMIN:
+                    return self.err(403, L("только для администратора", "admin only"))
+                inv = invite_links(make_invite(uid))
+                return self.js({**inv, "qr": qr_svg(inv["url"]) if inv["url"] else None, "days": INVITE_DAYS})
+            if len(parts) == 4 and parts[:2] == ["api", "user"] and parts[2].isdigit() and uid == ADMIN:
+                target = int(parts[2])
+                if target not in USERS:
+                    return self.err(404, L("нет такого пользователя", "no such user"))
+                if parts[3] == "limit":
+                    gb = float(data.get("gb") or 0)
+                    if gb not in LIMITS_GB:
+                        return self.err(400, "gb")
+                    set_limit(target, gb)
+                    return self.js({"users": users_json()})
+                if parts[3] == "delete" and target != ADMIN:
+                    n = delete_user(target)
+                    return self.js({"users": users_json(), "deleted_frames": n})
+            if parts == ["api", "devices", "new"]:
+                code, link = new_pair(uid)
+                return self.js({"url": link, "code": show_code(code), "qr": qr_svg(link), "ttl": PAIR_TTL})
+            if len(parts) == 4 and parts[:2] == ["api", "device"] and parts[3] == "delete" and parts[2].isdigit():
+                return self.js({"ok": bool(drop_device(uid, int(parts[2])))})
             if len(parts) == 4 and parts[:2] == ["api", "lut"] and parts[3] == "delete":
                 return self.js({"ok": True, "moved": delete_lut(uid, parts[2])})
             if len(parts) >= 3 and parts[:2] == ["api", "photo"]:
@@ -3417,10 +4145,11 @@ def main():
     init_db()
     state = load_state()
     migrate_state(state)
-    safe("deleteMyCommands")                  # команды теперь у каждого свои (язык, /invite у администратора)
-    for uid in list(USERS):
-        with speak(uid):
-            set_commands(uid)
+    if BOT_TOKEN:
+        safe("deleteMyCommands")              # команды теперь у каждого свои (язык, /invite у администратора)
+        for uid in list(USERS):
+            with speak(uid):
+                set_commands(uid)
     for p in TMP.iterdir():
         remove(str(p))
     threading.Thread(target=dispatcher, daemon=True, name="dispatcher").start()
@@ -3431,10 +4160,23 @@ def main():
     threading.Thread(target=ingest_loop, args=(state,), daemon=True, name="ingest").start()
     backfill_fingerprints()
     backfill_views()
-    log.info("filmbot v6.0 started (%s), пользователей: %d", "локально" if LOCAL else VPS, len(USERS))
+    if RAW_MISSING:
+        log.warning("RAW включён, но нет библиотеки rawpy — RAW выключен. Поставить: .venv/bin/pip install rawpy "
+                    "(или setup.py --raw=1)")
+    log.info("filmbot v6.0 started (%s), пользователей: %d, Telegram: %s", "локально" if LOCAL else VPS, len(USERS),
+             "да" if BOT_TOKEN else "нет — только приложение")
     last_clean = 0.0
     while True:
-        handle_updates(state)       # главный поток занят только кнопками бота
+        if BOT_RESET.is_set():                # бота подключили из «Проявки»
+            BOT_RESET.clear()
+            state["offset"] = 0
+            for uid in list(USERS):
+                with speak(uid):
+                    set_commands(uid)
+        if BOT_TOKEN:
+            handle_updates(state)   # главный поток занят только кнопками бота
+        else:
+            time.sleep(1)
         now = time.time()
         if now - last_clean >= CLEANUP_MINUTES * 60:
             try:
@@ -3444,5 +4186,15 @@ def main():
             last_clean = now
 
 
+def pair_cli():
+    """filmbot.py --pair: код и QR для первого устройства администратора (зовёт мастер установки)."""
+    init_db()
+    code, link = new_pair(ADMIN)
+    print(link)
+    if segno:
+        segno.make(link, error="m").terminal(compact=True)
+    print(show_code(code))
+
+
 if __name__ == "__main__":
-    main()
+    pair_cli() if "--pair" in sys.argv else main()
