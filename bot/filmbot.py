@@ -126,6 +126,12 @@ STATE_FILE = BASE / "state.json"
 
 API = f"https://api.telegram.org/bot{BOT_TOKEN}"
 EXTS = {".jpg", ".jpeg", ".hif", ".heif", ".heic", ".png", ".webp"}   # png/webp — только свои фото из телефона
+# RAW (через LibRaw: pip install rawpy) — по желанию, RAW_FILES=1. Если камера шлёт RAW+JPEG, берётся JPEG.
+RAW_EXTS = {".arw", ".cr2", ".cr3", ".nef", ".nrw", ".raf", ".dng", ".orf", ".rw2", ".pef", ".srw", ".3fr", ".iiq"}
+RAW_FILES = os.environ.get("RAW_FILES", "0") == "1"
+RAW_WAIT = 90          # сек: RAW ждёт, не придёт ли JPEG той же съёмки
+if RAW_FILES:
+    EXTS |= RAW_EXTS
 UPLOAD_MAX = int(float(os.environ.get("UPLOAD_MAX_MB", "50")) * 1024 * 1024)   # «+» в «Проявке»: предел одного файла
 SSH_BIN = os.environ.get("SSH_BIN", "ssh")
 # одно постоянное соединение на все запросы к VPS (ControlMaster), без нового рукопожатия каждый раз
@@ -726,10 +732,7 @@ def source_image(ph, mode):
     """mode: full — оригинал для «Файл», work — для чата, view — для «Проявки»."""
     crop = ph.get("crop")
     if mode == "full" and has(ph["src"]):
-        img = Image.open(ph["src"])
-        if FULL_EDGE and not crop:
-            img.draft("RGB", (FULL_EDGE, FULL_EDGE))
-        img = crop_img(ImageOps.exif_transpose(img), crop).convert("RGB")
+        img = crop_img(open_src(ph["src"], FULL_EDGE if FULL_EDGE and not crop else None), crop).convert("RGB")
         if FULL_EDGE:
             img.thumbnail((FULL_EDGE, FULL_EDGE), Image.LANCZOS)
         return img
@@ -740,10 +743,7 @@ def source_image(ph, mode):
         if crop and mode == "work" and max(img.size) < WORK_EDGE * 0.75 and has(ph["src"]):
             # сильный кроп: из рабочей копии вышло бы мыльно — берём оригинал, декодируя его сразу уменьшенным
             x, y, w, h = map(float, crop.split(","))
-            o = Image.open(ph["src"])
-            need = int(WORK_EDGE / max(w, h))
-            o.draft("RGB", (need, need))
-            img = crop_img(ImageOps.exif_transpose(o), crop).convert("RGB")
+            img = crop_img(open_src(ph["src"], int(WORK_EDGE / max(w, h))), crop).convert("RGB")
             img.thumbnail((WORK_EDGE, WORK_EDGE), Image.LANCZOS)
         return img.convert("RGB")
     key = (ph["id"], VIEW_EDGE, crop)
@@ -1298,7 +1298,71 @@ def job_warm():
     return os.getpid()
 
 
+def is_raw(path):
+    return Path(str(path)).suffix.lower() in RAW_EXTS
+
+
+def open_raw(path, edge=None):
+    """RAW -> RGB через LibRaw. Если нужен размер edge, а половинный режим его даёт — проявляем вдвое быстрее."""
+    import rawpy
+    with rawpy.imread(str(path)) as r:
+        sz = r.sizes
+        if sz.raw_width * sz.raw_height > Image.MAX_IMAGE_PIXELS:
+            raise ValueError(L("слишком большое изображение", "the image is too large"))
+        half = bool(edge) and max(sz.width, sz.height) // 2 >= edge
+        rgb = r.postprocess(use_camera_wb=True, half_size=half, output_bps=8)
+    return Image.fromarray(rgb)
+
+
+def raw_exif(path):
+    """Дата и ISO из заголовка RAW. Большинство RAW (ARW, NEF, DNG, CR2…) внутри — TIFF: читаем каталоги тегов,
+    не разбирая изображение (Pillow такие файлы целиком открыть не может)."""
+    from PIL import TiffImagePlugin
+    try:
+        with open(path, "rb") as f:
+            head = f.read(8)
+            order = {b"II": "little", b"MM": "big"}.get(head[:2])
+            if not order:
+                return None, None
+
+            def ifd_at(off):
+                d = TiffImagePlugin.ImageFileDirectory_v2((b"II*\x00" if order == "little" else b"MM\x00*") + head[4:8])
+                f.seek(off)
+                d.load(f)
+                return d
+
+            d0 = ifd_at(int.from_bytes(head[4:8], order))
+            raw, iso = d0.get(306), None
+            if 34665 in d0:                          # Exif-каталог: точное время съёмки и ISO
+                ex = ifd_at(d0[34665])
+                raw = ex.get(36867) or raw
+                iso = ex.get(34855)
+                iso = iso[0] if isinstance(iso, (tuple, list)) else iso
+        taken = datetime.strptime(str(raw)[:16], "%Y:%m:%d %H:%M").strftime("%Y-%m-%d %H:%M") if raw else None
+        return taken, int(iso) if iso else None
+    except Exception:
+        return None, None
+
+
+def open_src(path, need=None):
+    """Оригинал, повёрнутый как надо. need — нужная длинная сторона (JPEG декодируется сразу уменьшенным)."""
+    if is_raw(path):
+        return open_raw(path, need)
+    im = Image.open(path)
+    if need:
+        im.draft("RGB", (need, need))
+    return ImageOps.exif_transpose(im)
+
+
 def job_prepare(src, work_path, edge):
+    if is_raw(src):
+        taken, iso = raw_exif(src)
+        im = open_raw(src, edge)
+        im.thumbnail((edge, edge), Image.LANCZOS)
+        taken = taken or datetime.now().strftime("%Y-%m-%d %H:%M")
+        auto_key, reason = auto_pick(im, iso, int(taken[11:13]))
+        save_atomic(im, work_path, 95)
+        return taken, iso, auto_key, reason
     im = Image.open(src)
     taken, iso = read_exif(im)
     im.draft("RGB", (edge, edge))           # JPEG сразу декодируется в уменьшенном виде — в разы быстрее
@@ -2805,6 +2869,8 @@ def process_incoming(state=None):
                 remove(str(f))
             continue
         for f in files:
+            if raw_twin(f, files, owner):
+                continue
             with speak(owner):
                 _process_one(f, owner)
         if files:
@@ -2829,6 +2895,27 @@ def over_daily(owner):
 
 
 DAILY_TOLD = {}      # владелец -> когда сказали про суточный лимит
+
+
+def raw_twin(f, files, owner):
+    """RAW+JPEG одной съёмки: оставляем JPEG (цвет камеры), RAW выбрасываем. True — файл пропустить сейчас."""
+    if not RAW_FILES:
+        return False
+    recent = {Path(r["name"]).stem.lower(): r["name"] for r in
+              q("SELECT name FROM photos WHERE owner=? AND created > ?", (owner, time.time() - 1800))}
+    stem = f.stem.lower()
+    if is_raw(f):
+        if any(o.stem.lower() == stem and not is_raw(o) for o in files) or (stem in recent and not is_raw(recent[stem])):
+            remove(str(f))
+            return True
+        try:
+            return time.time() - f.stat().st_mtime < RAW_WAIT      # ждём: вдруг JPEG этой съёмки ещё летит
+        except OSError:
+            return True
+    if stem in recent and is_raw(recent[stem]):                     # JPEG опоздал, RAW уже проявлен
+        remove(str(f))
+        return True
+    return False
 
 
 def _process_one(f, owner):
@@ -3043,11 +3130,18 @@ def receive_upload(stream, length, name, uid):
                 f.write(chunk)
                 left -= len(chunk)
         ext = sniff_ext(head)
+        raw_ext = Path(name).suffix.lower()
+        if RAW_FILES and raw_ext in RAW_EXTS and (head[:4] in (b"II*\x00", b"MM\x00*", b"IIRO", b"IIU\x00")
+                                                  or head[4:8] == b"ftyp" or head[:8] == b"FUJIFILM"):
+            ext = raw_ext
         if not ext:
             raise ValueError(L("это не фото (нужен JPEG, HEIC, PNG или WebP)", "not a photo (JPEG, HEIC, PNG or WebP expected)"))
         try:
-            with Image.open(tmp) as im:                  # только заголовок: размер, без разбора всего файла
-                w, h_ = im.size
+            if ext in RAW_EXTS:
+                w = h_ = 0                             # размер RAW проверит open_raw при проявке
+            else:
+                with Image.open(tmp) as im:            # только заголовок: размер, без разбора всего файла
+                    w, h_ = im.size
         except (Image.DecompressionBombError, Image.DecompressionBombWarning):
             raise ValueError(L("слишком большое изображение", "the image is too large"))
         except Exception:

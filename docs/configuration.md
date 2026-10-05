@@ -35,6 +35,7 @@ One `NAME=value` per line. After editing: `sudo systemctl restart proyavka-bot`.
 | `STORAGE_GB` | `20` | disk space your frames may use; oldest originals are removed first |
 | `USER_STORAGE_GB` | `5` | limit for invited users; change it per person in `/users` |
 | `DAILY_UPLOAD_LIMIT` | `300` | frames per 24 hours an invited user may send (the admin has no limit); `0` — no limit |
+| `RAW_FILES` | `0` | `1` — accept RAW (ARW, CR2/CR3, NEF, RAF, DNG, ORF, RW2…); needs the library: `.venv/bin/pip install rawpy`. If the camera sends RAW+JPEG, the JPEG is used and the RAW is dropped |
 | `MAX_MEGAPIXELS` | `120` | larger images are rejected right away — protection against "bombs" that blow up in memory |
 | `CLEANUP_MINUTES` | `15` | how often storage limits are checked (also right after frames arrive) |
 | `UPLOAD_MAX_MB` | `50` | max size of one file uploaded with "+" in the Mini App (nginx has the same limit) |
