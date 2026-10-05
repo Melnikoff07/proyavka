@@ -609,6 +609,19 @@ def main():
     if IS_ROOT and ROOT != OPT and (OPT / "config.env").exists():
         os.execv(sys.executable, [sys.executable, str(OPT / "setup.py")] + sys.argv[1:])   # уже установлено там
     env = load_env()
+    # лимиты места флагами: python3 setup.py --storage-gb=0.1 --user-storage-gb=2
+    flags = {"--storage-gb=": "STORAGE_GB", "--user-storage-gb=": "USER_STORAGE_GB", "--daily-limit=": "DAILY_UPLOAD_LIMIT"}
+    changed = False
+    for a in sys.argv[1:]:
+        for flag, key in flags.items():
+            if a.startswith(flag):
+                env[key] = a[len(flag):]
+                changed = True
+    if changed and env.get("DOMAIN") and "--install" not in sys.argv:
+        save_env(env)
+        restart_bot()
+        ok(T("лимиты сохранены, бот перезапущен", "limits saved, the bot was restarted"))
+        return
     if not env.get("DOMAIN") or "--install" in sys.argv:
         return install(env)
     LANG = env.get("LANGUAGE", "ru")

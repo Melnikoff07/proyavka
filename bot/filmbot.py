@@ -27,6 +27,7 @@ import sqlite3
 import subprocess
 import threading
 import time
+import warnings
 from concurrent.futures import FIRST_COMPLETED, ProcessPoolExecutor, ThreadPoolExecutor
 from concurrent.futures import wait as futures_wait
 from datetime import datetime
@@ -37,6 +38,11 @@ from pathlib import Path
 import numpy as np
 import requests
 from PIL import Image, ImageChops, ImageDraw, ImageFilter, ImageFont, ImageOps
+
+# «Бомба» в картинке: крошечный файл, который при разборе раздувается в гигабайты памяти.
+# Больше MAX_MEGAPIXELS — отказ сразу при открытии (у самых больших камер ~100 Мп).
+Image.MAX_IMAGE_PIXELS = int(float(os.environ.get("MAX_MEGAPIXELS", "120")) * 1e6)
+warnings.simplefilter("error", Image.DecompressionBombWarning)
 
 try:
     import pillow_heif
@@ -922,6 +928,8 @@ def run_count(sql, args=()):
 # У каждого кадра есть владелец; лента, кнопки, «Проявка», экспорт и место на диске — у каждого свои.
 ADMIN = CHAT_ID
 USER_STORAGE_GB = float(os.environ.get("USER_STORAGE_GB", "5"))   # лимит места для приглашённых (меняется в /users)
+DAILY_LIMIT = int(os.environ.get("DAILY_UPLOAD_LIMIT", "300"))     # кадров в сутки у приглашённых; 0 — без лимита
+CLEANUP_MINUTES = float(os.environ.get("CLEANUP_MINUTES", "15"))   # как часто проверять лимиты места
 INVITE_DAYS = 7
 USERS = {}                    # id -> строка таблицы users (кэш, перечитывается при изменениях)
 USERS_LOCK = threading.Lock()
@@ -1867,26 +1875,7 @@ def cleanup():
         upd(r["id"], src=None)
     # 2) лимит каждого пользователя
     for uid in list(USERS):
-        use = user_usage(uid)
-        total = [sum(use.values())]
-        limit = storage_limit(uid) * 1e9
-        if total[0] <= limit:
-            continue
-        for ph in q("SELECT * FROM photos WHERE owner=? AND hidden=1 AND (src IS NOT NULL OR work IS NOT NULL "
-                    "OR view IS NOT NULL OR thumb IS NOT NULL) ORDER BY deleted_at, id", (uid,)):
-            if total[0] <= limit:                # сначала корзина: самое давно удалённое
-                break
-            total[0] -= purge_files(ph)
-        if total[0] <= limit:
-            continue
-        for size in _free_space("SELECT id, {f} AS p FROM photos WHERE owner=? AND {f} IS NOT NULL ORDER BY id",
-                                (uid,), lambda: total[0] > limit):
-            total[0] -= size
-        for p in sorted(udir(uid, "originals").glob("failed_*"), key=lambda x: x.stat().st_mtime):
-            if total[0] <= limit:
-                break
-            total[0] -= fsize(p)
-            remove(p)
+        enforce_limit(uid)
     # 3) свободное место на диске — общее, от самых старых кадров всех пользователей
     min_free = MIN_FREE_GB * 1e9
     free = [shutil.disk_usage(BASE).free]
@@ -1901,19 +1890,44 @@ def cleanup():
             free[0] += size
 
 
+def enforce_limit(uid):
+    """Лимит места пользователя: сначала корзина, потом старые оригиналы, потом рабочие копии."""
+    use = user_usage(uid)
+    total = [sum(use.values())]
+    limit = storage_limit(uid) * 1e9
+    if total[0] <= limit:
+        return
+    for ph in q("SELECT * FROM photos WHERE owner=? AND hidden=1 AND (src IS NOT NULL OR work IS NOT NULL "
+                "OR view IS NOT NULL OR thumb IS NOT NULL) ORDER BY deleted_at, id", (uid,)):
+        if total[0] <= limit:                # сначала корзина: самое давно удалённое
+            break
+        total[0] -= purge_files(ph)
+    if total[0] <= limit:
+        return
+    for size in _free_space("SELECT id, {f} AS p FROM photos WHERE owner=? AND {f} IS NOT NULL ORDER BY id",
+                            (uid,), lambda: total[0] > limit):
+        total[0] -= size
+    for p in sorted(udir(uid, "originals").glob("failed_*"), key=lambda x: x.stat().st_mtime):
+        if total[0] <= limit:
+            break
+        total[0] -= fsize(p)
+        remove(p)
+
+
 def storage_text(uid):
     n = q("SELECT COUNT(*) AS n, SUM(src IS NOT NULL) AS o, SUM(work IS NOT NULL) AS w FROM photos "
           "WHERE hidden=0 AND owner=?", (uid,))[0]
     use = user_usage(uid)
-    gb = lambda b: f"{b / 1e9:.1f} " + L("ГБ", "GB")
+    gb = lambda b: (f"{b / 1e9:.1f} " + L("ГБ", "GB")) if b >= 1e9 or storage_limit(uid) >= 1 else (f"{b / 1e6:.0f} " + L("МБ", "MB"))
+    lim = (f"{storage_limit(uid):g} " + L("ГБ", "GB")) if storage_limit(uid) >= 1 else (f"{storage_limit(uid) * 1000:.0f} " + L("МБ", "MB"))
     text = L(f"Кадров в ленте: {n['n'] or 0}\n"
              f"С оригиналом: {n['o'] or 0}, можно менять плёнку: {n['w'] or 0}\n"
              f"Оригиналы: {gb(use['src'])}, рабочие копии: {gb(use['work'])}, превью: {gb(use['pics'])}\n"
-             f"Занято {gb(sum(use.values()))} из {storage_limit(uid):g} ГБ, оригиналы живут {ORIG_DAYS:g} дн.",
+             f"Занято {gb(sum(use.values()))} из {lim}, оригиналы живут {ORIG_DAYS:g} дн.",
              f"Frames in feed: {n['n'] or 0}\n"
              f"With original: {n['o'] or 0}, film can be changed: {n['w'] or 0}\n"
              f"Originals: {gb(use['src'])}, working copies: {gb(use['work'])}, previews: {gb(use['pics'])}\n"
-             f"Used {gb(sum(use.values()))} of {storage_limit(uid):g} GB, originals kept {ORIG_DAYS:g} days")
+             f"Used {gb(sum(use.values()))} of {lim}, originals kept {ORIG_DAYS:g} days")
     if uid == ADMIN:
         du = shutil.disk_usage(BASE)
         text += L(f"\nСвободно на диске: {gb(du.free)} из {gb(du.total)}", f"\nFree disk space: {gb(du.free)} of {gb(du.total)}")
@@ -2645,6 +2659,22 @@ def fetch_from_vps():
     fetch_names(list(ages), ages)
 
 
+def sweep_vps():
+    """Мусор в папках приёма: всё, что бот не забирает (RAW, не-фото, файлы в подпапках), — через 10 минут,
+    недокачанное приложением камеры — через 2 часа, пустые подпапки — тоже. Иначе по FTP можно забить диск."""
+    keep = " ".join(f"! -iname '*{e}'" for e in sorted(EXTS))
+    cmd = (f"find {_remote_dirs()} -mindepth 1 "
+           "'(' -type f -path '*/.incoming/*' -mmin +120 -delete ')' -o "
+           f"'(' -type f ! -path '*/.incoming/*' -mmin +10 '(' -path '*/upload/*/*' -o {keep} ')' -print -delete ')' -o "
+           "'(' -type d -empty -path '*/upload/*' ! -name .incoming -mmin +10 -delete ')'")
+    try:
+        res = subprocess.run(remote(cmd), capture_output=True, text=True, timeout=60)
+        if res.stdout.strip():
+            log.info("на сервере-приёмнике убран мусор: %s", " ".join(res.stdout.split()[:10]))
+    except Exception as e:                    # уборка — не повод останавливать приём кадров
+        log.warning("уборка на сервере-приёмнике: %s", e)
+
+
 def vps_watch():
     """Постоянное соединение с VPS: inotifywait сообщает о файле, как только FTP закончил его писать."""
     while True:
@@ -2777,6 +2807,8 @@ def process_incoming(state=None):
         for f in files:
             with speak(owner):
                 _process_one(f, owner)
+        if files:
+            enforce_limit(owner)                # лимит места — сразу, а не раз в час
     # одно сообщение на пачку: когда повторы перестали приходить хотя бы на 20 секунд
     for owner, rep_ in list(DUP_REPORT.items()):
         if rep_["n"] and time.time() - rep_["since"] > 20:
@@ -2788,7 +2820,26 @@ def process_incoming(state=None):
                     f"Skipped {n} duplicate(s): these frames are already in the feed or were deleted."))
 
 
+def over_daily(owner):
+    """Приглашённый уже загрузил за сутки DAILY_LIMIT кадров (удалённые тоже считаются)."""
+    if owner == ADMIN or not DAILY_LIMIT:
+        return False
+    n = q("SELECT COUNT(*) AS n FROM photos WHERE owner=? AND created > ?", (owner, time.time() - 86400))[0]["n"]
+    return n >= DAILY_LIMIT
+
+
+DAILY_TOLD = {}      # владелец -> когда сказали про суточный лимит
+
+
 def _process_one(f, owner):
+    if over_daily(owner):
+        remove(str(f))
+        if time.time() - DAILY_TOLD.get(owner, 0) > 3 * 3600:
+            DAILY_TOLD[owner] = time.time()
+            safe("sendMessage", chat_id=owner, text=L(
+                f"За сутки уже {DAILY_LIMIT} кадров — это предел. Новые кадры пропускаю, завтра можно снова.",
+                f"{DAILY_LIMIT} frames in 24 hours is the limit. New frames are skipped; try again tomorrow."))
+        return
     try:
         if ingest(f, owner) is False:
             r = DUP_REPORT.setdefault(owner, {"n": 0, "since": 0.0})
@@ -2804,9 +2855,12 @@ def _process_one(f, owner):
 
 def ingest_loop(state):
     """Отдельный поток: забирает кадры с VPS по уведомлениям, с подстраховочным опросом."""
-    last_poll = 0.0
+    last_poll = last_sweep = 0.0
     while True:
         try:
+            if time.time() - last_sweep >= 600:
+                last_sweep = time.time()
+                sweep_vps()
             names = []
             try:
                 names.append(VPS_EVENTS.get(timeout=1))
@@ -2991,6 +3045,15 @@ def receive_upload(stream, length, name, uid):
         ext = sniff_ext(head)
         if not ext:
             raise ValueError(L("это не фото (нужен JPEG, HEIC, PNG или WebP)", "not a photo (JPEG, HEIC, PNG or WebP expected)"))
+        try:
+            with Image.open(tmp) as im:                  # только заголовок: размер, без разбора всего файла
+                w, h_ = im.size
+        except (Image.DecompressionBombError, Image.DecompressionBombWarning):
+            raise ValueError(L("слишком большое изображение", "the image is too large"))
+        except Exception:
+            raise ValueError(L("файл повреждён или это не фото", "the file is damaged or not a photo"))
+        if w * h_ > Image.MAX_IMAGE_PIXELS:
+            raise ValueError(L("слишком большое изображение", "the image is too large"))
         fp = f"{h.hexdigest()}:{length}"
         dup = q("SELECT id, hidden FROM photos WHERE fp=? AND owner=? LIMIT 1", (fp, uid))
         if dup:     # удалённые кадры тоже помнятся по отпечатку — повторная загрузка их не вернёт
@@ -3049,6 +3112,14 @@ class Handler(BaseHTTPRequestHandler):
             SESSIONS[tok] = (now + SESSION_TTL, uid)
         _CTX.lang = user_lang(uid)
         return uid
+
+    def drain(self, length):
+        left = min(length, UPLOAD_MAX)
+        while left > 0:
+            chunk = self.rfile.read(min(left, 262144))
+            if not chunk:
+                break
+            left -= len(chunk)
 
     def mine(self, pid, uid):
         """Кадр, только если он этого пользователя: чужие для него не существуют."""
@@ -3145,14 +3216,13 @@ class Handler(BaseHTTPRequestHandler):
                 uid = self.authed(qs)
                 if not uid:
                     # дочитать и выбросить: иначе соединение рвётся и вместо «войди заново» человек видит «нет связи»
-                    left = min(int(self.headers.get("Content-Length") or 0), UPLOAD_MAX)
-                    while left > 0:
-                        chunk = self.rfile.read(min(left, 262144))
-                        if not chunk:
-                            break
-                        left -= len(chunk)
+                    self.drain(int(self.headers.get("Content-Length") or 0))
                     return self.err(401, L("нужна авторизация через Telegram", "Telegram authorization required"))
                 length = int(self.headers.get("Content-Length") or 0)
+                if not (qs.get("lut") or [""])[0] and over_daily(uid):
+                    self.drain(length)
+                    return self.err(400, L(f"за сутки уже {DAILY_LIMIT} кадров — это предел, завтра можно снова",
+                                           f"{DAILY_LIMIT} frames in 24 hours is the limit, try again tomorrow"))
                 if (qs.get("lut") or [""])[0]:          # свой LUT (.cube)
                     if length > LUT_MAX_BYTES:
                         return self.err(400, L("файл LUT больше 16 МБ", "the LUT file is larger than 16 MB"))
@@ -3272,7 +3342,7 @@ def main():
     while True:
         handle_updates(state)       # главный поток занят только кнопками бота
         now = time.time()
-        if now - last_clean >= 3600:
+        if now - last_clean >= CLEANUP_MINUTES * 60:
             try:
                 cleanup()
             except Exception:

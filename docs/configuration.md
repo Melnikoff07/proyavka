@@ -34,6 +34,9 @@ One `NAME=value` per line. After editing: `sudo systemctl restart proyavka-bot`.
 | `PROJECT_URL` | this repo | where the guide links in `/camera` point |
 | `STORAGE_GB` | `20` | disk space your frames may use; oldest originals are removed first |
 | `USER_STORAGE_GB` | `5` | limit for invited users; change it per person in `/users` |
+| `DAILY_UPLOAD_LIMIT` | `300` | frames per 24 hours an invited user may send (the admin has no limit); `0` — no limit |
+| `MAX_MEGAPIXELS` | `120` | larger images are rejected right away — protection against "bombs" that blow up in memory |
+| `CLEANUP_MINUTES` | `15` | how often storage limits are checked (also right after frames arrive) |
 | `UPLOAD_MAX_MB` | `50` | max size of one file uploaded with "+" in the Mini App (nginx has the same limit) |
 | `CHAT_PACE_SECONDS` | `1` | background chat edits (batches, deletes) at most once per this many seconds, as Telegram requires |
 | `ORIGINALS_DAYS` | `14` | keep originals this long; after that a frame stays viewable but its film can't be changed |
@@ -48,6 +51,10 @@ One `NAME=value` per line. After editing: `sudo systemctl restart proyavka-bot`.
 | `SSH_KEY`, `REMOTE_DIR` | — | for the home + VPS setup: key and upload folder on the VPS |
 | `REMOTE_USERS_DIR` | `/srv/camera/u` | camera folders of invited users on the receiving server |
 | `SETTLE_SECONDS` | `15` | a file is taken only after it hasn't changed for this long (fallback polling) |
+
+Limits can also be set at install time: `python3 setup.py --storage-gb=0.1 --user-storage-gb=2 --daily-limit=100` (on an existing install it saves them and restarts the bot).
+
+Every 10 minutes the bot clears what it doesn't take from the receiving server: RAW, non-photos and files in subfolders (older than 10 minutes), unfinished uploads (older than 2 hours). So nobody can fill the disk with junk over FTP.
 
 Lines under `setup wizard` (`MODE`, `SERVER_IP`, `DOMAIN`, `CAMERA_TOKEN`, `FTP_PASS`…) are used by the wizard only. **Don't publish `config.env`** — it contains your tokens and passwords.
 

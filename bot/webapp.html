@@ -303,6 +303,7 @@ function toast(text) {
 }
 function haptic(kind) { try { tg.HapticFeedback.selectionChanged(); if (kind) tg.HapticFeedback.notificationOccurred(kind); } catch (e) {} }
 function url(path, extra) { return `${path}?s=${encodeURIComponent(token)}${extra || ""}`; }
+const esc = (v) => String(v ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
 function presetName(key) { const f = presets.find((x) => x.key === key); return f ? f.name : key === "original" ? T("Оригинал", "Original") : key; }
 function prevUrl(p, film, leak) {
   const lk = leak ? `&lk=${leak}&ls=${p.leak_seed || 0}` : "";
@@ -555,7 +556,7 @@ function openSheet(kind) {
     b.setAttribute("role", "option");
     b.setAttribute("aria-pressed", "false");
     b.title = it.title;
-    b.innerHTML = `<div class="pic"><img loading="lazy" decoding="async" alt="" src="${it.src}"></div><div class="fname">${it.name}</div>`;
+    b.innerHTML = `<div class="pic"><img loading="lazy" decoding="async" alt="" src="${esc(it.src)}"></div><div class="fname">${esc(it.name)}</div>`;
     b.onclick = () => {
       const on = b.getAttribute("aria-pressed") !== "true";
       strip.querySelectorAll(".film").forEach((x) => x.setAttribute("aria-pressed", "false"));
@@ -760,7 +761,7 @@ function renderStrip(p) {
     b.setAttribute("role", "option");
     b.setAttribute("aria-pressed", String(it.on));
     b.title = it.title;
-    b.innerHTML = `<div class="pic"><img loading="lazy" decoding="async" alt="" src="${it.src}"></div><div class="fname">${it.name}</div>`;
+    b.innerHTML = `<div class="pic"><img loading="lazy" decoding="async" alt="" src="${esc(it.src)}"></div><div class="fname">${esc(it.name)}</div>`;
     b.onclick = () => {
       if (b.getAttribute("aria-pressed") === "true") return;
       apply(tab === "film" ? { preset: it.key } : { leak: it.key });
