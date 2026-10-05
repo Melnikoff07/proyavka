@@ -541,28 +541,73 @@ def has(path):
     return bool(path) and os.path.exists(path)
 
 
-BASE_CACHE = {}           # (id, edge) -> уменьшенный исходник
+# Кадрирование: доли кадра "x,y,w,h" после поворота по EXIF (так кадр и виден). Применяется до плёнки,
+# поэтому зерно, засвет, дата и рамка ложатся уже на кадрированное фото.
+def parse_crop(v):
+    if v in (None, "", False, []):
+        return None
+    if isinstance(v, str):
+        v = v.split(",")
+    try:
+        x, y, w, h = (float(t) for t in v)
+    except (TypeError, ValueError):
+        raise ValueError(L("неверная рамка кадрирования", "invalid crop"))
+    if not all(map(math.isfinite, (x, y, w, h))):
+        raise ValueError(L("неверная рамка кадрирования", "invalid crop"))
+    x, y = min(max(x, 0.0), 1.0), min(max(y, 0.0), 1.0)
+    w, h = min(w, 1.0 - x), min(h, 1.0 - y)
+    if w < 0.05 or h < 0.05:
+        raise ValueError(L("слишком маленькая рамка", "crop is too small"))
+    if x < 0.002 and y < 0.002 and w > 0.996 and h > 0.996:
+        return None                              # весь кадр — значит без кадрирования
+    return f"{x:.4f},{y:.4f},{w:.4f},{h:.4f}"
+
+
+def crop_img(img, crop):
+    if not crop:
+        return img
+    x, y, w, h = map(float, crop.split(","))
+    W, H = img.size
+    return img.crop((round(x * W), round(y * H), round((x + w) * W), round((y + h) * H)))
+
+
+def crop_tag(crop):
+    return "_c" + hashlib.sha1(crop.encode()).hexdigest()[:8] if crop else ""
+
+
+BASE_CACHE = {}           # (id, edge, crop) -> уменьшенный исходник
 BASE_LOCK = threading.Lock()
 
 
 def source_image(ph, mode):
     """mode: full — оригинал для «Файл», work — для чата, view — для «Проявки»."""
+    crop = ph.get("crop")
     if mode == "full" and has(ph["src"]):
-        img = ImageOps.exif_transpose(Image.open(ph["src"]))
-        if FULL_EDGE:
+        img = Image.open(ph["src"])
+        if FULL_EDGE and not crop:
             img.draft("RGB", (FULL_EDGE, FULL_EDGE))
-            img = img.convert("RGB")
+        img = crop_img(ImageOps.exif_transpose(img), crop).convert("RGB")
+        if FULL_EDGE:
             img.thumbnail((FULL_EDGE, FULL_EDGE), Image.LANCZOS)
-        return img.convert("RGB")
+        return img
     if not has(ph["work"]):
         raise RuntimeError(L("кадр в архиве: исходник удалён для экономии места", "frame is archived: the original was deleted to save space"))
     if mode in ("full", "work"):
-        return Image.open(ph["work"]).convert("RGB")
-    key = (ph["id"], VIEW_EDGE)
+        img = crop_img(Image.open(ph["work"]), crop)
+        if crop and mode == "work" and max(img.size) < WORK_EDGE * 0.75 and has(ph["src"]):
+            # сильный кроп: из рабочей копии вышло бы мыльно — берём оригинал, декодируя его сразу уменьшенным
+            x, y, w, h = map(float, crop.split(","))
+            o = Image.open(ph["src"])
+            need = int(WORK_EDGE / max(w, h))
+            o.draft("RGB", (need, need))
+            img = crop_img(ImageOps.exif_transpose(o), crop).convert("RGB")
+            img.thumbnail((WORK_EDGE, WORK_EDGE), Image.LANCZOS)
+        return img.convert("RGB")
+    key = (ph["id"], VIEW_EDGE, crop)
     with BASE_LOCK:
         img = BASE_CACHE.get(key)
     if img is None:
-        img = Image.open(ph["work"]).convert("RGB")
+        img = crop_img(Image.open(ph["work"]), crop).convert("RGB")
         img.thumbnail((VIEW_EDGE, VIEW_EDGE), Image.LANCZOS)
         with BASE_LOCK:
             BASE_CACHE[key] = img
@@ -588,7 +633,7 @@ def render(ph, full=False, mode=None):
 def contact_sheet(ph):
     if not has(ph["work"]):
         raise RuntimeError(L("кадр в архиве: исходник удалён для экономии места", "frame is archived: the original was deleted to save space"))
-    base = Image.open(ph["work"]).convert("RGB")
+    base = crop_img(Image.open(ph["work"]), ph.get("crop")).convert("RGB")
     base.thumbnail((700, 700), Image.LANCZOS)
     tw, th = base.size
     keys = list(PRESETS)
@@ -674,7 +719,7 @@ def init_db():
             db.execute("ALTER TABLE photos ADD COLUMN view TEXT")
         for col, decl in (("rev", "INTEGER DEFAULT 0"), ("rendered_rev", "INTEGER DEFAULT 0"), ("updated", "REAL DEFAULT 0"),
                           ("leak_kind", "TEXT DEFAULT 'edge'"), ("leak_seed", "INTEGER DEFAULT 0"), ("fp", "TEXT"),
-                          ("msg_at", "REAL")):
+                          ("msg_at", "REAL"), ("crop", "TEXT")):
             if col not in cols:
                 db.execute(f"ALTER TABLE photos ADD COLUMN {col} {decl}")
         db.execute("CREATE INDEX IF NOT EXISTS photos_fp ON photos(fp)")
@@ -968,10 +1013,14 @@ def job_full(ph, path):
 
 
 def job_preview(ph, key, strength, path, leak=""):
-    base_path = PREVIEWS / f"{ph['id']}_base.jpg"
+    crop = ph.get("crop")
+    base_path = PREVIEWS / f"{ph['id']}_base{crop_tag(crop)}.jpg"
     if not base_path.exists():
         b = Image.open(ph["work"])
-        b.draft("RGB", (420, 420))
+        if crop:                                 # кадрированное превью — сперва вырезать, потом уменьшать
+            b = crop_img(b, crop)
+        else:
+            b.draft("RGB", (420, 420))
         b = b.convert("RGB")
         b.thumbnail((420, 420), Image.LANCZOS)
         save_atomic(b, str(base_path), 92)
@@ -980,6 +1029,15 @@ def job_preview(ph, key, strength, path, leak=""):
     if leak:
         out = light_leak(out, leak, leak_seed(ph))
     return save_atomic(out, path, 84)
+
+
+def job_source(work, path):
+    """Некадрированный кадр без плёнки — для экрана кадрирования."""
+    b = Image.open(work)
+    b.draft("RGB", (VIEW_EDGE, VIEW_EDGE))
+    b = b.convert("RGB")
+    b.thumbnail((VIEW_EDGE, VIEW_EDGE), Image.LANCZOS)
+    return save_atomic(b, path, 85)
 
 
 def job_contact(ph, path):
@@ -1403,6 +1461,8 @@ def apply_changes(ph, changes, sync_tg=None, prio=0):
             fields["leak"], fields["leak_kind"] = 1, v
         else:
             raise ValueError(L("неизвестный засвет", "unknown light leak"))
+    if "crop" in changes:
+        fields["crop"] = parse_crop(changes["crop"])
     if changes.get("leak_shift"):
         fields["leak_seed"] = int(cur.get("leak_seed") or 0) + 1
         fields.setdefault("leak", 1)
@@ -1997,15 +2057,16 @@ def photo_json(ph):
             "leak": (ph.get("leak_kind") or "edge") if ph["leak"] else "",
             "leak_seed": int(ph.get("leak_seed") or 0), "archived": not has(ph["work"]), "original": has(ph["src"]),
             "ready": bool(v), "v": v, "pending": (ph["rev"] or 0) != (ph["rendered_rev"] or 0),
-            "exporting": EXPORTING.get(ph["id"], 0) > 0, "hidden": bool(ph["hidden"])}
+            "exporting": EXPORTING.get(ph["id"], 0) > 0, "hidden": bool(ph["hidden"]),
+            "crop": [float(t) for t in ph["crop"].split(",")] if ph.get("crop") else None}
 
 
-def preview_file(ph, key, strength, leak="", lseed=0):
-    tag = f"_{leak}{lseed}" if leak else ""
+def preview_file(ph, key, strength, leak="", lseed=0, crop=None):
+    tag = (f"_{leak}{lseed}" if leak else "") + crop_tag(crop)
     path = PREVIEWS / f"{ph['id']}_{key}_{strength}{tag}.jpg"
     if path.exists():
         return path
-    snap = dict(ph, leak_seed=lseed)
+    snap = dict(ph, leak_seed=lseed, crop=crop)
     return Path(FAST.submit(job_preview, snap, key, strength, str(path), leak).result(timeout=120))
 
 
@@ -2237,7 +2298,17 @@ class Handler(BaseHTTPRequestHandler):
                     return self.err(404, L("нет такого превью", "no such preview"))
                 if not has(ph["work"]):
                     return self.err(410, L("кадр в архиве", "frame is archived"))
-                return self.file(str(preview_file(ph, key, strength, leak, lseed)))
+                # рамка берётся из ссылки: превью для только что выбранной рамки может прийти раньше самой правки
+                crop = parse_crop((qs.get("c") or [""])[0])
+                return self.file(str(preview_file(ph, key, strength, leak, lseed, crop)))
+            if len(parts) == 3 and parts[:2] == ["img", "source"]:
+                ph = get(int(parts[2]))
+                if not ph or ph["hidden"] or not has(ph["work"]):
+                    return self.err(404, L("нет файла", "no file"))
+                path = PREVIEWS / f"{ph['id']}_source.jpg"
+                if not path.exists():
+                    FAST.submit(job_source, ph["work"], str(path)).result(timeout=120)
+                return self.file(str(path))
             return self.err(404, L("не найдено", "not found"))
         except (BrokenPipeError, ConnectionResetError):
             pass

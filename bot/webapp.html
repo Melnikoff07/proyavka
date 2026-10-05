@@ -125,6 +125,26 @@
   @keyframes run { from { transform: translateX(-100%); } to { transform: translateX(340%); } }
 
   .panel { padding: 14px 0 calc(14px + env(safe-area-inset-bottom, 0px)); }
+
+  /* кадрирование: рамка поверх некадрированного кадра, снаружи затемнено */
+  .stage.cropping { overflow: hidden; touch-action: none; }
+  .cropbox { position: absolute; box-shadow: 0 0 0 100vmax rgba(0,0,0,.55); outline: 1px solid #fff; touch-action: none; cursor: move;
+             background: linear-gradient(to right, transparent calc(33.33% - .5px), rgba(255,255,255,.45) calc(33.33% - .5px), rgba(255,255,255,.45) calc(33.33% + .5px), transparent calc(33.33% + .5px), transparent calc(66.66% - .5px), rgba(255,255,255,.45) calc(66.66% - .5px), rgba(255,255,255,.45) calc(66.66% + .5px), transparent calc(66.66% + .5px)),
+                         linear-gradient(to bottom, transparent calc(33.33% - .5px), rgba(255,255,255,.45) calc(33.33% - .5px), rgba(255,255,255,.45) calc(33.33% + .5px), transparent calc(33.33% + .5px), transparent calc(66.66% - .5px), rgba(255,255,255,.45) calc(66.66% - .5px), rgba(255,255,255,.45) calc(66.66% + .5px), transparent calc(66.66% + .5px)); }
+  .cropbox[hidden] { display: none; }
+  .cropbox i { position: absolute; width: 34px; height: 34px; }
+  .cropbox i::after { content: ""; position: absolute; width: 16px; height: 16px; border: 0 solid #fff; }
+  .cropbox i[data-h="nw"] { left: -17px; top: -17px; cursor: nwse-resize; }
+  .cropbox i[data-h="ne"] { right: -17px; top: -17px; cursor: nesw-resize; }
+  .cropbox i[data-h="sw"] { left: -17px; bottom: -17px; cursor: nesw-resize; }
+  .cropbox i[data-h="se"] { right: -17px; bottom: -17px; cursor: nwse-resize; }
+  .cropbox i[data-h="nw"]::after { left: 15px; top: 15px; border-width: 3px 0 0 3px; }
+  .cropbox i[data-h="ne"]::after { right: 15px; top: 15px; border-width: 3px 3px 0 0; }
+  .cropbox i[data-h="sw"]::after { left: 15px; bottom: 15px; border-width: 0 0 3px 3px; }
+  .cropbox i[data-h="se"]::after { right: 15px; bottom: 15px; border-width: 0 3px 3px 0; }
+  .ratios { display: flex; gap: 18px; overflow-x: auto; padding: 4px var(--pad) 6px; scrollbar-width: none; }
+  .ratios::-webkit-scrollbar { display: none; }
+  .ratios .opt { flex: 0 0 auto; }
   .vtitle { display: flex; justify-content: space-between; align-items: baseline; padding: 0 var(--pad) 12px; }
   .vtitle .name { font-size: 22px; font-weight: 500; letter-spacing: -.025em; }
 
@@ -176,9 +196,11 @@
 
 <section class="viewer" id="viewer" hidden aria-label="Просмотр кадра" data-i18n-aria="Frame viewer">
   <div class="vbar cap"><span id="vnum"></span><span id="vtime" class="muted"></span><span id="vpos" class="muted"></span></div>
-  <div class="stage" id="stage"><div class="progress"></div><img id="vimg" alt="" decoding="async"></div>
+  <div class="stage" id="stage"><div class="progress"></div><img id="vimg" alt="" decoding="async">
+    <div class="cropbox" id="cropbox" hidden><i data-h="nw"></i><i data-h="ne"></i><i data-h="sw"></i><i data-h="se"></i></div></div>
   <div class="panel">
     <div class="vtitle"><span class="name" id="vname"></span><span class="cap muted" id="vwhen"></span></div>
+    <div id="vmain">
     <div id="controls">
       <div class="tabs cap" role="tablist">
         <button class="tab" role="tab" data-tab="film" aria-selected="true" data-i18n="Film">Плёнка</button>
@@ -197,7 +219,17 @@
     <p class="note" id="archNote" hidden data-i18n="The original was deleted to free up space. The developed version is kept, but the film can no longer be changed.">Исходник удалён, чтобы освободить место. Готовая версия осталась, но плёнку уже не поменять.</p>
     <div class="actions">
       <button class="btn" id="bFile">Отправить файл в чат</button>
+      <button class="link cap" id="bCrop" data-i18n="Crop">Кадр</button>
       <button class="link cap" id="bHide" data-i18n="Delete">Удалить</button>
+    </div>
+    </div>
+    <div id="cropui" hidden>
+      <div class="ratios cap" id="ratios" role="group" aria-label="Пропорции" data-i18n-aria="Aspect ratio"></div>
+      <div class="actions">
+        <button class="link cap" id="cReset" data-i18n="Reset">Сбросить</button>
+        <button class="link cap" id="cCancel" data-i18n="Cancel">Отмена</button>
+        <button class="btn" id="cDone" data-i18n="Done">Готово</button>
+      </div>
     </div>
   </div>
 </section>
@@ -266,7 +298,8 @@ function url(path, extra) { return `${path}?s=${encodeURIComponent(token)}${extr
 function presetName(key) { const f = presets.find((x) => x.key === key); return f ? f.name : key === "original" ? T("Оригинал", "Original") : key; }
 function prevUrl(p, film, leak) {
   const lk = leak ? `&lk=${leak}&ls=${p.leak_seed || 0}` : "";
-  return url(`/img/preview/${p.id}/${film}`, `&st=${p.strength}${lk}`);
+  const c = p.crop ? `&c=${p.crop.join(",")}` : "";
+  return url(`/img/preview/${p.id}/${film}`, `&st=${p.strength}${lk}${c}`);
 }
 function previewUrl(p) { return prevUrl(p, p.preset, p.leak); }
 function leakName(key) { const l = leaks.find((x) => x.key === key); return l ? l.name : ""; }
@@ -486,7 +519,8 @@ $("sDelete").onclick = () => {
 };
 
 function onBack() {
-  if (cur >= 0) closeViewer();
+  if (crop) exitCrop();
+  else if (cur >= 0) closeViewer();
   else if (!$("sheet").hidden) closeSheet();
   else if (selecting) exitSelect();
 }
@@ -674,6 +708,7 @@ function openViewer(i) {
   renderViewer();
 }
 function closeViewer() {
+  if (crop) exitCrop(true);
   $("viewer").hidden = true;
   document.body.style.overflow = "";
   cur = -1;
@@ -691,7 +726,7 @@ function setImage(src) {
 }
 function refreshViewerImage() {
   const p = photos[cur];
-  if (!p) return;
+  if (!p || crop) return;                  // во время кадрирования на экране исходник
   // пока кадр проявляется — показываем превью выбранной плёнки, потом подменяем чистовиком
   if (p.pending || !p.v) setImage(previewUrl(p)); else setImage(viewUrl(p));
   $("stage").classList.toggle("busy", !!p.pending);
@@ -741,6 +776,7 @@ function renderViewer() {
   $("vpos").textContent = `${cur + 1} / ${total}`;
   $("controls").hidden = p.archived;
   $("archNote").hidden = !p.archived;
+  $("bCrop").hidden = p.archived;
 
   if (!p.archived) {
     renderStrip(p);
@@ -772,7 +808,7 @@ function apply(changes) {
   if (changes.preset) p.preset_name = presetName(changes.preset);
   haptic();
   updateCell(i);
-  if (changes.strength || changes.preset || "leak" in changes || changes.leak_shift) {
+  if (changes.strength || changes.preset || "leak" in changes || changes.leak_shift || "crop" in changes) {
     renderStrip(p);                        // превью должны показывать новое сочетание плёнки и засвета
     $("bShift").disabled = !p.leak;
   }
@@ -843,6 +879,7 @@ $("bHide").onclick = () => {
 let sx = 0, sy = 0;
 $("stage").addEventListener("touchstart", (e) => { sx = e.touches[0].clientX; sy = e.touches[0].clientY; }, { passive: true });
 $("stage").addEventListener("touchend", (e) => {
+  if (crop) return;
   const dx = e.changedTouches[0].clientX - sx, dy = e.changedTouches[0].clientY - sy;
   if (Math.abs(dx) < 50 || Math.abs(dx) < Math.abs(dy)) return;
   const next = cur + (dx < 0 ? 1 : -1);
@@ -850,10 +887,140 @@ $("stage").addEventListener("touchend", (e) => {
 }, { passive: true });
 document.addEventListener("keydown", (e) => {
   if (cur < 0) return;
+  if (crop) { if (e.key === "Escape") exitCrop(); return; }
   if (e.key === "Escape") closeViewer();
   if (e.key === "ArrowRight" && photos[cur + 1]) { cur++; renderViewer(); }
   if (e.key === "ArrowLeft" && photos[cur - 1]) { cur--; renderViewer(); }
 });
+
+/* ---------- кадрирование ---------- */
+// рамка в долях некадрированного кадра; ratio — ширина/высота в пикселях (0 — свободно)
+let crop = null, drag = null;
+const CROP_MIN = 0.08;
+const RATIOS = [{ key: "free", name: () => T("Свободно", "Free"), r: 0 }, { key: "orig", name: () => T("Исходные", "Original"), r: -1 },
+                { key: "1:1", r: 1 }, { key: "4:5", r: 4 / 5 }, { key: "3:2", r: 3 / 2 }, { key: "16:9", r: 16 / 9 }];
+const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
+
+function enterCrop() {
+  const p = photos[cur];
+  if (!p || p.archived) return;
+  const c = p.crop || [0, 0, 1, 1];
+  crop = { x: c[0], y: c[1], w: c[2], h: c[3], ratio: 0, key: "free", W: 0, H: 0 };
+  $("vmain").hidden = true;
+  $("cropui").hidden = false;
+  $("stage").classList.add("cropping", "busy");
+  const img = $("vimg"), src = url(`/img/source/${p.id}`);
+  img.dataset.want = src;
+  const pre = new Image();
+  pre.onload = () => {
+    if (!crop || img.dataset.want !== src) return;
+    crop.W = pre.naturalWidth; crop.H = pre.naturalHeight;
+    img.src = src;
+    img.onload = () => { img.onload = null; $("stage").classList.remove("busy"); $("cropbox").hidden = false; drawCrop(); };
+  };
+  pre.onerror = () => { toast(T("Не удалось открыть исходник", "Could not load the original")); exitCrop(); };
+  pre.src = src;
+  renderRatios();
+}
+function exitCrop(silent) {
+  if (!crop) return;
+  crop = null; drag = null;
+  $("cropbox").hidden = true;
+  $("cropui").hidden = true;
+  $("vmain").hidden = false;
+  $("stage").classList.remove("cropping", "busy");
+  if (!silent) refreshViewerImage();
+}
+function imgRect() {
+  const ir = $("vimg").getBoundingClientRect(), sr = $("stage").getBoundingClientRect();
+  return { left: ir.left - sr.left, top: ir.top - sr.top, width: ir.width, height: ir.height };
+}
+function drawCrop() {
+  if (!crop) return;
+  const r = imgRect(), b = $("cropbox").style;
+  b.left = `${r.left + crop.x * r.width}px`; b.top = `${r.top + crop.y * r.height}px`;
+  b.width = `${crop.w * r.width}px`; b.height = `${crop.h * r.height}px`;
+}
+addEventListener("resize", () => requestAnimationFrame(drawCrop));
+
+function renderRatios() {
+  $("ratios").replaceChildren(...RATIOS.map((o) => {
+    const b = document.createElement("button");
+    b.className = "opt";
+    b.textContent = o.name ? o.name() : o.key;
+    b.setAttribute("aria-pressed", String(crop.key === o.key));
+    b.onclick = () => setRatio(o);
+    return b;
+  }), Object.assign(document.createElement("button"), {
+    className: "opt", textContent: "↻", title: T("Повернуть рамку", "Rotate the frame"),
+    onclick: () => { if (crop.ratio > 0 && crop.ratio !== 1) { crop.ratio = 1 / crop.ratio; fitRatio(); haptic(); } },
+  }));
+}
+function setRatio(o) {
+  if (!crop.W) return;
+  crop.key = o.key;
+  let r = o.r < 0 ? crop.W / crop.H : o.r;
+  if (r > 0 && r !== 1 && (crop.W < crop.H) !== (r < 1)) r = 1 / r;   // 3:2 на вертикальном кадре — тоже вертикально
+  crop.ratio = r;
+  if (r) fitRatio();
+  renderRatios();
+  haptic();
+}
+/* самая большая рамка нужных пропорций с центром там же, где была */
+function fitRatio() {
+  const k = crop.ratio * crop.H / crop.W;     // отношение w/h в долях кадра
+  let w = 1, h = 1 / k;
+  if (h > 1) { h = 1; w = k; }
+  const cx = crop.x + crop.w / 2, cy = crop.y + crop.h / 2;
+  crop.w = w; crop.h = h;
+  crop.x = clamp(cx - w / 2, 0, 1 - w); crop.y = clamp(cy - h / 2, 0, 1 - h);
+  drawCrop();
+}
+
+$("cropbox").addEventListener("pointerdown", (e) => {
+  if (!crop) return;
+  e.preventDefault();
+  drag = { h: e.target.dataset.h || "move", sx: e.clientX, sy: e.clientY, s: Object.assign({}, crop), r: imgRect() };
+  $("cropbox").setPointerCapture(e.pointerId);
+});
+$("cropbox").addEventListener("pointermove", (e) => {
+  if (!drag || !crop) return;
+  const s = drag.s, dx = (e.clientX - drag.sx) / drag.r.width, dy = (e.clientY - drag.sy) / drag.r.height;
+  if (drag.h === "move") {
+    crop.x = clamp(s.x + dx, 0, 1 - s.w); crop.y = clamp(s.y + dy, 0, 1 - s.h);
+    return drawCrop();
+  }
+  const W = drag.h.includes("w"), N = drag.h.includes("n");
+  let x0 = s.x, y0 = s.y, x1 = s.x + s.w, y1 = s.y + s.h;
+  if (W) x0 = clamp(x0 + dx, 0, x1 - CROP_MIN); else x1 = clamp(x1 + dx, x0 + CROP_MIN, 1);
+  if (N) y0 = clamp(y0 + dy, 0, y1 - CROP_MIN); else y1 = clamp(y1 + dy, y0 + CROP_MIN, 1);
+  if (crop.ratio) {                           // держим пропорции: угол напротив стоит на месте
+    const k = crop.ratio * crop.H / crop.W;
+    const ax = W ? s.x + s.w : s.x, ay = N ? s.y + s.h : s.y;
+    const maxW = W ? ax : 1 - ax, maxH = N ? ay : 1 - ay;
+    let w = x1 - x0, h = w / k;
+    if (h < y1 - y0) { h = y1 - y0; w = h * k; }
+    if (w > maxW) { w = maxW; h = w / k; }
+    if (h > maxH) { h = maxH; w = h * k; }
+    x0 = W ? ax - w : ax; y0 = N ? ay - h : ay; x1 = x0 + w; y1 = y0 + h;
+  }
+  Object.assign(crop, { x: x0, y: y0, w: x1 - x0, h: y1 - y0 });
+  drawCrop();
+});
+["pointerup", "pointercancel"].forEach((t) => $("cropbox").addEventListener(t, () => { drag = null; }));
+
+$("bCrop").onclick = enterCrop;
+$("cCancel").onclick = () => exitCrop();
+$("cReset").onclick = () => { if (!crop) return; Object.assign(crop, { x: 0, y: 0, w: 1, h: 1, ratio: 0, key: "free" }); renderRatios(); drawCrop(); haptic(); };
+$("cDone").onclick = () => {
+  if (!crop) return;
+  const full = crop.x < 0.002 && crop.y < 0.002 && crop.w > 0.996 && crop.h > 0.996;
+  const c = full ? null : [crop.x, crop.y, crop.w, crop.h].map((v) => Math.round(v * 10000) / 10000);
+  const p = photos[cur], same = JSON.stringify(p.crop || null) === JSON.stringify(c);
+  exitCrop(true);
+  if (same) return refreshViewerImage();
+  apply({ crop: c });
+};
 
 /* ---------- свои фото: «+», загрузка по одному с прогрессом ---------- */
 const UPLOAD_MAX = 50 * 1024 * 1024;
