@@ -9,6 +9,7 @@
 #   LE_AGREE=1    пользователь согласился с условиями Let's Encrypt; LE_EMAIL — необязательно
 #   SYNC_USER, SYNC_PUBKEY   режим «дом + сервер»: через кого домашний компьютер забирает кадры
 #   BOT_USER      режим «всё на одном сервере»: пользователь, под которым работает бот
+# Камеры приглашённых пользователей бот заводит сам через proyavka-user (sudo, только этот скрипт).
 # Скрипт можно запускать повторно: он приводит сервер к нужному виду, ничего не ломая.
 set -euo pipefail
 
@@ -26,7 +27,7 @@ t() { if [ "${LANGUAGE:-ru}" = en ]; then printf '%s' "$2"; else printf '%s' "$1
 say "$(t "Пакеты" "Packages")"
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -qq
-apt-get install -y -qq nginx vsftpd certbot inotify-tools rsync python3 curl >/dev/null
+apt-get install -y -qq nginx vsftpd certbot inotify-tools rsync python3 curl libpam-pwdfile openssl sudo >/dev/null
 
 say "$(t "Пользователи и папки" "Users and folders")"
 getent group photos >/dev/null || groupadd photos
@@ -35,6 +36,8 @@ grep -qx /usr/sbin/nologin /etc/shells || echo /usr/sbin/nologin >> /etc/shells 
 echo "camera:$FTP_PASS" | chpasswd
 install -d -m 755 -o root -g root /srv/camera                     # корень chroot FTP не должен быть доступен на запись
 install -d -m 2775 -o camera -g photos "$UPLOAD_DIR" "$UPLOAD_DIR/.incoming"
+install -d -m 755 -o root -g root /srv/camera/u                   # папки приглашённых пользователей: u<id>/upload
+install -d -m 755 -o root -g root /etc/proyavka
 if [ -n "${SYNC_PUBKEY:-}" ]; then
     id "$SYNC_USER" >/dev/null 2>&1 || useradd -m -s /bin/bash "$SYNC_USER"
     usermod -aG photos "$SYNC_USER"
@@ -117,6 +120,20 @@ nginx -t && systemctl reload nginx
 
 say "$(t "FTP (для камер со встроенной отправкой по FTP)" "FTP (for cameras with built-in FTP upload)")"
 [ -f /etc/vsftpd.conf.before-proyavka ] || cp -a /etc/vsftpd.conf /etc/vsftpd.conf.before-proyavka
+# Логины FTP — виртуальные (pam_pwdfile): у каждого пользователя бота свой вход и своя папка, все пишут от имени camera.
+# camera — камера администратора, папка /srv/camera (в ней upload), как в прежних версиях.
+touch /etc/proyavka/ftp.passwd && chown root:root /etc/proyavka/ftp.passwd && chmod 600 /etc/proyavka/ftp.passwd
+grep -v '^camera:' /etc/proyavka/ftp.passwd > /etc/proyavka/ftp.passwd.new || true
+printf 'camera:%s\n' "$(printf '%s\n' "$FTP_PASS" | openssl passwd -6 -stdin)" >> /etc/proyavka/ftp.passwd.new
+chmod 600 /etc/proyavka/ftp.passwd.new && mv -f /etc/proyavka/ftp.passwd.new /etc/proyavka/ftp.passwd
+touch /etc/proyavka/camera-tokens && chown root:photos /etc/proyavka/camera-tokens && chmod 640 /etc/proyavka/camera-tokens
+install -d -m 755 /etc/vsftpd/proyavka-users
+echo "local_root=/srv/camera" > /etc/vsftpd/proyavka-users/camera
+cat > /etc/pam.d/vsftpd-proyavka <<'EOF'
+# «Проявка»: вход камер по FTP — только логины из /etc/proyavka/ftp.passwd
+auth    required pam_pwdfile.so pwdfile=/etc/proyavka/ftp.passwd
+account required pam_permit.so
+EOF
 cat > /etc/vsftpd.conf <<EOF
 # «Проявка»: FTPS для камер. Прежний файл — /etc/vsftpd.conf.before-proyavka
 listen=YES
@@ -129,7 +146,11 @@ chroot_local_user=YES
 userlist_enable=YES
 userlist_deny=NO
 userlist_file=/etc/vsftpd.userlist
-pam_service_name=vsftpd
+pam_service_name=vsftpd-proyavka
+guest_enable=YES
+guest_username=camera
+virtual_use_local_privs=YES
+user_config_dir=/etc/vsftpd/proyavka-users
 seccomp_sandbox=NO
 xferlog_enable=YES
 pasv_enable=YES
@@ -153,10 +174,21 @@ systemctl restart vsftpd
 say "$(t "Приёмник для приложения камеры" "Receiver for the camera app")"
 install -d -m 755 /usr/local/lib/proyavka
 install -m 755 "$HERE/camera-recv.py" /usr/local/lib/proyavka/camera-recv.py
-install -d -m 700 /etc/proyavka
+install -m 755 -o root -g root "$HERE/proyavka-user" /usr/local/lib/proyavka/proyavka-user
 umask 077
-printf 'CAMERA_TOKEN=%s\nUPLOAD_DIR=%s\nPORT=8089\n' "$CAMERA_TOKEN" "$UPLOAD_DIR" > /etc/proyavka/camera-recv.env
+printf 'CAMERA_TOKEN=%s\nUPLOAD_DIR=%s\nPORT=8089\nTOKENS_FILE=/etc/proyavka/camera-tokens\nUSERS_DIR=/srv/camera/u\n' \
+    "$CAMERA_TOKEN" "$UPLOAD_DIR" > /etc/proyavka/camera-recv.env
 umask 022
+# бот заводит камеры приглашённых пользователей только через этот скрипт — больше sudo ему ничего не даёт
+sudoers=""
+if [ -n "${SYNC_PUBKEY:-}" ]; then sudoers="$SYNC_USER ALL=(root) NOPASSWD: /usr/local/lib/proyavka/proyavka-user"$'\n'; fi
+if [ -n "${BOT_USER:-}" ]; then sudoers="$sudoers$BOT_USER ALL=(root) NOPASSWD: /usr/local/lib/proyavka/proyavka-user"$'\n'; fi
+if [ -n "$sudoers" ]; then
+    printf '%s' "$sudoers" > /etc/sudoers.d/proyavka.new
+    chmod 440 /etc/sudoers.d/proyavka.new
+    if visudo -cf /etc/sudoers.d/proyavka.new >/dev/null; then mv -f /etc/sudoers.d/proyavka.new /etc/sudoers.d/proyavka
+    else rm -f /etc/sudoers.d/proyavka.new; echo "sudoers check failed" >&2; fi
+fi
 cat > /etc/systemd/system/proyavka-recv.service <<EOF
 [Unit]
 Description=Proyavka: camera upload receiver
@@ -172,7 +204,7 @@ RestartSec=3
 UMask=0002
 NoNewPrivileges=true
 ProtectSystem=strict
-ReadWritePaths=$UPLOAD_DIR
+ReadWritePaths=/srv/camera
 ProtectHome=true
 PrivateTmp=true
 

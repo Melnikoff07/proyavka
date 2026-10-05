@@ -291,6 +291,11 @@ def step_server(env):
               "without a certificate the camera and the Mini App cannot connect"))
     email = input(T("E-mail для писем Let's Encrypt об истечении сертификата (можно пусто): ",
                     "E-mail for Let's Encrypt expiry notices (may be empty): ")).strip()
+    push_server(env, email, first=True)
+
+
+def push_server(env, email="", first=False):
+    """Привести сервер-приёмник к нужному виду (install-relay.sh можно запускать сколько угодно раз)."""
     params = {"DOMAIN": env["DOMAIN"], "PUBLIC_IP": env["SERVER_IP"], "CAMERA_TOKEN": env["CAMERA_TOKEN"],
               "FTP_PASS": env["FTP_PASS"], "LE_AGREE": "1", "LE_EMAIL": email, "LANGUAGE": LANG}
 
@@ -304,8 +309,10 @@ def step_server(env):
         env.pop("SSH_KEY", None)
         return
 
-    admin = ask(T("Под каким пользователем заходить на VPS", "User to log in to the VPS"), env.get("SERVER_ADMIN", "root"))
-    env["SERVER_ADMIN"] = admin
+    if first or not env.get("SERVER_ADMIN"):
+        env["SERVER_ADMIN"] = ask(T("Под каким пользователем заходить на VPS", "User to log in to the VPS"),
+                                  env.get("SERVER_ADMIN", "root"))
+    admin = env["SERVER_ADMIN"]
     host = f"{admin}@{env['SERVER_IP']}"
     keygen(ADMIN_KEY, f"proyavka-admin@{os.uname().nodename}")
     probe = run(ssh_base(env) + ["-o", "BatchMode=yes", host, "true"], check=False, capture=True)
@@ -323,7 +330,7 @@ def step_server(env):
         pf.write_text("".join(f"{k}={shlex.quote(v)}\n" for k, v in params.items()))
         pf.chmod(0o600)
         run(["scp", "-q", "-i", str(ADMIN_KEY), str(ROOT / "relay" / "install-relay.sh"),
-             str(ROOT / "relay" / "camera-recv.py"), str(pf), f"{host}:{remote}/"])
+             str(ROOT / "relay" / "camera-recv.py"), str(ROOT / "relay" / "proyavka-user"), str(pf), f"{host}:{remote}/"])
     sudo = "" if admin == "root" else "sudo "
     run(ssh_base(env) + ["-t", host, f"{sudo}bash {remote}/install-relay.sh {remote}/params.env; "
                                       f"r=$?; rm -rf {remote}; exit $r"])
@@ -526,7 +533,17 @@ def menu_update(env):
     if (ROOT / ".git").exists():
         run(["git", "-c", f"safe.directory={ROOT}", "-C", str(ROOT), "pull", "--ff-only"])
         own_files()
+    # дальше — уже новой версией мастера: она знает, что поменялось на сервере
+    os.execv(sys.executable, [sys.executable, str(ROOT / "setup.py"), "--finish-update", f"--lang={LANG}"])
+
+
+def finish_update(env):
+    """Вторая половина обновления, уже новым кодом: библиотеки, настройки сервера, перезапуск бота."""
     run([str(VENV / "bin" / "pip"), "install", "-q", "-r", str(ROOT / "bot" / "requirements.txt")], capture=True)
+    say(T("Обновляю настройки сервера-приёмника (nginx, FTP, приёмник камеры)…",
+          "Updating the receiving server (nginx, FTP, camera receiver)…"))
+    push_server(env)
+    save_env(env)
     restart_bot()
     ok(T("обновлено", "updated"))
 
@@ -595,6 +612,9 @@ def main():
     if not env.get("DOMAIN") or "--install" in sys.argv:
         return install(env)
     LANG = env.get("LANGUAGE", "ru")
+    if "--finish-update" in sys.argv:
+        title(T("Обновление", "Update"))
+        return finish_update(env)
     while True:
         items = [(T("Wi-Fi для камеры (файл на карту)", "Wi-Fi for the camera (file for the card)"),
                   lambda: (step_camera(env), own_files(), show_camera_help(env))),

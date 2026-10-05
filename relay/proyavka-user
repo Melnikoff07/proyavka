@@ -1,0 +1,61 @@
+#!/bin/sh
+# «Проявка»: камеры пользователей бота на сервере-приёмнике. Бот вызывает этот скрипт через sudo:
+#   proyavka-user add u<id>    stdin: пароль FTP, затем sha256 токена приложения камеры (по строке)
+#   proyavka-user del u<id>
+# add заводит виртуального FTP-пользователя vsftpd со своей папкой /srv/camera/u/u<id>/upload
+# и токен для приёмника camera-recv (на сервере хранится только хеш). del убирает всё это вместе с папкой.
+set -eu
+umask 022
+ROOT=/srv/camera/u
+PW=/etc/proyavka/ftp.passwd           # логины FTP: имя:хеш пароля (pam_pwdfile)
+TOK=/etc/proyavka/camera-tokens       # токены приложения камеры: sha256 имя
+CONF=/etc/vsftpd/proyavka-users       # папка каждого FTP-пользователя
+LIST=/etc/vsftpd.userlist             # кому vsftpd вообще разрешает вход
+
+action=${1:-}
+name=${2:-}
+printf '%s' "$name" | grep -Eqx 'u[0-9]{1,15}' || { echo "bad name: $name" >&2; exit 2; }
+[ -f "$PW" ] && [ -f "$TOK" ] && [ -d "$CONF" ] || { echo "server is not prepared for user cameras (run install-relay.sh)" >&2; exit 3; }
+
+exec 9>/etc/proyavka/.users.lock
+flock 9
+
+# убрать строки этого пользователя, сохранив владельца и права файла
+strip() {
+    f=$1 pattern=$2
+    grep -v -E -- "$pattern" "$f" > "$f.new" || true
+    chown --reference="$f" "$f.new"
+    chmod --reference="$f" "$f.new"
+    mv -f "$f.new" "$f"
+}
+
+case "$action" in
+add)
+    IFS= read -r pass
+    IFS= read -r tokhash
+    [ "${#pass}" -ge 8 ] || { echo "password too short" >&2; exit 2; }
+    printf '%s' "$tokhash" | grep -Eqx '[0-9a-f]{64}' || { echo "bad token hash" >&2; exit 2; }
+    hash=$(printf '%s\n' "$pass" | openssl passwd -6 -stdin)
+    strip "$PW" "^$name:"
+    strip "$TOK" " $name\$"
+    printf '%s:%s\n' "$name" "$hash" >> "$PW"
+    printf '%s %s\n' "$tokhash" "$name" >> "$TOK"
+    grep -qx "$name" "$LIST" || echo "$name" >> "$LIST"
+    install -d -m 755 -o root -g root "$ROOT" "$ROOT/$name"          # корень chroot FTP — не для записи
+    install -d -m 2775 -o camera -g photos "$ROOT/$name/upload" "$ROOT/$name/upload/.incoming"
+    printf 'local_root=%s\n' "$ROOT/$name" > "$CONF/$name"
+    echo "added $name"
+    ;;
+del)
+    strip "$PW" "^$name:"
+    strip "$TOK" " $name\$"
+    strip "$LIST" "^$name\$"
+    rm -f -- "$CONF/$name"
+    rm -rf -- "${ROOT:?}/$name"
+    echo "removed $name"
+    ;;
+*)
+    echo "usage: proyavka-user add|del u<id>" >&2
+    exit 2
+    ;;
+esac

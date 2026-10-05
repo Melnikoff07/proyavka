@@ -16,7 +16,9 @@ import json
 import logging
 import math
 import os
+import posixpath
 import queue
+import re
 import shlex
 import secrets
 import shutil
@@ -64,12 +66,46 @@ MIN_FREE_GB = float(os.environ.get("MIN_FREE_GB", "5"))     # сколько м�
 FAST_WORKERS = int(os.environ.get("FAST_WORKERS", "3"))     # процессы для экрана и превью
 WORKER_NICE = int(os.environ.get("WORKER_NICE", "10"))       # приоритет рендера ниже, чем у Pi-hole и бота
 HEAVY_WORKERS = int(os.environ.get("HEAVY_WORKERS", "1"))   # процессы для экспорта в полный размер
-LANG = "en" if os.environ.get("LANGUAGE", "ru").lower().startswith("en") else "ru"   # язык интерфейса: ru / en
+LANG = "en" if os.environ.get("LANGUAGE", "ru").lower().startswith("en") else "ru"   # язык по умолчанию: ru / en
+_CTX = threading.local()     # язык того, кому сейчас отвечаем (у каждого пользователя свой)
+
+
+def cur_lang():
+    return getattr(_CTX, "lang", None) or LANG
+
+
+class Bi(str):
+    """Строка на двух языках. Значение — язык текущего пользователя; tr() выбирает заново
+    (для строк, созданных один раз при запуске: названия засветов, описания плёнок, кнопки меню)."""
+    def __new__(cls, ru, en):
+        s = super().__new__(cls, en if cur_lang() == "en" else ru)
+        s.ru, s.en = ru, en
+        return s
+
+    def __reduce__(self):
+        return Bi, (self.ru, self.en)
 
 
 def L(ru, en):
-    """Строка интерфейса на выбранном языке."""
-    return en if LANG == "en" else ru
+    """Строка интерфейса на языке текущего пользователя."""
+    return Bi(ru, en)
+
+
+def tr(s):
+    return (s.en if cur_lang() == "en" else s.ru) if isinstance(s, Bi) else s
+
+
+class speak:
+    """with speak(uid): тексты в этом потоке — на языке этого пользователя."""
+    def __init__(self, uid):
+        self.lang = user_lang(uid)
+
+    def __enter__(self):
+        self.prev = getattr(_CTX, "lang", None)
+        _CTX.lang = self.lang
+
+    def __exit__(self, *exc):
+        _CTX.lang = self.prev
 
 
 APP_NAME = L("Проявка", "Proyavka")
@@ -673,6 +709,18 @@ def gallery_image(rows):
     return g
 
 
+# Причина автовыбора однозначно следует из плёнки — поэтому показывается по ключу, на языке того, кто читает
+# (сам выбор считает процесс-работник, который не знает, чей это кадр).
+AUTO_REASONS = {"night800": L("ночь", "night"), "amber_neg": L("тёплый свет", "warm light"),
+                "muted_chrome": L("пасмурно", "overcast"), "vivid50": L("пейзаж", "landscape"),
+                "street_neg": L("улица", "street")}
+
+
+def auto_reason(ph):
+    r = AUTO_REASONS.get(ph.get("auto_key"))
+    return tr(r) if r else (ph.get("auto_reason") or "")
+
+
 def auto_pick(img, iso, hour):
     s = img.copy()
     s.thumbnail((256, 256))
@@ -684,14 +732,16 @@ def auto_pick(img, iso, hour):
     sky_blue = float(sky[..., 2].mean() - sky[..., 0].mean())
     late = hour is not None and (hour >= 21 or hour < 5)
     if (iso and iso >= 3200) or lum < 0.16 or (late and lum < 0.3):
-        return "night800", L("ночь", "night")
-    if r - b > 0.10 and lum > 0.25:
-        return "amber_neg", L("тёплый свет", "warm light")
-    if sat < 0.12:
-        return "muted_chrome", L("пасмурно", "overcast")
-    if sat > 0.25 and (g - (r + b) / 2 > 0.03 or sky_blue > 0.12):
-        return "vivid50", L("пейзаж", "landscape")
-    return "street_neg", L("улица", "street")
+        key = "night800"
+    elif r - b > 0.10 and lum > 0.25:
+        key = "amber_neg"
+    elif sat < 0.12:
+        key = "muted_chrome"
+    elif sat > 0.25 and (g - (r + b) / 2 > 0.03 or sky_blue > 0.12):
+        key = "vivid50"
+    else:
+        key = "street_neg"
+    return key, tr(AUTO_REASONS[key])
 
 
 # ================= база (потокобезопасно) =================
@@ -719,9 +769,19 @@ def init_db():
             db.execute("ALTER TABLE photos ADD COLUMN view TEXT")
         for col, decl in (("rev", "INTEGER DEFAULT 0"), ("rendered_rev", "INTEGER DEFAULT 0"), ("updated", "REAL DEFAULT 0"),
                           ("leak_kind", "TEXT DEFAULT 'edge'"), ("leak_seed", "INTEGER DEFAULT 0"), ("fp", "TEXT"),
-                          ("msg_at", "REAL"), ("crop", "TEXT")):
+                          ("msg_at", "REAL"), ("crop", "TEXT"), ("owner", "INTEGER")):
             if col not in cols:
                 db.execute(f"ALTER TABLE photos ADD COLUMN {col} {decl}")
+        # несколько пользователей: все кадры прежних версий — администратора (того, кто ставил бота)
+        db.execute("UPDATE photos SET owner=? WHERE owner IS NULL", (CHAT_ID,))
+        db.execute("""CREATE TABLE IF NOT EXISTS users(
+            id INTEGER PRIMARY KEY, role TEXT DEFAULT 'user', name TEXT, lang TEXT, default_film TEXT DEFAULT 'auto',
+            storage_gb REAL, cam_token TEXT, ftp_pass TEXT, created REAL, invited_by INTEGER)""")
+        db.execute("""CREATE TABLE IF NOT EXISTS invites(
+            code TEXT PRIMARY KEY, created REAL, by INTEGER, used_by INTEGER, used_at REAL)""")
+        db.execute("INSERT OR IGNORE INTO users(id, role, lang, created) VALUES (?, 'admin', ?, ?)", (CHAT_ID, LANG, time.time()))
+        db.execute("UPDATE users SET role = CASE WHEN id=? THEN 'admin' ELSE 'user' END", (CHAT_ID,))
+        db.execute("CREATE INDEX IF NOT EXISTS photos_owner ON photos(owner, hidden, taken)")
         db.execute("CREATE INDEX IF NOT EXISTS photos_fp ON photos(fp)")
         # мини-приложение каждые 1–5 секунд спрашивает «что изменилось» и листает ленту — без индексов это полный перебор
         db.execute("CREATE INDEX IF NOT EXISTS photos_updated ON photos(updated)")
@@ -730,6 +790,7 @@ def init_db():
             db.execute("UPDATE photos SET preset=? WHERE preset=?", (new, old))
             db.execute("UPDATE photos SET auto_key=? WHERE auto_key=?", (new, old))
         db.commit()
+    load_users()
 
 
 def q(sql, args=()):
@@ -742,6 +803,60 @@ def run(sql, args=()):
         cur = db.execute(sql, args)
         db.commit()
         return cur.lastrowid
+
+
+def run_count(sql, args=()):
+    with DB_LOCK:
+        cur = db.execute(sql, args)
+        db.commit()
+        return cur.rowcount
+
+
+# ================= пользователи =================
+# Бот один, пользователей несколько: администратор (тот, кто ставил) приглашает остальных через /invite.
+# У каждого кадра есть владелец; лента, кнопки, «Проявка», экспорт и место на диске — у каждого свои.
+ADMIN = CHAT_ID
+USER_STORAGE_GB = float(os.environ.get("USER_STORAGE_GB", "5"))   # лимит места для приглашённых (меняется в /users)
+INVITE_DAYS = 7
+USERS = {}                    # id -> строка таблицы users (кэш, перечитывается при изменениях)
+USERS_LOCK = threading.Lock()
+
+
+def load_users():
+    rows = q("SELECT * FROM users")
+    with USERS_LOCK:
+        USERS.clear()
+        USERS.update({r["id"]: r for r in rows})
+
+
+def user(uid):
+    return USERS.get(uid)
+
+
+def user_lang(uid):
+    u = USERS.get(uid)
+    return (u and u["lang"]) or LANG
+
+
+def set_user(uid, **kw):
+    cols = ", ".join(f"{k}=?" for k in kw)
+    run(f"UPDATE users SET {cols} WHERE id=?", (*kw.values(), uid))
+    load_users()
+
+
+def storage_limit(uid):
+    u = USERS.get(uid) or {}
+    if u.get("storage_gb"):
+        return u["storage_gb"]
+    return STORAGE_GB if uid == ADMIN else USER_STORAGE_GB
+
+
+def udir(uid, kind):
+    """Папка пользователя: у администратора — прежние папки в BASE, у остальных — BASE/users/<id>/."""
+    d = (BASE if uid == ADMIN else BASE / "users" / str(uid)) / kind
+    if not d.is_dir():
+        d.mkdir(parents=True, exist_ok=True)
+    return d
 
 
 def get(pid):
@@ -825,8 +940,8 @@ def caption(ph):
     if ph["iso"]:
         meta.append(f"ISO {ph['iso']}")
     if ph["auto_reason"]:
-        meta.append(L("авто", "auto") + f": {ph['auto_reason']} → {pname(ph['auto_key'])}")
-    leak = " · " + L("засвет", "leak") + f": {LEAKS.get(ph.get('leak_kind') or 'edge', ('',))[0]}" if ph["leak"] else ""
+        meta.append(L("авто", "auto") + f": {auto_reason(ph)} → {pname(ph['auto_key'])}")
+    leak = " · " + L("засвет", "leak") + f": {tr(LEAKS.get(ph.get('leak_kind') or 'edge', ('',))[0])}" if ph["leak"] else ""
     return f"#{ph['id']} · {pname(ph['preset'])} · {ph['strength']}%{leak}\n" + " · ".join(meta)
 
 
@@ -864,7 +979,7 @@ def leak_kb(ph):
     pid = ph["id"]
     cur = (ph.get("leak_kind") or "edge") if ph["leak"] else ""
     keys = list(LEAKS)
-    rows = [[btn(("• " if cur == k else "") + LEAKS[k][0], f"l:{pid}:{k}") for k in keys[i:i + 3]]
+    rows = [[btn(("• " if cur == k else "") + tr(LEAKS[k][0]), f"l:{pid}:{k}") for k in keys[i:i + 3]]
             for i in range(0, len(keys), 3)]
     rows.append([btn(("• " if not cur else "") + L("Без засвета", "No leak"), f"l:{pid}:"), btn(L("↻ Сдвинуть", "↻ Shift"), f"ls:{pid}")])
     rows.append([btn(L("← Назад", "← Back"), f"b:{pid}")])
@@ -873,9 +988,16 @@ def leak_kb(ph):
 
 KB_FEED, KB_TODAY = L("📚 Лента", "📚 Feed"), L("📅 Сегодня", "📅 Today")
 KB_FILM, KB_HELP = L("🎞 Плёнка по умолчанию", "🎞 Default film"), L("❓ Помощь", "❓ Help")
-MENU = {"keyboard": [[{"text": KB_FEED}, {"text": KB_TODAY}],
-                     [{"text": KB_FILM}, {"text": KB_HELP}]],
-        "resize_keyboard": True, "is_persistent": True}
+
+
+def menu():
+    return {"keyboard": [[{"text": tr(KB_FEED)}, {"text": tr(KB_TODAY)}],
+                         [{"text": tr(KB_FILM)}, {"text": tr(KB_HELP)}]],
+            "resize_keyboard": True, "is_persistent": True}
+
+
+def kb_is(t, kb):
+    return t in (kb.ru.lower(), kb.en.lower())
 
 
 def touch(pid):
@@ -885,10 +1007,10 @@ def touch(pid):
 def send_new(ph):
     """Прислать кадр новым сообщением (из ленты в чате), по кешу Telegram."""
     if not ph["file_id"]:
-        tg("sendMessage", chat_id=CHAT_ID, text=L(f"Кадр #{ph['id']} ещё проявляется.", f"Frame #{ph['id']} is still developing."))
+        tg("sendMessage", chat_id=ph["owner"], text=L(f"Кадр #{ph['id']} ещё проявляется.", f"Frame #{ph['id']} is still developing."))
         return
     with EDIT_LOCK:
-        res = tg("sendPhoto", chat_id=CHAT_ID, photo=ph["file_id"], caption=caption(ph), reply_markup=main_kb(ph))
+        res = tg("sendPhoto", chat_id=ph["owner"], photo=ph["file_id"], caption=caption(ph), reply_markup=main_kb(ph))
         upd(ph["id"], msg_id=res["message_id"], msg_at=time.time(), file_id=res["photo"][-1]["file_id"])
 
 
@@ -918,29 +1040,38 @@ def delete_photos(ids):
 
 
 def _delete_messages(phs):
-    fresh, old = [], []
+    by_owner = {}
     for ph in phs:
         if ph["msg_id"]:
-            sent = ph.get("msg_at") or ph["created"] or 0
-            (fresh if time.time() - sent < MSG_DELETE_WINDOW else old).append(ph["msg_id"])
+            by_owner.setdefault(ph["owner"], []).append(ph)
+    for chat, items in by_owner.items():
+        with speak(chat):
+            _delete_chat_messages(chat, items)
+
+
+def _delete_chat_messages(chat, phs):
+    fresh, old = [], []
+    for ph in phs:
+        sent = ph.get("msg_at") or ph["created"] or 0
+        (fresh if time.time() - sent < MSG_DELETE_WINDOW else old).append(ph["msg_id"])
     for i in range(0, len(fresh), 100):
         chunk = fresh[i:i + 100]
-        pace(CHAT_ID)
-        if not safe("deleteMessages", chat_id=CHAT_ID, message_ids=chunk):
+        pace(chat)
+        if not safe("deleteMessages", chat_id=chat, message_ids=chunk):
             for mid in chunk:                    # на всякий случай по одному
-                if not safe("deleteMessage", chat_id=CHAT_ID, message_id=mid):
+                if not safe("deleteMessage", chat_id=chat, message_id=mid):
                     old.append(mid)
     for mid in old:                              # старше 48 часов: удалить нельзя — меняем фото на заглушку
-        pace(CHAT_ID)
+        pace(chat)
         with open(deleted_placeholder(), "rb") as f:
-            if not safe("editMessageMedia", files={"f": ("deleted.jpg", f)}, chat_id=CHAT_ID, message_id=mid,
+            if not safe("editMessageMedia", files={"f": ("deleted.jpg", f)}, chat_id=chat, message_id=mid,
                         media={"type": "photo", "media": "attach://f", "caption": L("Удалено", "Deleted")},
                         reply_markup={"inline_keyboard": []}):
-                safe("editMessageReplyMarkup", chat_id=CHAT_ID, message_id=mid, reply_markup={"inline_keyboard": []})
+                safe("editMessageReplyMarkup", chat_id=chat, message_id=mid, reply_markup={"inline_keyboard": []})
 
 
 def deleted_placeholder():
-    path = BASE / f"deleted_{LANG}.jpg"
+    path = BASE / f"deleted_{cur_lang()}.jpg"
     if not path.exists():
         img = Image.new("RGB", (640, 400), (24, 24, 24))
         d = ImageDraw.Draw(img)
@@ -1084,9 +1215,18 @@ def dispatcher():
             log.exception("dispatcher")
 
 
-def jobs_in_work():
+def jobs_in_work(uid):
+    """Сколько кадров этого пользователя сейчас рисуется или ждёт очереди."""
     with JOB_LOCK:
-        return len(VIEW_INFLIGHT) + len(RQ_QUEUED) + sum(EXPORTING.values())
+        pids = set(VIEW_INFLIGHT) | set(RQ_QUEUED) | set(EXPORTING)
+    if not pids:
+        return 0
+    pids = list(pids)[:900]
+    marks = ",".join("?" * len(pids))
+    rows = q(f"SELECT id FROM photos WHERE owner=? AND id IN ({marks})", (uid, *pids))
+    mine = {r["id"] for r in rows}
+    with JOB_LOCK:
+        return sum(1 for p in mine if p in VIEW_INFLIGHT or p in RQ_QUEUED) + sum(EXPORTING.get(p, 0) for p in mine)
 
 
 # Очередь отрисовки. Сразу в процессы отдаётся не больше задач, чем они успевают (VIEW_SLOTS): иначе сотня кадров
@@ -1100,8 +1240,11 @@ VIEW_CHAT = {}                        # pid в работе -> нужна ли �
 VIEW_PRIO = {}                        # pid в работе -> срочность (с ней же правка уйдёт в чат)
 
 
-def schedule_view(pid, prio=0, chat=True, uid=0):
+def schedule_view(pid, prio=0, chat=True, uid=None):
     """Перерисовать кадр. Если уже рисуется — дорисуем последнее состояние следом."""
+    if uid is None:                      # очередь по кругу между владельцами кадров
+        r = q("SELECT owner FROM photos WHERE id=?", (pid,))
+        uid = r[0]["owner"] if r else 0
     with JOB_LOCK:
         if pid in VIEW_INFLIGHT:
             VIEW_DIRTY.add(pid)
@@ -1174,7 +1317,8 @@ def _submit_view(pid):
     with JOB_LOCK:
         chat = VIEW_CHAT.get(pid, True) and bool(ph["msg_id"] or not ph["file_id"])
     chat_path = str(TMP / f"chat_{pid}_{rev}.jpg") if chat else None
-    fut = FAST.submit(job_view, ph, str(VIEWS / f"{pid}.jpg"), str(THUMBS / f"{pid}.jpg"), chat_path)
+    fut = FAST.submit(job_view, ph, str(udir(ph["owner"], "views") / f"{pid}.jpg"),
+                      str(udir(ph["owner"], "thumbs") / f"{pid}.jpg"), chat_path)
     fut.add_done_callback(lambda f: EVENTS.put((_view_done, (pid, rev, chat, f))))
 
 
@@ -1218,11 +1362,12 @@ BATCH_OF = {}     # pid -> номер пакета, в котором он ещ�
 _BATCH_SEQ = itertools.count(1)
 
 
-def batch_track(pids, text):
+def batch_track(pids, text, uid):
     finished = []
     with JOB_LOCK:
         bid = next(_BATCH_SEQ)
-        BATCHES[bid] = {"left": set(pids), "pids": list(pids), "ok": 0, "fail": 0, "total": len(pids), "text": text}
+        BATCHES[bid] = {"left": set(pids), "pids": list(pids), "ok": 0, "fail": 0, "total": len(pids), "text": text,
+                        "uid": uid, "lang": cur_lang()}
         for pid in pids:
             old = BATCH_OF.get(pid)
             if old in BATCHES:                   # кадр перешёл в новый пакет — в старом считаем его готовым
@@ -1264,12 +1409,13 @@ def _batch_report(b):
                 break
         time.sleep(0.5)
     n = b["ok"]
+    _CTX.lang = b["lang"]
     text = L(f"Готово: {n} {plural_ru(n, 'кадр', 'кадра', 'кадров')} → {b['text']}",
              f"Done: {n} frame{'' if n == 1 else 's'} → {b['text']}")
     if b["fail"]:
         text += L(f"\nНе получилось: {b['fail']}", f"\nFailed: {b['fail']}")
-    pace(CHAT_ID)
-    safe("sendMessage", chat_id=CHAT_ID, text=text, disable_notification=True)
+    pace(b["uid"])
+    safe("sendMessage", chat_id=b["uid"], text=text, disable_notification=True)
 
 
 def plural_ru(n, one, few, many):
@@ -1293,10 +1439,16 @@ def export_photo(pid):
 
 
 def _export_done(pid, ph, out, fut):
+    with speak(ph["owner"]):
+        _export_send(pid, ph, out, fut)
+
+
+def _export_send(pid, ph, out, fut):
+    chat = ph["owner"]
     try:
         err = fut.exception()
         if err:
-            safe("sendMessage", chat_id=CHAT_ID, text=L(f"Не смог экспортировать #{pid}: {err}", f"Could not export #{pid}: {err}"))
+            safe("sendMessage", chat_id=chat, text=L(f"Не смог экспортировать #{pid}: {err}", f"Could not export #{pid}: {err}"))
             return
         note = None if has(ph["src"]) else L("Оригинал уже удалён для экономии места, это версия для чата.",
                                          "The original was deleted to save space; this is the chat version.")
@@ -1305,10 +1457,10 @@ def _export_done(pid, ph, out, fut):
             return
         with open(out, "rb") as f:
             tg("sendDocument", files={"document": (f"{Path(ph['name']).stem}_{ph['preset']}.jpg", f)},
-               chat_id=CHAT_ID, reply_to_message_id=cur["msg_id"], caption=note)
+               chat_id=chat, reply_to_message_id=cur["msg_id"], caption=note)
     except Exception as e:
         log.exception("export upload #%d", pid)
-        safe("sendMessage", chat_id=CHAT_ID, text=L(f"Не смог отправить файл #{pid}: {e}", f"Could not send file #{pid}: {e}"))
+        safe("sendMessage", chat_id=chat, text=L(f"Не смог отправить файл #{pid}: {e}", f"Could not send file #{pid}: {e}"))
     finally:
         remove(str(out))
         with JOB_LOCK:
@@ -1350,13 +1502,14 @@ def _tg_upload(pid, rev, path):
     ph = get(pid)
     if not ph or ph["hidden"] or ph["rev"] != rev:
         return   # кадр убрали или снова поменяли — свежий вариант уже в очереди
-    pace(CHAT_ID)
-    with EDIT_LOCK, open(path, "rb") as f:
+    chat = ph["owner"]
+    pace(chat)
+    with speak(chat), EDIT_LOCK, open(path, "rb") as f:
         res = None
         if ph["msg_id"]:
             media = {"type": "photo", "media": "attach://f", "caption": caption(ph)}
             try:
-                res = tg("editMessageMedia", files={"f": ("p.jpg", f)}, chat_id=CHAT_ID,
+                res = tg("editMessageMedia", files={"f": ("p.jpg", f)}, chat_id=chat,
                          message_id=ph["msg_id"], media=media, reply_markup=main_kb(ph))
             except Exception as e:
                 if "not modified" in str(e):
@@ -1364,7 +1517,7 @@ def _tg_upload(pid, rev, path):
                 log.warning("edit #%d failed (%s), sending new", pid, e)
                 f.seek(0)
         if res is None:
-            res = tg("sendPhoto", files={"photo": ("p.jpg", f)}, chat_id=CHAT_ID,
+            res = tg("sendPhoto", files={"photo": ("p.jpg", f)}, chat_id=chat,
                      caption=caption(ph), reply_markup=main_kb(ph))
             upd(pid, msg_id=res["message_id"], msg_at=time.time())
         upd(pid, file_id=res["photo"][-1]["file_id"])
@@ -1495,6 +1648,29 @@ def remove(path):
             pass
 
 
+def user_usage(uid):
+    """Сколько места занимают кадры пользователя: оригиналы, рабочие копии, картинки для просмотра."""
+    use = {"src": 0, "work": 0, "pics": 0}
+    for r in q("SELECT src, work, view, thumb FROM photos WHERE owner=?", (uid,)):
+        use["src"] += fsize(r["src"]) if r["src"] else 0
+        use["work"] += fsize(r["work"]) if r["work"] else 0
+        use["pics"] += (fsize(r["view"]) if r["view"] else 0) + (fsize(r["thumb"]) if r["thumb"] else 0)
+    return use
+
+
+def _free_space(rows_sql, args, need):
+    """Удалять оригиналы, потом рабочие копии, от самых старых, пока need() не скажет «хватит»."""
+    for field in ("src", "work"):
+        for r in q(rows_sql.format(f=field), args):
+            if not need():
+                return
+            size = fsize(r["p"])
+            remove(r["p"])
+            upd(r["id"], **{field: None}, updated=time.time())
+            yield size
+            log.info("cleanup: #%d %s removed (%.1f MB)", r["id"], field, size / 1e6)
+
+
 def cleanup():
     now = time.time()
     for p in PREVIEWS.iterdir():
@@ -1507,51 +1683,51 @@ def cleanup():
     for r in q("SELECT id, src FROM photos WHERE src IS NOT NULL AND created < ?", (now - ORIG_DAYS * 86400,)):
         remove(r["src"])
         upd(r["id"], src=None)
-    # 2) общий лимит и свободное место: сначала оригиналы, потом рабочие копии, от самых старых
-    limit = STORAGE_GB * 1e9
+    # 2) лимит каждого пользователя
+    for uid in list(USERS):
+        use = user_usage(uid)
+        total = [sum(use.values())]
+        limit = storage_limit(uid) * 1e9
+        if total[0] <= limit:
+            continue
+        for size in _free_space("SELECT id, {f} AS p FROM photos WHERE owner=? AND {f} IS NOT NULL ORDER BY id",
+                                (uid,), lambda: total[0] > limit):
+            total[0] -= size
+        for p in sorted(udir(uid, "originals").glob("failed_*"), key=lambda x: x.stat().st_mtime):
+            if total[0] <= limit:
+                break
+            total[0] -= fsize(p)
+            remove(p)
+    # 3) свободное место на диске — общее, от самых старых кадров всех пользователей
     min_free = MIN_FREE_GB * 1e9
-    total = dir_bytes(ORIGINALS, WORK, VIEWS, THUMBS)
-    free = shutil.disk_usage(BASE).free
-    if total <= limit and free >= min_free:
-        return
-    for field in ("src", "work"):
-        for r in q(f"SELECT id, {field} AS p FROM photos WHERE {field} IS NOT NULL ORDER BY id"):
-            if total <= limit and free >= min_free:
-                return
-            size = fsize(r["p"])
-            remove(r["p"])
-            upd(r["id"], **{field: None}, updated=time.time())
-            total -= size
-            free += size
-            log.info("cleanup: #%d %s removed (%.1f MB)", r["id"], field, size / 1e6)
-    for p in sorted(ORIGINALS.glob("failed_*"), key=lambda x: x.stat().st_mtime):
-        if total <= limit and free >= min_free:
-            return
-        total -= fsize(p)
-        remove(p)
+    free = [shutil.disk_usage(BASE).free]
+    if free[0] < min_free:
+        for size in _free_space("SELECT id, {f} AS p FROM photos WHERE {f} IS NOT NULL ORDER BY id", (),
+                                lambda: free[0] < min_free):
+            free[0] += size
 
 
-def storage_text():
-    n = q("SELECT COUNT(*) AS n, SUM(src IS NOT NULL) AS o, SUM(work IS NOT NULL) AS w FROM photos WHERE hidden=0")[0]
+def storage_text(uid):
+    n = q("SELECT COUNT(*) AS n, SUM(src IS NOT NULL) AS o, SUM(work IS NOT NULL) AS w FROM photos "
+          "WHERE hidden=0 AND owner=?", (uid,))[0]
+    use = user_usage(uid)
     gb = lambda b: f"{b / 1e9:.1f} " + L("ГБ", "GB")
-    du = shutil.disk_usage(BASE)
-    if LANG == "en":
-        return (f"Frames in feed: {n['n'] or 0}\n"
-                f"With original: {n['o'] or 0}, film can be changed: {n['w'] or 0}\n"
-                f"Originals: {gb(dir_bytes(ORIGINALS))}, working copies: {gb(dir_bytes(WORK))}, "
-                f"previews: {gb(dir_bytes(VIEWS, THUMBS))}\n"
-                f"Limit: {STORAGE_GB:g} GB, originals kept {ORIG_DAYS:g} days\n"
-                f"Free disk space: {gb(du.free)} of {gb(du.total)}")
-    return (f"Кадров в ленте: {n['n'] or 0}\n"
-            f"С оригиналом: {n['o'] or 0}, можно менять плёнку: {n['w'] or 0}\n"
-            f"Оригиналы: {gb(dir_bytes(ORIGINALS))}, рабочие копии: {gb(dir_bytes(WORK))}, "
-            f"превью: {gb(dir_bytes(VIEWS, THUMBS))}\n"
-            f"Лимит: {STORAGE_GB:g} ГБ, оригиналы живут {ORIG_DAYS:g} дн.\n"
-            f"Свободно на диске: {gb(du.free)} из {gb(du.total)}")
+    text = L(f"Кадров в ленте: {n['n'] or 0}\n"
+             f"С оригиналом: {n['o'] or 0}, можно менять плёнку: {n['w'] or 0}\n"
+             f"Оригиналы: {gb(use['src'])}, рабочие копии: {gb(use['work'])}, превью: {gb(use['pics'])}\n"
+             f"Занято {gb(sum(use.values()))} из {storage_limit(uid):g} ГБ, оригиналы живут {ORIG_DAYS:g} дн.",
+             f"Frames in feed: {n['n'] or 0}\n"
+             f"With original: {n['o'] or 0}, film can be changed: {n['w'] or 0}\n"
+             f"Originals: {gb(use['src'])}, working copies: {gb(use['work'])}, previews: {gb(use['pics'])}\n"
+             f"Used {gb(sum(use.values()))} of {storage_limit(uid):g} GB, originals kept {ORIG_DAYS:g} days")
+    if uid == ADMIN:
+        du = shutil.disk_usage(BASE)
+        text += L(f"\nСвободно на диске: {gb(du.free)} из {gb(du.total)}", f"\nFree disk space: {gb(du.free)} of {gb(du.total)}")
+    return text
 
 
 # ================= экраны бота =================
-def help_text():
+def help_text(uid):
     lines = [L("Как пользоваться:", "How to use:"),
              L("• Снимаешь — через ~30 сек фото прилетает сюда уже с плёнкой.",
                "• Take a shot — in ~30 s it arrives here, already on film."),
@@ -1564,21 +1740,30 @@ def help_text():
                "• 📚 Feed — grid of frames in the chat, 📅 Today — album of the day."),
              L("• /storage — сколько места занято.", "• /storage — how much space is used."),
              L("• /camera — файлы и инструкция для настройки камеры.", "• /camera — files and guide to set up your camera."),
+             L("• /lang — сменить язык (English).", "• /lang — switch language (русский)."),
              L("• Можно прислать любое фото файлом — обработаю.", "• Send any photo as a file — I will develop it.")]
+    if uid == ADMIN:
+        lines += [L("• /invite — ссылка-приглашение для ещё одного человека, /users — кто пользуется ботом.",
+                    "• /invite — an invite link for one more person, /users — who uses the bot.")]
     if WEBAPP_URL:
         lines.append(L("• Кнопка «Проявка» слева от поля ввода — лента-приложение со свайпами и превью плёнок.",
                        "• The Proyavka button next to the input field — feed app with swipes and live film previews."))
+        lines.append(L("  Там же: «+» — фото с телефона, долгое нажатие на кадр — выбрать несколько (плёнка, засвет, "
+                       "удаление пачкой), «Кадр» — кадрирование.",
+                       "  There: \"+\" adds phone photos, long-press a frame to select several (film, leak, delete at once), "
+                       "\"Crop\" crops."))
     lines += ["", L("Плёнки:", "Films:")]
     for k, p in PRESETS.items():
-        lines.append(f"{p['name']} — {p['when']}: {p['desc']}")
+        lines.append(f"{p['name']} — {tr(p['when'])}: {tr(p['desc'])}")
     return "\n".join(lines)
 
 
-def gallery_page(page):
-    total = q("SELECT COUNT(*) AS n FROM photos WHERE hidden=0")[0]["n"]
+def gallery_page(page, uid):
+    total = q("SELECT COUNT(*) AS n FROM photos WHERE hidden=0 AND owner=?", (uid,))[0]["n"]
     pages = max(1, math.ceil(total / PAGE))
     page = max(0, min(page, pages - 1))
-    rows = q("SELECT * FROM photos WHERE hidden=0 ORDER BY id DESC LIMIT ? OFFSET ?", (PAGE, page * PAGE))
+    rows = q("SELECT * FROM photos WHERE hidden=0 AND owner=? ORDER BY taken DESC, id DESC LIMIT ? OFFSET ?",
+             (uid, PAGE, page * PAGE))
     kb = []
     for i in range(0, len(rows), 4):
         kb.append([btn(f"#{r['id']}", f"o:{r['id']}") for r in rows[i:i + 4]])
@@ -1588,8 +1773,8 @@ def gallery_page(page):
     return gallery_image(rows), {"inline_keyboard": kb}, L(f"Лента: {total} кадров. Нажми номер — пришлю кадр с кнопками.", f"Feed: {total} frames. Tap a number to get the frame with buttons.")
 
 
-def default_kb(state):
-    cur = state.get("default", "auto")
+def default_kb(uid):
+    cur = (user(uid) or {}).get("default_film") or "auto"
     rows = [[btn(("• " if cur == "auto" else "") + L("🤖 Авто по ситуации", "🤖 Auto by scene"), "d:auto")]]
     keys = list(PRESETS)
     for i in range(0, len(keys), 3):
@@ -1597,36 +1782,185 @@ def default_kb(state):
     return {"inline_keyboard": rows}
 
 
-def send_today():
+def send_today(uid):
     today = datetime.now().strftime("%Y-%m-%d")
-    rows = q("SELECT * FROM photos WHERE hidden=0 AND file_id IS NOT NULL AND substr(taken,1,10)=? ORDER BY id",
-             (today,))
+    rows = q("SELECT * FROM photos WHERE hidden=0 AND owner=? AND file_id IS NOT NULL AND substr(taken,1,10)=? "
+             "ORDER BY taken, id", (uid, today))
     if not rows:
-        tg("sendMessage", chat_id=CHAT_ID, text=L("Сегодня кадров пока нет.", "No frames today yet."))
+        tg("sendMessage", chat_id=uid, text=L("Сегодня кадров пока нет.", "No frames today yet."))
         return
     for i in range(0, len(rows), 10):
         chunk = rows[i:i + 10]
         media = [{"type": "photo", "media": r["file_id"]} for r in chunk]
         media[0]["caption"] = L("Прогулка", "Walk") + f" {datetime.now():%d.%m} · {len(rows)} " + L("кадров", "frames")
-        tg("sendMediaGroup", chat_id=CHAT_ID, media=media)
+        tg("sendMediaGroup", chat_id=uid, media=media)
 
 
 # ================= события бота =================
-def on_text(text, state):
+def on_text(text, uid):
     t = text.strip().lower()
-    if t in ("/start", "/help", KB_HELP.lower()):
-        tg("sendMessage", chat_id=CHAT_ID, text=help_text(), reply_markup=MENU)
-    elif t in ("/gallery", KB_FEED.lower()):
-        img, kb, cap = gallery_page(0)
-        tg("sendPhoto", files={"photo": ("g.jpg", jpeg(img, 88))}, chat_id=CHAT_ID, caption=cap, reply_markup=kb)
-    elif t in ("/today", KB_TODAY.lower()):
-        send_today()
-    elif t in ("/film", KB_FILM.lower()):
-        tg("sendMessage", chat_id=CHAT_ID, text=L("Какую плёнку ставить новым кадрам?", "Which film for new frames?"), reply_markup=default_kb(state))
+    if t in ("/start", "/help") or t.startswith("/start ") or kb_is(t, KB_HELP):
+        tg("sendMessage", chat_id=uid, text=help_text(uid), reply_markup=menu())
+    elif t == "/gallery" or kb_is(t, KB_FEED):
+        img, kb, cap = gallery_page(0, uid)
+        tg("sendPhoto", files={"photo": ("g.jpg", jpeg(img, 88))}, chat_id=uid, caption=cap, reply_markup=kb)
+    elif t == "/today" or kb_is(t, KB_TODAY):
+        send_today(uid)
+    elif t == "/film" or kb_is(t, KB_FILM):
+        tg("sendMessage", chat_id=uid, text=L("Какую плёнку ставить новым кадрам?", "Which film for new frames?"), reply_markup=default_kb(uid))
     elif t == "/storage":
-        tg("sendMessage", chat_id=CHAT_ID, text=storage_text())
+        tg("sendMessage", chat_id=uid, text=storage_text(uid))
     elif t == "/camera":
-        send_camera_setup()
+        send_camera_setup(uid)
+    elif t == "/lang":
+        set_user(uid, lang="en" if user_lang(uid) == "ru" else "ru")
+        with speak(uid):
+            set_commands(uid)
+            tg("sendMessage", chat_id=uid, text=L("Язык: русский.", "Language: English."), reply_markup=menu())
+    elif t == "/invite" and uid == ADMIN:
+        link = make_invite(uid)
+        tg("sendMessage", chat_id=uid, disable_web_page_preview=True, text=L(
+            f"Ссылка-приглашение (одноразовая, живёт {INVITE_DAYS} дней):\n{link}\n\n"
+            "Перешли её тому, кого зовёшь. У него будет своя лента, свои кадры и своя камера; "
+            "его кадры не видны тебе в боте, а твои — ему. Технически администратор сервера может открыть любые файлы на нём.",
+            f"Invite link (single use, valid for {INVITE_DAYS} days):\n{link}\n\n"
+            "Forward it to the person you invite. They get their own feed, frames and camera; "
+            "you don't see their frames in the bot and they don't see yours. Technically, the server admin can open any file on it."))
+    elif t == "/users" and uid == ADMIN:
+        text, kb = users_screen()
+        tg("sendMessage", chat_id=uid, text=text, reply_markup=kb)
+
+
+# ================= приглашения и пользователи =================
+BOT_NAME = {}
+
+
+def bot_username():
+    if "u" not in BOT_NAME:
+        BOT_NAME["u"] = tg("getMe")["username"]
+    return BOT_NAME["u"]
+
+
+def make_invite(by):
+    code = secrets.token_urlsafe(9)          # 12 символов: буквы, цифры, - и _ — годится для ?start=
+    run("INSERT INTO invites(code, created, by) VALUES (?,?,?)", (code, time.time(), by))
+    return f"https://t.me/{bot_username()}?start={code}"
+
+
+def tg_name(fr):
+    name = " ".join(x for x in (fr.get("first_name"), fr.get("last_name")) if x) or str(fr.get("id"))
+    return name + (f" (@{fr['username']})" if fr.get("username") else "")
+
+
+STRANGERS = {}       # кому уже ответили «нужно приглашение» (чтобы не отвечать на каждое сообщение)
+
+
+def on_stranger(msg):
+    """Сообщение от того, кого нет среди пользователей: принять приглашение или вежливо отказать."""
+    fr = msg.get("from") or {}
+    uid = fr.get("id")
+    lang = "ru" if (fr.get("language_code") or "").split("-")[0] in ("ru", "uk", "be", "kk") else "en"
+    _CTX.lang = lang
+    text = (msg.get("text") or "").strip()
+    if text.startswith("/start "):
+        code = text.split(maxsplit=1)[1].strip()
+        fresh = time.time() - INVITE_DAYS * 86400
+        if run_count("UPDATE invites SET used_by=?, used_at=? WHERE code=? AND used_by IS NULL AND created > ?",
+                     (uid, time.time(), code, fresh)) == 1:
+            by = q("SELECT by FROM invites WHERE code=?", (code,))[0]["by"]
+            run("INSERT OR REPLACE INTO users(id, role, name, lang, default_film, created, invited_by) "
+                "VALUES (?, 'user', ?, ?, 'auto', ?, ?)", (uid, tg_name(fr), lang, time.time(), by))
+            load_users()
+            log.info("новый пользователь %s (%d)", tg_name(fr), uid)
+            with speak(uid):
+                set_commands(uid)
+                tg("sendMessage", chat_id=uid, text=L("Привет! Это «Проявка»: твои фото как на плёнку.\n\n",
+                                                      "Hi! This is Proyavka: your photos, as if shot on film.\n\n")
+                   + help_text(uid), reply_markup=menu())
+            with speak(ADMIN):
+                safe("sendMessage", chat_id=ADMIN, text=L("По приглашению пришёл", "Joined by invite") + f": {tg_name(fr)}")
+            return
+        safe("sendMessage", chat_id=uid, text=L("Ссылка-приглашение недействительна: она одноразовая и живёт "
+                                                f"{INVITE_DAYS} дней. Попроси новую у того, кто тебя позвал.",
+                                                f"This invite link is not valid: it works once and for {INVITE_DAYS} days. "
+                                                "Ask the person who invited you for a new one."))
+        return
+    if time.time() - STRANGERS.get(uid, 0) > 3600:
+        STRANGERS[uid] = time.time()
+        safe("sendMessage", chat_id=uid, text=L("Это личный бот «Проявки». Чтобы им пользоваться, нужна ссылка-приглашение "
+                                                "от владельца.", "This is a private Proyavka bot. You need an invite link "
+                                                "from its owner to use it."))
+
+
+def users_screen():
+    rows = q("SELECT u.*, (SELECT COUNT(*) FROM photos p WHERE p.owner=u.id AND p.hidden=0) AS n FROM users u "
+             "ORDER BY u.role='admin' DESC, u.created")
+    lines, kb = [L("Пользователи:", "Users:")], []
+    for i, u in enumerate(rows, 1):
+        used = sum(user_usage(u["id"]).values()) / 1e9
+        role = L(" — администратор", " — admin") if u["role"] == "admin" else ""
+        lines.append(f"{i}. {u['name'] or u['id']}{role}\n   {u['n']} "
+                     + L(plural_ru(u["n"], "кадр", "кадра", "кадров"), "frame" if u["n"] == 1 else "frames")
+                     + f" · {used:.1f} / {storage_limit(u['id']):g} " + L("ГБ", "GB"))
+        if u["id"] != ADMIN:
+            short = (u["name"] or str(u["id"])).split(" (@")[0][:16]
+            kb.append([btn(f"{i}. {short}: {storage_limit(u['id']):g} " + L("ГБ ▸", "GB ▸"), f"ul:{u['id']}"),
+                       btn(L("🗑 Удалить", "🗑 Remove"), f"ud:{u['id']}")])
+    if len(rows) == 1:
+        lines.append(L("\nПока только ты. Позови кого-нибудь: /invite", "\nJust you so far. Invite someone: /invite"))
+    return "\n".join(lines), {"inline_keyboard": kb}
+
+
+LIMITS_GB = [2, 5, 10, 20, 50, 100]
+
+
+def delete_user(uid):
+    """Убрать пользователя: все его кадры и файлы, камеру на сервере, доступ к боту."""
+    rows = q("SELECT * FROM photos WHERE owner=?", (uid,))
+    for ph in rows:
+        for p in (ph["src"], ph["work"], ph["view"], ph["thumb"]):
+            remove(p)
+        for p in PREVIEWS.glob(f"{ph['id']}_*.jpg"):
+            remove(str(p))
+    run("DELETE FROM photos WHERE owner=?", (uid,))
+    if uid != ADMIN:
+        shutil.rmtree(BASE / "users" / str(uid), ignore_errors=True)
+    u = user(uid) or {}
+    if u.get("cam_token"):
+        try:
+            cam_helper("del", f"u{uid}")
+        except Exception as e:
+            log.warning("camera of %d: %s", uid, e)
+    for tok in [t for t, v in SESSIONS.items() if v[1] == uid]:
+        SESSIONS.pop(tok, None)
+    with speak(uid):
+        bye = L("Доступ к боту закрыт.", "Your access to the bot was removed.")
+    run("DELETE FROM users WHERE id=?", (uid,))
+    load_users()
+    safe("deleteMyCommands", scope={"type": "chat", "chat_id": uid})
+    safe("setChatMenuButton", chat_id=uid, menu_button={"type": "default"})
+    safe("sendMessage", chat_id=uid, text=bye, reply_markup={"remove_keyboard": True})
+    return len(rows)
+
+
+def set_commands(uid):
+    """Команды бота в меню — на языке пользователя; у администратора ещё /invite и /users."""
+    cmds = [
+        {"command": "gallery", "description": L("Лента кадров в чате", "Frame feed in the chat")},
+        {"command": "today", "description": L("Альбом за сегодня", "Today's album")},
+        {"command": "film", "description": L("Плёнка по умолчанию", "Default film")},
+        {"command": "storage", "description": L("Сколько места занято", "Storage used")},
+        {"command": "camera", "description": L("Настройка камеры: файлы и инструкция", "Camera setup: files and guide")},
+        {"command": "lang", "description": L("English", "Русский")},
+        {"command": "help", "description": L("Как пользоваться", "How to use")},
+    ]
+    if uid == ADMIN:
+        cmds += [{"command": "invite", "description": L("Пригласить человека", "Invite a person")},
+                 {"command": "users", "description": L("Пользователи бота", "Bot users")}]
+    safe("setMyCommands", commands=cmds, scope={"type": "chat", "chat_id": uid})
+    if WEBAPP_URL:
+        safe("setChatMenuButton", chat_id=uid,
+             menu_button={"type": "web_app", "text": tr(APP_NAME), "web_app": {"url": WEBAPP_URL}})
 
 
 # ================= настройка камеры прямо из чата =================
@@ -1636,12 +1970,55 @@ CAMERA_CONFIG = APP_ROOT / "camera-config" / "config.txt"
 FTP_ROOT_CERT = APP_ROOT / "camera-app" / "certs" / "isrgrootx1.pem"
 
 
-def send_camera_setup():
+CAM_HELPER = os.environ.get("CAM_HELPER", "/usr/local/lib/proyavka/proyavka-user")
+
+
+def cam_helper(action, name, stdin=""):
+    """Пользователи камер на сервере-приёмнике: FTP-вход, папка и токен приложения. Root-скрипт через sudo."""
+    res = subprocess.run(remote(f"sudo -n {CAM_HELPER} {action} {shlex.quote(name)}"), input=stdin,
+                         capture_output=True, text=True, timeout=60)
+    if res.returncode != 0:
+        raise RuntimeError((res.stderr or res.stdout).strip()[-300:] or f"exit {res.returncode}")
+    return res.stdout
+
+
+def ensure_camera(uid):
+    """Свои ключи камеры: токен приложения на Sony и FTP-пользователь со своей папкой. Создаются при первом /camera."""
+    u = user(uid)
+    if u.get("cam_token"):
+        return u
+    token, pw = secrets.token_urlsafe(32), secrets.token_urlsafe(12)
+    cam_helper("add", f"u{uid}", f"{pw}\n{hashlib.sha256(token.encode()).hexdigest()}\n")
+    set_user(uid, cam_token=token, ftp_pass=pw)
+    VPS_WATCH_RESTART.set()                   # новая папка — пусть мгновенные уведомления смотрят и её
+    return user(uid)
+
+
+def send_camera_setup(uid):
     """Всё, что нужно положить в камеру, — файлами в чат: скачал, скинул на карту, готово."""
     domain = os.environ.get("DOMAIN", "")
-    pw = os.environ.get("FTP_PASS", "—")
+    if uid == ADMIN:
+        ftp_user, pw, conf = "camera", os.environ.get("FTP_PASS", "—"), None
+    else:
+        try:
+            u = ensure_camera(uid)
+        except Exception as e:
+            log.warning("camera for %d: %s", uid, e)
+            tg("sendMessage", chat_id=uid, text=L("Не получилось завести камеру на сервере. Напиши администратору бота.",
+                                                  "Could not set up a camera on the server. Please tell the bot admin."))
+            with speak(ADMIN):
+                safe("sendMessage", chat_id=ADMIN, text=L(
+                    f"Не получилось завести камеру для {u_name(uid)}: {e}\n"
+                    "Скорее всего, сервер-приёмник от прежней версии: запусти setup.py → «Обновить».",
+                    f"Could not set up a camera for {u_name(uid)}: {e}\n"
+                    "The receiving server is probably from an older version: run setup.py → \"Update\"."))
+            return
+        ftp_user, pw = f"u{uid}", u["ftp_pass"]
+        conf = (L("# Настройки приложения «Проявка» для камеры Sony. Положи на карту в папку PROYAVKA.",
+                  "# Settings of the Proyavka app for Sony cameras. Put on the card into the PROYAVKA folder.")
+                + f"\n\nurl = https://{domain}\ntoken = {u['cam_token']}\nlang = {user_lang(uid)}\n").encode()
     guide = f"{PROJECT_URL}/blob/main/docs"
-    ext = ".md" if LANG == "en" else ".ru.md"
+    ext = ".md" if cur_lang() == "en" else ".ru.md"
     text = L(
         "📷 Настройка камеры\n\n"
         "Sony с приложениями (a6000–a6500, a7 II, RX100 III–V…)\n"
@@ -1651,7 +2028,7 @@ def send_camera_setup():
         "и введи пароль. Один раз — дальше камера подключается сама.\n"
         "4. Снимай в JPEG или RAW+JPEG → Проявка → Отправить новые.\n\n"
         "Камеры с отправкой по FTP (Sony A7C II, A7 IV, A1…)\n"
-        f"сервер: {domain}\nпорт: 21\nпользователь: camera\nпароль: {pw}\n"
+        f"сервер: {domain}\nпорт: 21\nпользователь: {ftp_user}\nпароль: {pw}\n"
         "папка: upload · FTPS (явный TLS) · пассивный режим\n"
         "Камере нужен корневой сертификат: положи файл cacert.pem (ниже) в корень карты "
         f"и импортируй его в меню сети. Пошагово: {guide}/ftp-cameras{ext}",
@@ -1663,22 +2040,28 @@ def send_camera_setup():
         "and enter the password. Once — after that the camera connects by itself.\n"
         "4. Shoot JPEG or RAW+JPEG → Proyavka → Send new.\n\n"
         "Cameras with FTP transfer (Sony A7C II, A7 IV, A1…)\n"
-        f"server: {domain}\nport: 21\nuser: camera\npassword: {pw}\n"
+        f"server: {domain}\nport: 21\nuser: {ftp_user}\npassword: {pw}\n"
         "folder: upload · FTPS (explicit TLS) · passive mode\n"
         "The camera needs a root certificate: put cacert.pem (below) in the root of the card "
         f"and import it in the network menu. Step by step: {guide}/ftp-cameras{ext}")
-    tg("sendMessage", chat_id=CHAT_ID, disable_web_page_preview=True, text=text)
-    if CAMERA_CONFIG.exists():
+    tg("sendMessage", chat_id=uid, disable_web_page_preview=True, text=text)
+    cap = L("config.txt → на карту в папку PROYAVKA", "config.txt → onto the card, into the PROYAVKA folder")
+    if conf:
+        tg("sendDocument", files={"document": ("config.txt", io.BytesIO(conf))}, chat_id=uid, caption=cap)
+    elif CAMERA_CONFIG.exists():
         with open(CAMERA_CONFIG, "rb") as f:
-            tg("sendDocument", files={"document": ("config.txt", f)}, chat_id=CHAT_ID,
-               caption=L("config.txt → на карту в папку PROYAVKA", "config.txt → onto the card, into the PROYAVKA folder"))
+            tg("sendDocument", files={"document": ("config.txt", f)}, chat_id=uid, caption=cap)
     if FTP_ROOT_CERT.exists():
         with open(FTP_ROOT_CERT, "rb") as f:
-            tg("sendDocument", files={"document": ("cacert.pem", f)}, chat_id=CHAT_ID,
+            tg("sendDocument", files={"document": ("cacert.pem", f)}, chat_id=uid,
                caption=L("cacert.pem → в корень карты, для камер с FTP", "cacert.pem → root of the card, for FTP cameras"))
 
 
-def on_callback(cb, state):
+def u_name(uid):
+    return ((user(uid) or {}).get("name") or str(uid))
+
+
+def on_callback(cb, uid):
     data = cb["data"]
     mid = cb.get("message", {}).get("message_id")
     parts = data.split(":")
@@ -1691,41 +2074,63 @@ def on_callback(cb, state):
     if kind == "x":
         return
     if kind == "cx":
-        safe("deleteMessage", chat_id=CHAT_ID, message_id=mid)
+        safe("deleteMessage", chat_id=uid, message_id=mid)
         return
     if kind == "g":
-        img, kb, cap = gallery_page(int(parts[1]))
+        img, kb, cap = gallery_page(int(parts[1]), uid)
         media = {"type": "photo", "media": "attach://f", "caption": cap}
-        safe("editMessageMedia", files={"f": ("g.jpg", jpeg(img, 88))}, chat_id=CHAT_ID,
+        safe("editMessageMedia", files={"f": ("g.jpg", jpeg(img, 88))}, chat_id=uid,
              message_id=mid, media=media, reply_markup=kb)
         return
     if kind == "d":
         key = canon(parts[1])
         if key != "auto" and key not in PRESETS:
             return
-        state["default"] = key
-        save_state(state)
+        set_user(uid, default_film=key)
         label = L("Авто по ситуации", "Auto by scene") if key == "auto" else pname(key)
-        safe("editMessageText", chat_id=CHAT_ID, message_id=mid,
-             text=L("Новые кадры", "New frames") + f": {label}", reply_markup=default_kb(state))
+        safe("editMessageText", chat_id=uid, message_id=mid,
+             text=L("Новые кадры", "New frames") + f": {label}", reply_markup=default_kb(uid))
+        return
+    if kind in ("ul", "ud", "udy") and uid == ADMIN:
+        target = int(parts[1])
+        if target == ADMIN or not user(target):
+            return
+        if kind == "ul":                      # лимит места по кругу
+            cur = storage_limit(target)
+            nxt = next((g for g in LIMITS_GB if g > cur), LIMITS_GB[0])
+            set_user(target, storage_gb=nxt)
+        elif kind == "ud":
+            safe("editMessageReplyMarkup", chat_id=uid, message_id=mid, reply_markup={"inline_keyboard": [
+                [btn(L(f"🗑 Да, удалить {u_name(target)[:20]} и все кадры", f"🗑 Yes, remove {u_name(target)[:20]} and all frames"),
+                     f"udy:{target}")], [btn(L("← Нет", "← No"), "ub")]]})
+            return
+        else:
+            n = delete_user(target)
+            safe("sendMessage", chat_id=uid, text=L(f"Удалён пользователь и {n} его кадров.", f"User removed with {n} frames."))
+        text, kb = users_screen()
+        safe("editMessageText", chat_id=uid, message_id=mid, text=text, reply_markup=kb)
+        return
+    if kind == "ub" and uid == ADMIN:
+        text, kb = users_screen()
+        safe("editMessageText", chat_id=uid, message_id=mid, text=text, reply_markup=kb)
         return
 
-    ph = get(int(parts[1]))
-    if not ph:
+    ph = get(int(parts[1])) if len(parts) > 1 and parts[1].isdigit() else None
+    if not ph or ph["owner"] != uid:          # чужой кадр — кнопки не работают
         return
     if kind == "m":
-        safe("editMessageReplyMarkup", chat_id=CHAT_ID, message_id=mid, reply_markup=preset_kb(ph))
+        safe("editMessageReplyMarkup", chat_id=uid, message_id=mid, reply_markup=preset_kb(ph))
     elif kind == "b":
-        safe("editMessageReplyMarkup", chat_id=CHAT_ID, message_id=mid, reply_markup=main_kb(ph))
+        safe("editMessageReplyMarkup", chat_id=uid, message_id=mid, reply_markup=main_kb(ph))
     elif kind == "lm":
-        safe("editMessageReplyMarkup", chat_id=CHAT_ID, message_id=mid, reply_markup=leak_kb(ph))
+        safe("editMessageReplyMarkup", chat_id=uid, message_id=mid, reply_markup=leak_kb(ph))
     elif kind == "l":
         apply_changes(ph, {"leak": parts[2]})
     elif kind == "ls":
         apply_changes(ph, {"leak_shift": 1})
     elif kind in ("p", "cp"):
         if kind == "cp":
-            safe("deleteMessage", chat_id=CHAT_ID, message_id=mid)
+            safe("deleteMessage", chat_id=uid, message_id=mid)
         apply_changes(ph, {"preset": parts[2]})
     elif kind == "s":
         i = STRENGTHS.index(ph["strength"]) if ph["strength"] in STRENGTHS else 3
@@ -1741,33 +2146,41 @@ def on_callback(cb, state):
     elif kind == "o":
         send_new(ph)
     elif kind == "del":       # сначала спросить: удаление стирает и файлы
-        safe("editMessageReplyMarkup", chat_id=CHAT_ID, message_id=mid, reply_markup={"inline_keyboard": [
+        safe("editMessageReplyMarkup", chat_id=uid, message_id=mid, reply_markup={"inline_keyboard": [
             [btn(L("🗑 Да, удалить", "🗑 Yes, delete"), f"dely:{ph['id']}"), btn(L("← Нет", "← No"), f"b:{ph['id']}")]]})
     elif kind == "dely":
         hide_photo(ph)
 
 
 def send_contact(ph):
+    with speak(ph["owner"]):
+        _send_contact(ph)
+
+
+def _send_contact(ph):
     path = TMP / f"contact_{ph['id']}.jpg"
     try:
         FAST.submit(job_contact, ph, str(path)).result(timeout=300)
         with open(path, "rb") as f:
-            tg("sendPhoto", files={"photo": ("c.jpg", f)}, chat_id=CHAT_ID,
+            tg("sendPhoto", files={"photo": ("c.jpg", f)}, chat_id=ph["owner"],
                caption=f"#{ph['id']}: " + L("все плёнки. Нажми нужную — применю к кадру.", "all films. Tap one to apply it to the frame."),
                reply_to_message_id=ph["msg_id"], reply_markup=preset_kb(ph, prefix="cp"))
     except Exception as e:
-        safe("sendMessage", chat_id=CHAT_ID, text=L("Не смог собрать лист", "Could not build the sheet") + f": {e}")
+        safe("sendMessage", chat_id=ph["owner"], text=L("Не смог собрать лист", "Could not build the sheet") + f": {e}")
     finally:
         remove(str(path))
 
 
-def download_tg_file(file_id, name):
+def download_tg_file(file_id, name, uid):
     info = tg("getFile", file_id=file_id)
     url = f"https://api.telegram.org/file/bot{BOT_TOKEN}/{info['file_path']}"
+    name = "".join(c for c in Path(name).name if c.isalnum() or c in "-_.")[:60] or "photo.jpg"
+    tmp = TMP / f"tg_{secrets.token_hex(6)}.part"
     with requests.get(url, timeout=(10, 120), stream=True) as r:
         r.raise_for_status()
-        with open(INCOMING / name, "wb") as f:
+        with open(tmp, "wb") as f:
             shutil.copyfileobj(r.raw, f)
+    os.replace(tmp, udir(uid, "incoming") / name)
 
 
 def handle_updates(state):
@@ -1780,25 +2193,39 @@ def handle_updates(state):
     for u in updates:
         state["offset"] = u["update_id"] + 1
         save_state(state)
+        uid = None
         try:
             if "callback_query" in u:
                 cb = u["callback_query"]
-                if cb["from"]["id"] == CHAT_ID:
-                    on_callback(cb, state)
+                uid = cb["from"]["id"]
+                if user(uid):
+                    with speak(uid):
+                        on_callback(cb, uid)
+                else:
+                    safe("answerCallbackQuery", callback_query_id=cb["id"])
                 continue
             msg = u.get("message") or {}
-            if msg.get("chat", {}).get("id") != CHAT_ID:
+            if msg.get("chat", {}).get("type") != "private":
                 continue
-            if "document" in msg:
-                d = msg["document"]
-                download_tg_file(d["file_id"], d.get("file_name") or f"tg_{u['update_id']}.jpg")
-            elif "photo" in msg:
-                download_tg_file(msg["photo"][-1]["file_id"], f"tg_{u['update_id']}.jpg")
-            elif "text" in msg:
-                on_text(msg["text"], state)
+            uid = (msg.get("from") or {}).get("id")
+            if not user(uid):
+                on_stranger(msg)
+                continue
+            if user(uid)["name"] != tg_name(msg["from"]):       # для /users: имя, как в Telegram
+                set_user(uid, name=tg_name(msg["from"]))
+            with speak(uid):
+                if "document" in msg:
+                    d = msg["document"]
+                    download_tg_file(d["file_id"], d.get("file_name") or f"tg_{u['update_id']}.jpg", uid)
+                elif "photo" in msg:
+                    download_tg_file(msg["photo"][-1]["file_id"], f"tg_{u['update_id']}.jpg", uid)
+                elif "text" in msg:
+                    on_text(msg["text"], uid)
         except Exception as e:
             log.exception("update failed")
-            safe("sendMessage", chat_id=CHAT_ID, text=L("Ошибка", "Error") + f": {e}")
+            if uid and user(uid):
+                with speak(uid):
+                    safe("sendMessage", chat_id=uid, text=L("Ошибка", "Error") + f": {e}")
 
 
 # ================= синхронизация и приём =================
@@ -1824,67 +2251,110 @@ def file_complete(path):
         return False
 
 
-def fetch_names(names, ages=None):
-    """Забрать файлы с VPS, проверить и только потом удалить их там."""
-    names = [n for n in dict.fromkeys(names) if n and "/" not in n and Path(n).suffix.lower() in EXTS]
-    if not names:
-        return
+# На сервере-приёмнике: кадры администратора — в REMOTE_DIR (как в прежних версиях),
+# кадры остальных — в <REMOTE_USERS>/u<id>/upload/ (свой FTP-пользователь и свой токен приложения камеры).
+REMOTE_DIR = REMOTE_DIR.rstrip("/") + "/"
+REMOTE_USERS = os.environ.get("REMOTE_USERS_DIR", posixpath.join(posixpath.dirname(REMOTE_DIR.rstrip("/")), "u")).rstrip("/") + "/"
+_USER_DIR_RE = re.compile(re.escape(REMOTE_USERS) + r"u(\d{1,15})/upload/")
+VPS_WATCH_RESTART = threading.Event()
+
+
+def remote_dir(uid):
+    return REMOTE_DIR if uid == ADMIN else f"{REMOTE_USERS}u{uid}/upload/"
+
+
+def remote_owner(path):
+    """Полный путь файла на сервере -> (владелец, имя) или None (временные файлы, чужие папки)."""
+    d, name = posixpath.split(path)
+    d += "/"
+    if d == REMOTE_DIR:
+        return ADMIN, name
+    m = _USER_DIR_RE.fullmatch(d)
+    if m and int(m.group(1)) in USERS:
+        return int(m.group(1)), name
+    return None
+
+
+def fetch_names(items, ages=None):
+    """Забрать файлы с VPS, проверить и только потом удалить их там. items: [(владелец, имя)]."""
+    groups = {}
+    for uid, n in dict.fromkeys(items):
+        if n and "/" not in n and not n.startswith(".") and Path(n).suffix.lower() in EXTS:
+            groups.setdefault(uid, []).append(n)
+    for uid, names in groups.items():
+        _fetch_dir(uid, names, ages)
+
+
+def _fetch_dir(uid, names, ages):
+    rdir = remote_dir(uid)
+    stage = STAGING / str(uid)
+    stage.mkdir(parents=True, exist_ok=True)
     lst = BASE / "fetch.txt"
     lst.write_text("\n".join(names) + "\n")
-    src = ["rsync", "-a", "--files-from", str(lst)] + ([REMOTE_DIR] if LOCAL else
-                                                      ["-e", " ".join(SSH_CMD), f"{VPS}:{REMOTE_DIR}"])
-    res = subprocess.run(src + [str(STAGING) + "/"], capture_output=True, text=True, timeout=600)
+    src = ["rsync", "-a", "--files-from", str(lst)] + ([rdir] if LOCAL else ["-e", " ".join(SSH_CMD), f"{VPS}:{rdir}"])
+    res = subprocess.run(src + [str(stage) + "/"], capture_output=True, text=True, timeout=600)
     if res.returncode not in (0, 23, 24):   # 23/24: часть файлов уже исчезла — не страшно
         log.warning("rsync: %s", res.stderr.strip()[-300:])
     done = []
     for n in names:
-        p = STAGING / n
+        p = stage / n
         if not p.exists():
             continue
-        old_enough = ages is not None and ages.get(n, 0) > PARTIAL_GRACE
+        old_enough = ages is not None and ages.get((uid, n), 0) > PARTIAL_GRACE
         if file_complete(p) or old_enough:
-            os.replace(p, INCOMING / n)
+            os.replace(p, udir(uid, "incoming") / n)
             done.append(n)
         else:
             remove(str(p))
             log.info("%s недокачан, ждём, пока камера дошлёт", n)
     if done:
-        rm = "cd " + shlex.quote(REMOTE_DIR) + " && rm -f -- " + " ".join(shlex.quote(n) for n in done)
+        rm = "cd " + shlex.quote(rdir) + " && rm -f -- " + " ".join(shlex.quote(n) for n in done)
         subprocess.run(remote(rm), capture_output=True, text=True, timeout=30)
-        log.info("получено с VPS: %s", ", ".join(done))
+        log.info("получено с VPS (%s): %s", uid, ", ".join(done))
+
+
+def _remote_dirs():
+    """Папки для поиска: администратора всегда, папку пользователей — если она уже есть на сервере."""
+    users = shlex.quote(REMOTE_USERS)
+    return f"{shlex.quote(REMOTE_DIR)} $([ -d {users} ] && echo {users})"
 
 
 def fetch_from_vps():
     """Подстраховочный опрос: всё, что лежит на VPS дольше SETTLE секунд."""
-    find = f"find {shlex.quote(REMOTE_DIR)} -maxdepth 1 -type f ! -newermt '{SETTLE} seconds ago' -printf '%T@ %f\\n'"
+    find = (f"find {_remote_dirs()} -maxdepth 3 -type f ! -path '*/.*' ! -newermt '{SETTLE} seconds ago' "
+            f"-printf '%T@ %p\\n'")
     try:
         res = subprocess.run(remote(find), capture_output=True, text=True, timeout=30)
     except subprocess.TimeoutExpired:
         log.warning("ssh timeout")
         return
-    if res.returncode != 0:
+    if res.returncode != 0 and not res.stdout:
         log.warning("ssh find failed: %s", res.stderr.strip())
         return
     now = time.time()
     ages = {}
     for line in res.stdout.splitlines():
-        ts, _, name = line.partition(" ")
-        try:
-            ages[name] = now - float(ts)
-        except ValueError:
-            pass
+        ts, _, path = line.partition(" ")
+        own = remote_owner(path)
+        if own:
+            try:
+                ages[own] = now - float(ts)
+            except ValueError:
+                pass
     fetch_names(list(ages), ages)
 
 
 def vps_watch():
     """Постоянное соединение с VPS: inotifywait сообщает о файле, как только FTP закончил его писать."""
-    cmd = remote(f"inotifywait -m -q -e close_write -e moved_to --format '%f' {shlex.quote(REMOTE_DIR)}")
     while True:
         started = time.time()
+        cmd = remote(f"inotifywait -m -q -r -e close_write -e moved_to --format '%w%f' {_remote_dirs()}")
         try:
             p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, bufsize=1)
             WATCH_ALIVE.set()
+            VPS_WATCH_RESTART.clear()
             log.info("VPS: мгновенные уведомления включены")
+            threading.Thread(target=_watch_restart, args=(p,), daemon=True).start()
             for line in p.stdout:
                 VPS_EVENTS.put(line.strip())
             p.wait()
@@ -1896,7 +2366,17 @@ def vps_watch():
         except Exception:
             log.exception("vps watch")
         WATCH_ALIVE.clear()
+        if VPS_WATCH_RESTART.is_set():
+            continue
         time.sleep(5 if time.time() - started > 30 else 30)
+
+
+def _watch_restart(p):
+    """Появилась папка нового пользователя — перезапустить слежение, чтобы оно смотрело и её."""
+    while p.poll() is None:
+        if VPS_WATCH_RESTART.wait(5):
+            p.terminate()
+            return
 
 
 def read_exif(im):
@@ -1924,8 +2404,8 @@ def fingerprint(path):
     return f"{h.hexdigest()}:{os.path.getsize(path)}"
 
 
-def find_duplicate(f, fp):
-    row = q("SELECT id FROM photos WHERE fp=? LIMIT 1", (fp,))
+def find_duplicate(f, fp, owner):
+    row = q("SELECT id FROM photos WHERE fp=? AND owner=? LIMIT 1", (fp, owner))
     if row:
         return row[0]["id"]
     # кадры из прежних версий без отпечатка: сравниваем имя файла и время съёмки
@@ -1934,69 +2414,91 @@ def find_duplicate(f, fp):
     except Exception:
         taken = None
     if taken:
-        row = q("SELECT id FROM photos WHERE fp IS NULL AND name=? AND taken=? LIMIT 1", (f.name, taken))
+        row = q("SELECT id FROM photos WHERE fp IS NULL AND owner=? AND name=? AND taken=? LIMIT 1", (owner, f.name, taken))
         if row:
             return row[0]["id"]
     return None
 
 
-def ingest(f, state):
+def ingest(f, owner):
     fp = fingerprint(f)
     try:
-        return _ingest(f, state, fp)
+        return _ingest(f, owner, fp)
     finally:
         with PENDING_LOCK:
-            PENDING_FP.discard(fp)
+            PENDING_FP.discard((owner, fp))
 
 
-def _ingest(f, state, fp):
+def _ingest(f, owner, fp):
     t0 = time.time()
-    dup = find_duplicate(f, fp)
+    dup = find_duplicate(f, fp, owner)
     if dup:
         remove(str(f))
         log.info("%s — повтор кадра #%d, пропускаю", f.name, dup)
         return False
-    tmp_work = WORK / f"incoming_{f.stem}.jpg"
+    work_dir = udir(owner, "work")
+    tmp_work = work_dir / f"incoming_{f.stem}.jpg"
     taken, iso, auto_key, reason = FAST.submit(job_prepare, str(f), str(tmp_work), WORK_EDGE).result(timeout=300)
-    default = state.get("default", "auto")
+    default = (user(owner) or {}).get("default_film") or "auto"
     preset = auto_key if default == "auto" else default
     now = time.time()
-    pid = run("INSERT INTO photos(name, taken, iso, auto_key, auto_reason, preset, created, rev, rendered_rev, updated, fp) "
-              "VALUES (?,?,?,?,?,?,?,1,0,?,?)", (f.name, taken, iso, auto_key, reason, preset, now, now, fp))
-    src = ORIGINALS / f"{pid}_{f.name}"
-    work = WORK / f"{pid}.jpg"
+    pid = run("INSERT INTO photos(name, taken, iso, auto_key, auto_reason, preset, created, rev, rendered_rev, updated, fp, owner) "
+              "VALUES (?,?,?,?,?,?,?,1,0,?,?,?)", (f.name, taken, iso, auto_key, reason, preset, now, now, fp, owner))
+    src = udir(owner, "originals") / f"{pid}_{f.name}"
+    work = work_dir / f"{pid}.jpg"
     os.replace(tmp_work, work)
     shutil.move(str(f), src)
     upd(pid, src=str(src), work=str(work))
-    schedule_view(pid, prio=1)   # после отрисовки кадр сам уйдёт в чат
+    schedule_view(pid, prio=1, uid=owner)   # после отрисовки кадр сам уйдёт в чат
     log.info("#%d %s → %s, подготовка %.1fs", pid, f.name, preset, time.time() - t0)
     return True
 
 
-DUP_REPORT = {"n": 0, "since": 0.0}
+DUP_REPORT = {}      # владелец -> {"n": сколько повторов, "since": когда был последний}
 
 
-def process_incoming(state):
-    for f in sorted(INCOMING.iterdir()):
-        if not f.is_file() or f.suffix.lower() not in EXTS:
+def incoming_dirs():
+    yield ADMIN, INCOMING
+    root = BASE / "users"
+    if root.is_dir():
+        for d in root.iterdir():
+            if d.name.isdigit() and (d / "incoming").is_dir():
+                yield int(d.name), d / "incoming"
+
+
+def process_incoming(state=None):
+    for owner, folder in list(incoming_dirs()):
+        files = sorted(f for f in folder.iterdir() if f.is_file() and f.suffix.lower() in EXTS)
+        if files and owner not in USERS:          # пользователя удалили, а кадры ещё долетали
+            for f in files:
+                remove(str(f))
             continue
-        try:
-            if ingest(f, state) is False:
-                DUP_REPORT["n"] += 1
-                DUP_REPORT["since"] = time.time()
-        except Exception as e:
-            log.exception("failed on %s", f.name)
-            hint = L("\nЕсли это HIF — переключи камеру на JPEG.", "\nIf this is HIF, switch the camera to JPEG.") if f.suffix.lower() in (".hif", ".heif", ".heic") else ""
-            safe("sendMessage", chat_id=CHAT_ID, text=L("Не смог обработать", "Could not process") + f" {f.name}: {e}{hint}")
-            if f.exists():
-                shutil.move(str(f), ORIGINALS / f"failed_{f.name}")
+        for f in files:
+            with speak(owner):
+                _process_one(f, owner)
     # одно сообщение на пачку: когда повторы перестали приходить хотя бы на 20 секунд
-    if DUP_REPORT["n"] and time.time() - DUP_REPORT["since"] > 20:
-        n = DUP_REPORT["n"]
-        DUP_REPORT["n"] = 0
-        word = "повтор" if n % 10 == 1 and n % 100 != 11 else ("повтора" if 2 <= n % 10 <= 4 and not 12 <= n % 100 <= 14 else "повторов")
-        safe("sendMessage", chat_id=CHAT_ID, text=L(f"Пропущено {n} {word}: эти кадры уже были в ленте или удалены.",
-                                                    f"Skipped {n} duplicate(s): these frames are already in the feed or were deleted."))
+    for owner, rep_ in list(DUP_REPORT.items()):
+        if rep_["n"] and time.time() - rep_["since"] > 20:
+            n = rep_["n"]
+            DUP_REPORT.pop(owner, None)
+            with speak(owner):
+                safe("sendMessage", chat_id=owner, text=L(
+                    f"Пропущено {n} {plural_ru(n, 'повтор', 'повтора', 'повторов')}: эти кадры уже были в ленте или удалены.",
+                    f"Skipped {n} duplicate(s): these frames are already in the feed or were deleted."))
+
+
+def _process_one(f, owner):
+    try:
+        if ingest(f, owner) is False:
+            r = DUP_REPORT.setdefault(owner, {"n": 0, "since": 0.0})
+            r["n"] += 1
+            r["since"] = time.time()
+    except Exception as e:
+        log.exception("failed on %s", f.name)
+        hint = L("\nЕсли это HIF — переключи камеру на JPEG.", "\nIf this is HIF, switch the camera to JPEG.") if f.suffix.lower() in (".hif", ".heif", ".heic") else ""
+        safe("sendMessage", chat_id=owner, text=L("Не смог обработать", "Could not process") + f" {f.name}: {e}{hint}")
+        if f.exists():
+            shutil.move(str(f), udir(owner, "originals") / f"failed_{f.name}")
 
 
 def ingest_loop(state):
@@ -2012,8 +2514,9 @@ def ingest_loop(state):
                     names.append(VPS_EVENTS.get_nowait())
             except queue.Empty:
                 pass
-            if names:
-                fetch_names(names)
+            items = [own for own in map(remote_owner, filter(None, names)) if own]
+            if items:
+                fetch_names(items)
             interval = POLL_BACKUP if WATCH_ALIVE.is_set() else POLL
             if time.time() - last_poll >= interval:
                 fetch_from_vps()
@@ -2025,12 +2528,12 @@ def ingest_loop(state):
 
 
 # ================= Mini App: веб-сервер =================
-SESSIONS = {}          # token -> срок годности
+SESSIONS = {}          # token -> (срок годности, пользователь)
 SESSION_TTL = 12 * 3600
 
 
 def check_init_data(init_data):
-    """Проверка подписи Telegram: открыть ленту можешь только ты."""
+    """Проверка подписи Telegram. Возвращает id пользователя Telegram (пускать ли его — решает список users)."""
     pairs = dict(parse_qsl(init_data or "", keep_blank_values=True))
     got = pairs.pop("hash", None)
     if not got:
@@ -2043,8 +2546,8 @@ def check_init_data(init_data):
     if time.time() - int(pairs.get("auth_date", "0")) > 86400:
         return False
     try:
-        return json.loads(pairs.get("user", "{}")).get("id") == CHAT_ID
-    except ValueError:
+        return int(json.loads(pairs.get("user", "{}")).get("id") or 0) or False
+    except (ValueError, TypeError):
         return False
 
 
@@ -2052,7 +2555,7 @@ def photo_json(ph):
     v = int(os.path.getmtime(ph["view"])) if has(ph.get("view")) else 0
     return {"id": ph["id"], "taken": ph["taken"], "iso": ph["iso"],
             "preset": ph["preset"], "preset_name": pname(ph["preset"]),
-            "auto_key": ph["auto_key"], "auto_reason": ph["auto_reason"],
+            "auto_key": ph["auto_key"], "auto_reason": auto_reason(ph) if ph["auto_reason"] else "",
             "strength": ph["strength"], "stamp": bool(ph["stamp"]), "frame": bool(ph["frame"]),
             "leak": (ph.get("leak_kind") or "edge") if ph["leak"] else "",
             "leak_seed": int(ph.get("leak_seed") or 0), "archived": not has(ph["work"]), "original": has(ph["src"]),
@@ -2086,7 +2589,7 @@ def sniff_ext(head):
 BATCH_MAX = 500
 
 
-def batch_ids(data):
+def batch_ids(data, uid):
     ids = data.get("ids")
     if not isinstance(ids, list) or not ids or len(ids) > BATCH_MAX:
         raise ValueError(L(f"выбери от 1 до {BATCH_MAX} кадров", f"select 1 to {BATCH_MAX} frames"))
@@ -2095,10 +2598,11 @@ def batch_ids(data):
     except (TypeError, ValueError):
         raise ValueError(L("неверный список кадров", "invalid frame list"))
     marks = ",".join("?" * len(ids))
-    return [r["id"] for r in q(f"SELECT id FROM photos WHERE hidden=0 AND id IN ({marks}) ORDER BY id", ids)]
+    return [r["id"] for r in q(f"SELECT id FROM photos WHERE hidden=0 AND owner=? AND id IN ({marks}) ORDER BY id",
+                               (uid, *ids))]
 
 
-def batch_edit(ids, changes):
+def batch_edit(ids, changes, uid):
     """Плёнка, засвет, сила для многих кадров: в базу сразу, рисуются очередью (срочность 1)."""
     if not isinstance(changes, dict):
         raise ValueError(L("нет изменений", "no changes"))
@@ -2117,10 +2621,10 @@ def batch_edit(ids, changes):
     if "strength" in changes:
         parts.append(L("сила", "strength") + f" {changes['strength']}%")
     if "leak" in changes:
-        parts.append(L("засвет", "leak") + f": {LEAKS[changes['leak']][0]}" if changes["leak"] in LEAKS
+        parts.append(L("засвет", "leak") + f": {tr(LEAKS[changes['leak']][0])}" if changes["leak"] in LEAKS
                      else L("без засвета", "no leak"))
     live = [pid for pid in ids if has((get(pid) or {}).get("work"))]
-    bid = batch_track(live, ", ".join(parts))   # до постановки в очередь: быстрый кадр не должен проскочить мимо учёта
+    bid = batch_track(live, ", ".join(parts), uid)   # до постановки в очередь: быстрый кадр не должен проскочить мимо учёта
     queued = 0
     for pid in live:
         ph = get(pid)
@@ -2137,12 +2641,12 @@ def batch_edit(ids, changes):
     return {"ok": True, "queued": queued, "same": len(live) - queued, "skipped": len(ids) - len(live), "batch": bid}
 
 
-def batch_action(data):
+def batch_action(data, uid):
     """Действия над выбранными кадрами из «Проявки»: правка, удаление, файлы."""
     action = data.get("action")
-    ids = batch_ids(data)
+    ids = batch_ids(data, uid)
     if action == "edit":
-        return batch_edit(ids, data.get("changes"))
+        return batch_edit(ids, data.get("changes"), uid)
     if action == "delete":
         return {"ok": True, "done": delete_photos(ids)}
     if action == "files":
@@ -2160,7 +2664,7 @@ PENDING_FP = set()          # отпечатки принятых загрузо
 PENDING_LOCK = threading.Lock()
 
 
-def receive_upload(stream, length, name):
+def receive_upload(stream, length, name, uid):
     """Своё фото из телефона («+» в «Проявке»): принять потоком, проверить и отдать в обычный приём."""
     if length <= 0:
         raise ValueError(L("пустой файл", "empty file"))
@@ -2187,22 +2691,23 @@ def receive_upload(stream, length, name):
         if not ext:
             raise ValueError(L("это не фото (нужен JPEG, HEIC, PNG или WebP)", "not a photo (JPEG, HEIC, PNG or WebP expected)"))
         fp = f"{h.hexdigest()}:{length}"
-        dup = q("SELECT id, hidden FROM photos WHERE fp=? LIMIT 1", (fp,))
+        dup = q("SELECT id, hidden FROM photos WHERE fp=? AND owner=? LIMIT 1", (fp, uid))
         if dup:     # удалённые кадры тоже помнятся по отпечатку — повторная загрузка их не вернёт
             return {"ok": True, "duplicate": dup[0]["id"], "deleted": bool(dup[0]["hidden"])}
         with PENDING_LOCK:      # тот же файл уже принят и ждёт обработки (выбрали одно фото дважды)
-            if fp in PENDING_FP:
+            if (uid, fp) in PENDING_FP:
                 return {"ok": True, "duplicate": -1, "deleted": False}
-            PENDING_FP.add(fp)
+            PENDING_FP.add((uid, fp))
         stem = "".join(c for c in Path(name).stem if c.isalnum() or c in "-_.")[:40] or "photo"
-        dst = INCOMING / f"{stem}{ext}"
+        inbox = udir(uid, "incoming")
+        dst = inbox / f"{stem}{ext}"
         while dst.exists():
-            dst = INCOMING / f"{stem}_{secrets.token_hex(2)}{ext}"
+            dst = inbox / f"{stem}_{secrets.token_hex(2)}{ext}"
         try:
             os.replace(tmp, dst)
         except OSError:
             with PENDING_LOCK:
-                PENDING_FP.discard(fp)
+                PENDING_FP.discard((uid, fp))
             raise
         VPS_EVENTS.put("")                     # разбудить приём, не ждать секунду
         return {"ok": True, "duplicate": None}
@@ -2233,14 +2738,24 @@ class Handler(BaseHTTPRequestHandler):
         self.js({"error": text}, code)
 
     def authed(self, qs):
+        """Пользователь по токену сессии (или None). Заодно язык ответов — его."""
         tok = self.headers.get("X-Token") or (qs.get("s") or [""])[0]
-        exp = SESSIONS.get(tok)
+        exp, uid = SESSIONS.get(tok) or (0, None)
         now = time.time()
-        if not tok or exp is None or exp <= now:
-            return False
+        if not tok or exp <= now or uid not in USERS:
+            return None
         if exp - now < SESSION_TTL - 600:      # пока «Проявкой» пользуются, сессия продлевается сама
-            SESSIONS[tok] = now + SESSION_TTL
-        return True
+            SESSIONS[tok] = (now + SESSION_TTL, uid)
+        _CTX.lang = user_lang(uid)
+        return uid
+
+    def mine(self, pid, uid):
+        """Кадр, только если он этого пользователя: чужие для него не существуют."""
+        try:
+            ph = get(int(pid))
+        except ValueError:
+            return None
+        return ph if ph and ph["owner"] == uid else None
 
     def file(self, path):
         if not has(path):
@@ -2264,31 +2779,33 @@ class Handler(BaseHTTPRequestHandler):
                     return self.err(500, "webapp.html not found next to filmbot.py")
                 page = WEBAPP_HTML.read_bytes().replace(b'<html lang="ru"', f'<html lang="{LANG}"'.encode(), 1)
                 return self.send(200, page, "text/html; charset=utf-8")
-            if not self.authed(qs):
+            uid = self.authed(qs)
+            if not uid:
                 return self.err(401, L("нужна авторизация через Telegram", "Telegram authorization required"))
             if parts == ["api", "presets"]:
                 items = [{"key": "original", "name": L("Оригинал", "Original"), "when": L("без обработки", "unprocessed")}]
-                items += [{"key": k, "name": p["name"], "when": p["when"], "desc": p["desc"]} for k, p in PRESETS.items()]
-                leaks = [{"key": k, "name": v[0], "desc": v[1]} for k, v in LEAKS.items()]
+                items += [{"key": k, "name": p["name"], "when": tr(p["when"]), "desc": tr(p["desc"])} for k, p in PRESETS.items()]
+                leaks = [{"key": k, "name": tr(v[0]), "desc": tr(v[1])} for k, v in LEAKS.items()]
                 return self.js({"presets": items, "strengths": STRENGTHS, "leaks": leaks})
             if parts == ["api", "updates"]:
                 since = float((qs.get("since") or ["0"])[0])
                 now = time.time()
-                rows = q("SELECT * FROM photos WHERE updated > ? ORDER BY id DESC LIMIT 500", (since,))
-                total = q("SELECT COUNT(*) AS n FROM photos WHERE hidden=0")[0]["n"]
-                return self.js({"now": now, "total": total, "jobs": jobs_in_work(),
+                rows = q("SELECT * FROM photos WHERE owner=? AND updated > ? ORDER BY id DESC LIMIT 500", (uid, since))
+                total = q("SELECT COUNT(*) AS n FROM photos WHERE owner=? AND hidden=0", (uid,))[0]["n"]
+                return self.js({"now": now, "total": total, "jobs": jobs_in_work(uid),
                                 "photos": [photo_json(r) for r in rows]})
             if parts == ["api", "photos"]:
                 off = int((qs.get("offset") or ["0"])[0])
                 lim = min(120, int((qs.get("limit") or ["60"])[0]))
-                total = q("SELECT COUNT(*) AS n FROM photos WHERE hidden=0")[0]["n"]
-                rows = q("SELECT * FROM photos WHERE hidden=0 ORDER BY taken DESC, id DESC LIMIT ? OFFSET ?", (lim, off))
+                total = q("SELECT COUNT(*) AS n FROM photos WHERE owner=? AND hidden=0", (uid,))[0]["n"]
+                rows = q("SELECT * FROM photos WHERE owner=? AND hidden=0 ORDER BY taken DESC, id DESC LIMIT ? OFFSET ?",
+                         (uid, lim, off))
                 return self.js({"total": total, "photos": [photo_json(r) for r in rows]})
             if len(parts) == 3 and parts[0] == "img" and parts[1] in ("thumb", "view"):
-                ph = get(int(parts[2]))
+                ph = self.mine(parts[2], uid)
                 return self.file(ph and ph[parts[1]])
             if len(parts) == 4 and parts[:2] == ["img", "preview"]:
-                ph = get(int(parts[2]))
+                ph = self.mine(parts[2], uid)
                 key = canon(parts[3])
                 strength = int((qs.get("st") or ["100"])[0])
                 leak = (qs.get("lk") or [""])[0]
@@ -2302,7 +2819,7 @@ class Handler(BaseHTTPRequestHandler):
                 crop = parse_crop((qs.get("c") or [""])[0])
                 return self.file(str(preview_file(ph, key, strength, leak, lseed, crop)))
             if len(parts) == 3 and parts[:2] == ["img", "source"]:
-                ph = get(int(parts[2]))
+                ph = self.mine(parts[2], uid)
                 if not ph or ph["hidden"] or not has(ph["work"]):
                     return self.err(404, L("нет файла", "no file"))
                 path = PREVIEWS / f"{ph['id']}_source.jpg"
@@ -2322,7 +2839,8 @@ class Handler(BaseHTTPRequestHandler):
         qs = parse_qs(u.query)
         try:
             if parts == ["api", "upload"]:      # тело — сам файл, а не JSON, поэтому до self.body()
-                if not self.authed(qs):
+                uid = self.authed(qs)
+                if not uid:
                     # дочитать и выбросить: иначе соединение рвётся и вместо «войди заново» человек видит «нет связи»
                     left = min(int(self.headers.get("Content-Length") or 0), UPLOAD_MAX)
                     while left > 0:
@@ -2332,25 +2850,28 @@ class Handler(BaseHTTPRequestHandler):
                         left -= len(chunk)
                     return self.err(401, L("нужна авторизация через Telegram", "Telegram authorization required"))
                 return self.js(receive_upload(self.rfile, int(self.headers.get("Content-Length") or 0),
-                                              (qs.get("name") or [""])[0]))
+                                              (qs.get("name") or [""])[0], uid))
             data = self.body()
             if parts == ["api", "auth"]:
-                if not check_init_data(data.get("initData", "")):
+                uid = check_init_data(data.get("initData", ""))
+                if not uid or uid not in USERS:
                     return self.err(403, L("открой ленту из своего бота в Telegram", "open the feed from your bot in Telegram"))
                 now = time.time()
-                for k in [k for k, v in SESSIONS.items() if v < now]:
+                for k in [k for k, v in SESSIONS.items() if v[0] < now]:
                     SESSIONS.pop(k, None)
                 # повторный вход из уже открытой ленты продлевает прежний токен: на нём ссылки на все картинки
                 old = str(data.get("token") or "")
-                tok = old if len(old) >= 32 and old not in SESSIONS else secrets.token_urlsafe(24)
-                SESSIONS[tok] = now + SESSION_TTL
-                return self.js({"token": tok})
-            if not self.authed(qs):
+                was = SESSIONS.get(old)
+                tok = old if len(old) >= 32 and (was is None or was[1] == uid) else secrets.token_urlsafe(24)
+                SESSIONS[tok] = (now + SESSION_TTL, uid)
+                return self.js({"token": tok, "lang": user_lang(uid)})
+            uid = self.authed(qs)
+            if not uid:
                 return self.err(401, L("нужна авторизация через Telegram", "Telegram authorization required"))
             if parts == ["api", "batch"]:
-                return self.js(batch_action(data))
+                return self.js(batch_action(data, uid))
             if len(parts) >= 3 and parts[:2] == ["api", "photo"]:
-                ph = get(int(parts[2]))
+                ph = self.mine(parts[2], uid)
                 if not ph or ph["hidden"]:
                     return self.err(404, L("кадр не найден", "frame not found"))
                 action = parts[3] if len(parts) > 3 else "edit"
@@ -2410,26 +2931,23 @@ def save_state(state):
     STATE_FILE.write_text(json.dumps(state))
 
 
+def migrate_state(state):
+    """Плёнка по умолчанию жила в state.json — теперь она у каждого пользователя своя (у администратора — прежняя)."""
+    old = canon(state.pop("default", "") or "")
+    state.pop("preset", None)
+    if old and (old == "auto" or old in PRESETS):           # один раз: после переноса в state.json его нет
+        set_user(ADMIN, default_film=old)
+    save_state(state)
+
+
 def main():
     init_db()
     state = load_state()
-    state.setdefault("default", "auto")
-    state["default"] = canon(state["default"])
-    if state["default"] != "auto" and state["default"] not in PRESETS:
-        state["default"] = "auto"
-    state.pop("preset", None)
-    save_state(state)
-    safe("setMyCommands", commands=[
-        {"command": "gallery", "description": L("Лента кадров в чате", "Frame feed in the chat")},
-        {"command": "today", "description": L("Альбом за сегодня", "Today's album")},
-        {"command": "film", "description": L("Плёнка по умолчанию", "Default film")},
-        {"command": "storage", "description": L("Сколько места занято", "Storage used")},
-        {"command": "camera", "description": L("Настройка камеры: файлы и инструкция", "Camera setup: files and guide")},
-        {"command": "help", "description": L("Как пользоваться", "How to use")},
-    ])
-    if WEBAPP_URL:
-        safe("setChatMenuButton", chat_id=CHAT_ID,
-             menu_button={"type": "web_app", "text": APP_NAME, "web_app": {"url": WEBAPP_URL}})
+    migrate_state(state)
+    safe("deleteMyCommands")                  # команды теперь у каждого свои (язык, /invite у администратора)
+    for uid in list(USERS):
+        with speak(uid):
+            set_commands(uid)
     for p in TMP.iterdir():
         remove(str(p))
     threading.Thread(target=dispatcher, daemon=True, name="dispatcher").start()
@@ -2440,7 +2958,7 @@ def main():
     threading.Thread(target=ingest_loop, args=(state,), daemon=True, name="ingest").start()
     backfill_fingerprints()
     backfill_views()
-    log.info("filmbot v5.0 started (%s)", "локально" if LOCAL else VPS)
+    log.info("filmbot v6.0 started (%s), пользователей: %d", "локально" if LOCAL else VPS, len(USERS))
     last_clean = 0.0
     while True:
         handle_updates(state)       # главный поток занят только кнопками бота

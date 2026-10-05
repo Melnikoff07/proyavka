@@ -257,23 +257,29 @@
 <script>
 const tg = window.Telegram && window.Telegram.WebApp;
 const $ = (id) => document.getElementById(id);
-const LANG = document.documentElement.lang === "en" ? "en" : "ru";   // подставляет бот
+let LANG = document.documentElement.lang === "en" ? "en" : "ru";   // язык бота по умолчанию; после входа — язык пользователя
 const T = (ru, en) => (LANG === "en" ? en : ru);
-const MONTHS = LANG === "en"
-  ? ["January","February","March","April","May","June","July","August","September","October","November","December"]
-  : ["января","февраля","марта","апреля","мая","июня","июля","августа","сентября","октября","ноября","декабря"];
-const WEEK = LANG === "en"
-  ? ["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"]
-  : ["воскресенье","понедельник","вторник","среда","четверг","пятница","суббота"];
-const dm = (d, m) => (LANG === "en" ? `${MONTHS[m - 1]} ${d}` : `${d} ${MONTHS[m - 1]}`);
+const MONTHS = {
+  en: ["January","February","March","April","May","June","July","August","September","October","November","December"],
+  ru: ["января","февраля","марта","апреля","мая","июня","июля","августа","сентября","октября","ноября","декабря"] };
+const WEEK = {
+  en: ["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"],
+  ru: ["воскресенье","понедельник","вторник","среда","четверг","пятница","суббота"] };
+const dm = (d, m) => (LANG === "en" ? `${MONTHS.en[m - 1]} ${d}` : `${d} ${MONTHS.ru[m - 1]}`);
+/* в разметке — русский текст, в data-i18n — английский; переключается в обе стороны */
 function translatePage() {
   document.documentElement.lang = LANG;
   document.title = T("Проявка", "Proyavka");
   $("appName").textContent = T("Проявка", "Proyavka");
-  if (LANG !== "en") return;
-  document.querySelectorAll("[data-i18n]").forEach((el) => { el.textContent = el.dataset.i18n; });
-  document.querySelectorAll("[data-i18n-aria]").forEach((el) => el.setAttribute("aria-label", el.dataset.i18nAria));
-  $("bFile").textContent = "Send file to chat";
+  document.querySelectorAll("[data-i18n]").forEach((el) => {
+    if (el.dataset.ru === undefined) el.dataset.ru = el.textContent;
+    el.textContent = LANG === "en" ? el.dataset.i18n : el.dataset.ru;
+  });
+  document.querySelectorAll("[data-i18n-aria]").forEach((el) => {
+    if (el.dataset.ruAria === undefined) el.dataset.ruAria = el.getAttribute("aria-label") || "";
+    el.setAttribute("aria-label", LANG === "en" ? el.dataset.i18nAria : el.dataset.ruAria);
+  });
+  $("bFile").textContent = T("Отправить файл в чат", "Send file to chat");
 }
 
 let token = "", photos = [], total = 0, loading = false, finished = false, jobs = 0;
@@ -342,7 +348,7 @@ function applyTheme() {
 function dayKey(p) { return (p.taken || "").slice(0, 10); }
 function dayTitle(key) {
   const [y, m, d] = key.split("-").map(Number);
-  const wd = WEEK[new Date(y, m - 1, d).getDay()];
+  const wd = WEEK[LANG][new Date(y, m - 1, d).getDay()];
   return `${dm(d, m)}${new Date().getFullYear() === y ? "" : " " + y}, ${wd}`;
 }
 
@@ -1121,7 +1127,9 @@ async function uploadAll(files) {
     return;
   }
   try {
-    token = (await api("/api/auth", { initData })).token;
+    const a = await api("/api/auth", { initData });
+    token = a.token;
+    if (a.lang && a.lang !== LANG) { LANG = a.lang; translatePage(); }
     const pj = await api("/api/presets");
     presets = pj.presets;
     leaks = pj.leaks || [];

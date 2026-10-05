@@ -19,7 +19,7 @@ When installed on a VPS as root, the program lives in `/opt/proyavka`; on a home
 | `relay/` | server setup scripts and the camera upload receiver | rarely |
 | data folder (`BASE_DIR`) | originals, processed frames, previews, database | no |
 
-Data folder: `/var/lib/proyavka/data` on a VPS, `~/proyavka-data` on a home machine.
+Data folder: `/var/lib/proyavka/data` on a VPS, `~/proyavka-data` on a home machine. The admin's frames are right in it (`originals`, `work`, `views`, `thumbs`), invited users' frames are in `users/<id>/`.
 
 ## config.env
 
@@ -29,10 +29,13 @@ One `NAME=value` per line. After editing: `sudo systemctl restart proyavka-bot`.
 |---|---|---|
 | `LANGUAGE` | set by the wizard | interface language: `en` or `ru` |
 | `BOT_TOKEN` | — | token from @BotFather |
-| `CHAT_ID` | — | the only chat the bot talks to (yours) |
+| `CHAT_ID` | — | your Telegram id: you are the bot's admin, others join via `/invite` |
 | `WEBAPP_URL` | — | Mini App address, `https://<server>/` |
 | `PROJECT_URL` | this repo | where the guide links in `/camera` point |
-| `STORAGE_GB` | `20` | disk space frames may use; oldest originals are removed first |
+| `STORAGE_GB` | `20` | disk space your frames may use; oldest originals are removed first |
+| `USER_STORAGE_GB` | `5` | limit for invited users; change it per person in `/users` |
+| `UPLOAD_MAX_MB` | `50` | max size of one file uploaded with "+" in the Mini App (nginx has the same limit) |
+| `CHAT_PACE_SECONDS` | `1` | background chat edits (batches, deletes) at most once per this many seconds, as Telegram requires |
 | `ORIGINALS_DAYS` | `14` | keep originals this long; after that a frame stays viewable but its film can't be changed |
 | `MIN_FREE_GB` | `5` | always leave this much free disk space |
 | `FAST_WORKERS` | CPUs − 1 (max 3) | processes for chat images and previews |
@@ -43,6 +46,7 @@ One `NAME=value` per line. After editing: `sudo systemctl restart proyavka-bot`.
 | `FULL_EDGE` | `0` | long side of "File" exports; `0` — camera's full size |
 | `VPS` | `local` | where frames arrive: `local` (same server) or `user@host` (home machine + VPS) |
 | `SSH_KEY`, `REMOTE_DIR` | — | for the home + VPS setup: key and upload folder on the VPS |
+| `REMOTE_USERS_DIR` | `/srv/camera/u` | camera folders of invited users on the receiving server |
 | `SETTLE_SECONDS` | `15` | a file is taken only after it hasn't changed for this long (fallback polling) |
 
 Lines under `setup wizard` (`MODE`, `SERVER_IP`, `DOMAIN`, `CAMERA_TOKEN`, `FTP_PASS`…) are used by the wizard only. **Don't publish `config.env`** — it contains your tokens and passwords.
@@ -52,9 +56,11 @@ Lines under `setup wizard` (`MODE`, `SERVER_IP`, `DOMAIN`, `CAMERA_TOKEN`, `FTP_
 | Service | What it does |
 |---|---|
 | `proyavka-bot` | the bot, processing and the Mini App web server |
-| `proyavka-recv` | receiver for the Sony camera app (HTTPS upload) |
+| `proyavka-recv` | receiver for the Sony camera app (HTTPS upload); invited users' tokens are stored as hashes in `/etc/proyavka/camera-tokens` |
 | `proyavka-tunnel` | home + VPS setup only: Mini App tunnel to the VPS |
-| `nginx`, `vsftpd` | HTTPS and FTPS for cameras |
+| `nginx`, `vsftpd` | HTTPS and FTPS for cameras; FTP logins are in `/etc/proyavka/ftp.passwd` (pam_pwdfile), each with its own folder |
+
+The bot adds and removes invited users' cameras itself: `sudo /usr/local/lib/proyavka/proyavka-user add|del u<id>`. The sudo rule (`/etc/sudoers.d/proyavka`) lets the bot run only this script.
 
 ```bash
 sudo journalctl -u proyavka-bot -f        # live bot log
@@ -66,9 +72,9 @@ Or `python3 setup.py` → "Status".
 
 ## How a frame travels
 
-1. The camera uploads the file to `/srv/camera/upload` on the server (FTPS from cameras with FTP, HTTPS from the Sony app).
+1. The camera uploads the file to `/srv/camera/upload` on the server (invited users: `/srv/camera/u/u<id>/upload`): FTPS from cameras with FTP, HTTPS from the Sony app. Phone photos go straight to the bot via "+" in the Mini App.
 2. The bot notices it instantly (`inotifywait`), takes the file and checks it's a complete JPEG.
-3. It picks a film (automatically by scene or your default), renders the chat version and sends it to Telegram.
+3. It picks a film (automatically by scene or the owner's default), renders the chat version and sends it to the frame owner in Telegram.
 4. The original stays in the data folder while there's space and `ORIGINALS_DAYS` hasn't passed — so you can change film, strength, leaks and export full size.
 
 ## Try films without Telegram

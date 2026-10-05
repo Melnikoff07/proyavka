@@ -10,8 +10,10 @@ Take a shot, and half a minute later it arrives in a Telegram bot already "on fi
 - 12 films, each with its own character, plus automatic choice by scene (night, sunset, overcast, landscape)
 - 12 light leaks, date stamp, negative frame, strength from 25 to 150 %
 - full-size export without Telegram compression
-- frames arrive by themselves: over FTP from cameras that support it, or via the app for Sony PlayMemories cameras
-- English and Russian interface
+- frames arrive by themselves: over FTP from cameras that support it, or via the app for Sony PlayMemories cameras; phone photos via the "+" button in the Mini App
+- crop (free, 1:1, 4:5, 3:2, 16:9) and batch edits: select a day's frames and change the film or leak, or delete them at once
+- one bot for several people: family or friends by invite links, each with their own feed, camera and storage
+- English and Russian interface, chosen per user
 - runs on your own server — no subscriptions, no third-party cloud
 
 > **Your bot, your server.** Proyavka is not a service you sign up for — you install your own copy on your own server in about 10 minutes: **[quick start ↓](#install)**. Nothing goes through the author: your photos, bot token and passwords stay on your machines.
@@ -65,6 +67,14 @@ Running `python3 setup.py` again opens a menu: camera Wi-Fi, language, storage l
 
 **Sony with PlayMemories apps** (a5000/a5100, a6000/a6300/a6500, a7 II/a7R II/a7S II, RX100 III–V, RX10 II/III and others [from the compatibility list](https://openmemories.readthedocs.io/devices.html)): install the Proyavka app with pmca-gui, put `config.txt` on the card, pick a Wi-Fi network once in the app — then **Proyavka → Send new** after shooting. [Step by step](docs/sony-app.md).
 
+## Several people in one bot
+
+Whoever installed the bot is the admin. **/invite** gives a single-use invite link (valid for 7 days), **/users** lists the users with their storage limit and a remove button.
+
+Each user has their own feed and frames, buttons under photos, Mini App, export, default film, language, storage limit (5 GB by default) and camera — their own FTP login and their own token for the Sony app, sent by **/camera**. The bot never shows anyone else's frames, in the chat or in the Mini App, and rendering takes turns between users so that one person's big batch doesn't hold up the others.
+
+> **Honest note on privacy.** This is separation inside the bot, not encryption. All photos are stored on the admin's server, and **technically the admin can open any file on it** — like the owner of any computer. Invite people who trust you, and join someone else's bot only if you trust its owner.
+
 ## Films
 
 | Film | When | Character |
@@ -96,7 +106,7 @@ Every film is an original mathematical model (curves, shadow and highlight tints
 |---|---|
 | `setup.py` | setup and settings wizard |
 | `bot/` | the bot and processing (`filmbot.py`), Mini App (`webapp.html`), local film preview (`try_films.py`) |
-| `relay/` | server setup: HTTPS, FTPS, camera upload receiver |
+| `relay/` | server setup: HTTPS, FTPS, camera upload receiver, cameras of invited users (`proyavka-user`) |
 | `camera-app/` | app for Sony cameras (Android 4.1, no Gradle) |
 | `docs/` | camera guides, settings, films |
 
