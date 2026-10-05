@@ -2,23 +2,24 @@
 
 **English** · [Русский](README.ru.md)
 
-**Film development for your digital camera — right in Telegram.**
-Take a shot, and half a minute later it arrives in a Telegram bot already "on film": colour, grain, halation, light leaks, a point-and-shoot date stamp. Change the film and effect strength with buttons under the photo or in the Mini App — a day-by-day feed with live previews of every film.
+**Film development for your digital camera — on your phone, your computer, or in Telegram.**
+Take a shot, and half a minute later it's in your feed already "on film": colour, grain, halation, light leaks, a point-and-shoot date stamp. Change the film and strength any time, with live previews of every film. Use it as an app (browser, iPhone, Android, Windows, Mac) — Telegram is optional.
 
 *Proyavka* (проявка) is Russian for "film development".
 
 - 12 films, each with its own character, plus automatic choice by scene (night, sunset, overcast, landscape)
 - 12 light leaks, date stamp, negative frame, strength from 25 to 150 %
-- your own LUTs: send the bot a `.cube` file and it joins the film list; each user has their own, nobody else sees them
-- full-size export without Telegram compression
-- frames arrive by themselves: over FTP from cameras that support it, or via the app for Sony PlayMemories cameras; phone photos via the "+" button in the Mini App
-- crop (free, 1:1, 4:5, 3:2, 16:9) and batch edits: select a day's frames and change the film or leak, or delete them at once; deleted frames stay in the trash (`/trash`) while there is space
-- open it outside Telegram too: **/link** gives a one-time link and QR code — Proyavka opens in a browser on a computer or installs on a phone as an app (Android and iPhone, via Share → Add to Home Screen); full-size files download or save straight to Photos; **/devices** lists and removes linked devices
-- one bot for several people: family or friends by invite links, each with their own feed, camera and storage
+- your own LUTs: add a `.cube` file and it joins the film list; each user has their own, nobody else sees them
+- frames arrive by themselves: over FTP from cameras that support it, or via the app for Sony PlayMemories cameras; phone photos via the "+" button
+- RAW (ARW, CR3, NEF, RAF, DNG…) out of the box; with RAW+JPEG the JPEG is used
+- crop (free, 1:1, 4:5, 3:2, 16:9) and batch edits: select a day's frames and change the film or leak, or delete them at once; deleted frames stay in the trash while there is space
+- full-size files: download one or a ZIP on a computer, save straight to Photos on iPhone
+- **no Telegram needed:** the app installs on a phone from the browser (iPhone: Share → Add to Home Screen; Android and computers: Install in Chrome or Edge); devices sign in with a one-time code or QR. Prefer Telegram? Connect a bot at setup or later in the settings — frames then also arrive in the chat with film buttons
+- one server for several people: family or friends by invite code, each with their own feed, camera and storage
 - English and Russian interface, chosen per user
 - runs on your own server — no subscriptions, no third-party cloud
 
-> **Your bot, your server.** Proyavka is not a service you sign up for — you install your own copy on your own server in about 10 minutes: **[quick start ↓](#install)**. Nothing goes through the author: your photos, bot token and passwords stay on your machines.
+> **Your server, your photos.** Proyavka is not a service you sign up for — you install your own copy on your own server in about 10 minutes: **[quick start ↓](#install)**. Nothing goes through the author: your photos, tokens and passwords stay on your machines.
 
 ## How it works
 
@@ -26,15 +27,16 @@ Take a shot, and half a minute later it arrives in a Telegram bot already "on fi
 flowchart LR
     A[Camera with FTP<br>Sony A7C II, A7 IV…] -- FTPS --> S
     B[Sony a6000–a6500, RX100…<br>Proyavka app] -- HTTPS --> S
-    S[Your server<br>receives frames + develops film] --> T[Telegram bot<br>and Mini App]
+    S[Your server<br>receives frames + develops film] --> W[App<br>phone, computer]
+    S -. optional .-> T[Telegram bot]
 ```
 
-The camera needs an address on the internet to send frames to, so everything lives on a cheap VPS: it receives frames, develops them and sends them to Telegram. Nothing has to run at home.
+The camera needs an address on the internet to send frames to, so everything lives on a cheap VPS: it receives frames, develops them and shows them in the app (and in Telegram, if you connect it). Nothing has to run at home.
 
 <details>
 <summary>Have a Raspberry Pi or a home server?</summary>
 
-You can move processing home and keep the VPS as a mere mailbox — the smallest plan will do. Run the wizard on your home Linux machine and choose option 1: it sets up the VPS over SSH and a tunnel for the Mini App. No public IP at home is needed.
+You can move processing home and keep the VPS as a mere mailbox — the smallest plan will do. Run the wizard on your home Linux machine and choose option 1: it sets up the VPS over SSH and a tunnel for the app. No public IP at home is needed.
 </details>
 
 ## Requirements
@@ -64,7 +66,7 @@ In the app, ⋯ opens the settings: storage and trash, film for new frames, lang
 
 Next, the camera: ⋯ → Camera in the app (or **/camera** in the bot) — files for the memory card and a guide for your camera.
 
-Running `python3 setup.py` again opens a menu: camera Wi-Fi, language, storage limits, update, bot status.
+Running `python3 setup.py` again opens a menu: a QR code to sign in from a new device, camera Wi-Fi, language, storage and RAW, Telegram bot, update, status.
 
 ## Cameras
 
@@ -72,13 +74,13 @@ Running `python3 setup.py` again opens a menu: camera Wi-Fi, language, storage l
 
 **Sony with PlayMemories apps** (a5000/a5100, a6000/a6300/a6500, a7 II/a7R II/a7S II, RX100 III–V, RX10 II/III and others [from the compatibility list](https://openmemories.readthedocs.io/devices.html)): install the Proyavka app with pmca-gui, put `config.txt` on the card, pick a Wi-Fi network once in the app — then **Proyavka → Send new** after shooting. [Step by step](docs/sony-app.md).
 
-## Several people in one bot
+## Several people on one server
 
-Whoever installed the bot is the admin. **/invite** gives a single-use invite link (valid for 7 days), **/users** lists the users with their storage limit and a remove button.
+Whoever installed Proyavka is the admin. In the app, ⋯ → **Invite a person** gives a single-use code with a link and QR (valid for 7 days); the person enters it on the sign-in screen, types their name and lands in their own feed. With a bot connected, the same code works via Telegram (**/invite** in the bot). ⋯ → **Users** lists everyone with their storage limit (the admin's own too) and a remove button.
 
-Each user has their own feed and frames, buttons under photos, Mini App, export, default film, language, storage limit (5 GB by default) and camera — their own FTP login and their own token for the Sony app, sent by **/camera**. The bot never shows anyone else's frames, in the chat or in the Mini App, and rendering takes turns between users so that one person's big batch doesn't hold up the others.
+Each user has their own feed and frames, default film, language, storage limit (5 GB by default), devices, Telegram and camera — their own FTP login with a short password that's easy to type on a camera, and their own token for the Sony app (⋯ → Camera). Nobody sees anyone else's frames, and rendering takes turns between users so that one person's big batch doesn't hold up the others.
 
-> **Honest note on privacy.** This is separation inside the bot, not encryption. All photos are stored on the admin's server, and **technically the admin can open any file on it** — like the owner of any computer. Invite people who trust you, and join someone else's bot only if you trust its owner.
+> **Honest note on privacy.** This is separation inside the app, not encryption. All photos are stored on the admin's server, and **technically the admin can open any file on it** — like the owner of any computer. Invite people who trust you, and join someone else's server only if you trust its owner.
 
 ## Films
 
@@ -103,14 +105,14 @@ Every film is an original mathematical model (curves, shadow and highlight tints
 
 - **[Settings, files and logs](docs/configuration.md)** — what's in `config.env`, where frames and data live, how to read logs and restart the bot.
 - **[Films: how they work and how to make your own](docs/films.md)** — every parameter explained; a new film is a dozen numbers.
-- **Try films locally:** `.venv/bin/python bot/try_films.py photo.jpg` renders a sheet with every film — no Telegram needed.
+- **Try films locally:** `.venv/bin/python bot/try_films.py photo.jpg` renders a sheet with every film — no server needed.
 
 ## Repository layout
 
 | Folder | Contents |
 |---|---|
 | `setup.py` | setup and settings wizard |
-| `bot/` | the bot and processing (`filmbot.py`), Mini App (`webapp.html`), local film preview (`try_films.py`) |
+| `bot/` | the server and processing (`filmbot.py`), the app (`webapp.html`), local film preview (`try_films.py`) |
 | `relay/` | server setup: HTTPS, FTPS, camera upload receiver, cameras of invited users (`proyavka-user`) |
 | `camera-app/` | app for Sony cameras (Android 4.1, no Gradle) |
 | `docs/` | camera guides, settings, films |
