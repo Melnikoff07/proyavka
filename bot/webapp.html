@@ -87,6 +87,12 @@
   .sel-actions { display: flex; justify-content: space-between; gap: 8px; }
   .sel-actions button { color: inherit; padding: 6px 0; }
   .sel-actions button.danger { color: #ff5a4e; }
+  /* лист пакетной правки: плёнка или засвет для выбранных кадров */
+  .sheet { position: fixed; left: 0; right: 0; bottom: 0; z-index: 16; background: var(--bg); border-top: 1px solid var(--rule);
+           padding: 14px 0 calc(16px + env(safe-area-inset-bottom, 0px)); }
+  .sheet[hidden] { display: none; }
+  .sheet-head { display: flex; justify-content: space-between; align-items: baseline; padding: 0 var(--pad) 12px; }
+  .sheet-head button { color: var(--muted); }
   .tile { aspect-ratio: 1; background: var(--tile); display: flex; align-items: center; justify-content: center; }
   .tile img { width: 84%; height: 84%; object-fit: contain; }
   .cell.archived .tile img { opacity: .45; }
@@ -198,11 +204,17 @@
 <div class="selbar" id="selbar" hidden role="toolbar" aria-label="Выбранные кадры" data-i18n-aria="Selected frames">
   <div class="sel-top cap"><span id="selCount"></span><button id="selCancel" data-i18n="Cancel">Отмена</button></div>
   <div class="sel-actions cap">
-    <button id="sFilm" data-i18n="Film" hidden>Плёнка</button>
-    <button id="sLeak" data-i18n="Leak" hidden>Засвет</button>
+    <button id="sFilm" data-i18n="Film">Плёнка</button>
+    <button id="sLeak" data-i18n="Leak">Засвет</button>
     <button id="sFiles" data-i18n="Files">Файлы</button>
     <button id="sDelete" class="danger" data-i18n="Delete">Удалить</button>
   </div>
+</div>
+<div class="sheet" id="sheet" hidden role="dialog" aria-labelledby="shTitle">
+  <div class="sheet-head cap"><span id="shTitle"></span><button id="shClose" data-i18n="Close">Закрыть</button></div>
+  <div class="strip" id="shStrip" role="listbox"></div>
+  <div class="line" id="shStrLine"><span class="cap muted label" data-i18n="Strength">Сила</span><div class="opts cap" id="shStrength" role="group"></div></div>
+  <div class="actions"><button class="btn" id="shApply" disabled></button></div>
 </div>
 <div class="uploader" id="uploader" hidden role="status">
   <div class="up-row cap"><span id="upText"></span><button id="upCancel" data-i18n="Cancel">Отмена</button></div>
@@ -251,7 +263,7 @@ function toast(text) {
 }
 function haptic(kind) { try { tg.HapticFeedback.selectionChanged(); if (kind) tg.HapticFeedback.notificationOccurred(kind); } catch (e) {} }
 function url(path, extra) { return `${path}?s=${encodeURIComponent(token)}${extra || ""}`; }
-function presetName(key) { const f = presets.find((x) => x.key === key); return f ? f.name : key; }
+function presetName(key) { const f = presets.find((x) => x.key === key); return f ? f.name : key === "original" ? T("Оригинал", "Original") : key; }
 function prevUrl(p, film, leak) {
   const lk = leak ? `&lk=${leak}&ls=${p.leak_seed || 0}` : "";
   return url(`/img/preview/${p.id}/${film}`, `&st=${p.strength}${lk}`);
@@ -404,6 +416,7 @@ function enterSelect() {
   updateSelUI();
 }
 function exitSelect() {
+  closeSheet();
   selecting = false;
   selected.clear();
   document.body.classList.remove("selecting");
@@ -474,8 +487,104 @@ $("sDelete").onclick = () => {
 
 function onBack() {
   if (cur >= 0) closeViewer();
+  else if (!$("sheet").hidden) closeSheet();
   else if (selecting) exitSelect();
 }
+
+/* ---------- пакетная правка: лист с плёнками или засветами для выбранных кадров ---------- */
+let sheet = null;            // { kind: "film" | "leak", pick: {...} }
+
+function openSheet(kind) {
+  const ids = selIds();
+  if (!ids.length) return;
+  const p = photos[indexOf(ids[0])];        // превью рисуются на первом выбранном кадре
+  sheet = { kind, pick: {} };
+  $("shTitle").textContent = kind === "film" ? T("Плёнка для выбранных", "Film for selected") : T("Засвет для выбранных", "Leak for selected");
+  const items = kind === "film"
+    ? [{ key: "auto", name: T("Авто", "Auto"), title: T("каждому кадру своя по ситуации", "each frame gets its own by scene"), src: prevUrl(p, p.auto_key || "original", "") }]
+        .concat(presets.map((f) => ({ key: f.key, name: f.name, title: f.when, src: prevUrl(p, f.key, "") })))
+    : [{ key: "", name: T("Без засвета", "No leak"), title: "", src: prevUrl(p, p.preset, "") }]
+        .concat(leaks.map((l) => ({ key: l.key, name: l.name, title: l.desc, src: prevUrl(p, p.preset, l.key) })));
+  const strip = $("shStrip");
+  strip.setAttribute("aria-label", kind === "film" ? T("Плёнка", "Film") : T("Засвет", "Leak"));
+  strip.replaceChildren(...items.map((it) => {
+    const b = document.createElement("button");
+    b.className = "film";
+    b.setAttribute("role", "option");
+    b.setAttribute("aria-pressed", "false");
+    b.title = it.title;
+    b.innerHTML = `<div class="pic"><img loading="lazy" decoding="async" alt="" src="${it.src}"></div><div class="fname">${it.name}</div>`;
+    b.onclick = () => {
+      const on = b.getAttribute("aria-pressed") !== "true";
+      strip.querySelectorAll(".film").forEach((x) => x.setAttribute("aria-pressed", "false"));
+      b.setAttribute("aria-pressed", String(on));
+      if (on) sheet.pick[kind === "film" ? "preset" : "leak"] = it.key; else delete sheet.pick[kind === "film" ? "preset" : "leak"];
+      haptic(); sheetButton();
+    };
+    return b;
+  }));
+  strip.scrollLeft = 0;
+  $("shStrLine").hidden = kind !== "film";
+  $("shStrength").replaceChildren(...strengths.map((s) => {
+    const b = document.createElement("button");
+    b.className = "opt";
+    b.textContent = s;
+    b.setAttribute("aria-label", T("Сила", "Strength") + ` ${s}%`);
+    b.setAttribute("aria-pressed", "false");
+    b.onclick = () => {
+      const on = b.getAttribute("aria-pressed") !== "true";
+      $("shStrength").querySelectorAll(".opt").forEach((x) => x.setAttribute("aria-pressed", "false"));
+      b.setAttribute("aria-pressed", String(on));
+      if (on) sheet.pick.strength = s; else delete sheet.pick.strength;
+      haptic(); sheetButton();
+    };
+    return b;
+  }));
+  sheetButton();
+  $("selbar").hidden = true;
+  $("sheet").hidden = false;
+}
+function closeSheet() {
+  if (!sheet) return;
+  sheet = null;
+  $("sheet").hidden = true;
+  if (selecting) $("selbar").hidden = false;
+}
+function sheetButton() {
+  const n = selected.size, any = Object.keys(sheet.pick).length > 0;
+  $("shApply").disabled = !any;
+  $("shApply").textContent = any
+    ? T(`Проявить ${n} ${plural(n, "кадр", "кадра", "кадров")}`, `Develop ${n} frame${n === 1 ? "" : "s"}`)
+    : (sheet.kind === "film" ? T("Выбери плёнку или силу", "Pick a film or strength") : T("Выбери засвет", "Pick a leak"));
+}
+$("sFilm").onclick = () => openSheet("film");
+$("sLeak").onclick = () => openSheet("leak");
+$("shClose").onclick = closeSheet;
+$("shApply").onclick = async () => {
+  if (!sheet) return;
+  const ids = selIds(), changes = Object.assign({}, sheet.pick);
+  $("shApply").disabled = true;
+  try {
+    const r = await api("/api/batch", { action: "edit", ids, changes });
+    // у себя сразу показываем новое состояние, чистовики подтянет опрос
+    for (const id of ids) {
+      const i = indexOf(id), p = photos[i];
+      if (!p || p.archived) continue;
+      if (changes.preset) { p.preset = changes.preset === "auto" ? (p.auto_key || "original") : changes.preset; p.preset_name = presetName(p.preset); }
+      if (changes.strength) p.strength = changes.strength;
+      if ("leak" in changes) p.leak = changes.leak;
+      p.pending = true;
+      updateCell(i);
+    }
+    let msg = r.queued ? T(`Проявляю ${r.queued} ${plural(r.queued, "кадр", "кадра", "кадров")}`, `Developing ${r.queued} frame${r.queued === 1 ? "" : "s"}`)
+                       : T("Эти кадры уже такие", "These frames are already like that");
+    if (r.skipped) msg += T(` · ${r.skipped} в архиве`, ` · ${r.skipped} archived`);
+    toast(msg);
+    haptic("success");
+    exitSelect();
+    jobs = Math.max(jobs, r.queued); renderHeader(); schedulePoll();
+  } catch (e) { toast(e.message); sheetButton(); }
+};
 
 function rebuildFeed() {
   groups = {};

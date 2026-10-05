@@ -11,6 +11,7 @@ import collections
 import hashlib
 import hmac
 import io
+import itertools
 import json
 import logging
 import math
@@ -712,11 +713,45 @@ def upd(pid, **kw):
 def tg(method, files=None, **params):
     data = {k: (json.dumps(v, ensure_ascii=False) if isinstance(v, (dict, list)) else v)
             for k, v in params.items() if v is not None}
-    r = requests.post(f"{API}/{method}", data=data, files=files, timeout=(10, 120))   # (подключение, ответ)
-    j = r.json()
-    if not j.get("ok"):
-        raise RuntimeError(f"{method}: {j.get('description')}")
-    return j["result"]
+    for attempt in range(3):
+        r = requests.post(f"{API}/{method}", data=data, files=files, timeout=(10, 120))   # (подключение, ответ)
+        j = r.json()
+        if j.get("ok"):
+            return j["result"]
+        wait = (j.get("parameters") or {}).get("retry_after")
+        if r.status_code != 429 or not wait or attempt == 2:
+            break
+        log.warning("%s: Telegram просит подождать %s с", method, wait)   # слишком часто пишем в чат
+        _pace_hold(params.get("chat_id"), float(wait))
+        time.sleep(min(float(wait), 60))
+        for v in (files or {}).values():          # файлы отправляются заново с начала
+            f = v[1] if isinstance(v, tuple) else v
+            if hasattr(f, "seek"):
+                f.seek(0)
+    raise RuntimeError(f"{method}: {j.get('description')}")
+
+
+# Фоновые правки чата (пакеты, удаление, новые кадры) — не чаще раза в CHAT_PACE секунд на чат:
+# Telegram ограничивает бота примерно одним сообщением в секунду на чат, при превышении отвечает 429.
+# Ответы на нажатия кнопок идут без ожидания, но сдвигают время следующей фоновой правки.
+CHAT_PACE = float(os.environ.get("CHAT_PACE_SECONDS", "1"))
+_PACE = {}                    # чат -> когда можно следующую фоновую правку (time.monotonic)
+_PACE_LOCK = threading.Lock()
+
+
+def pace(chat_id):
+    """Дождаться своей очереди на фоновую правку чата."""
+    with _PACE_LOCK:
+        now = time.monotonic()
+        at = max(now, _PACE.get(chat_id, 0.0))
+        _PACE[chat_id] = at + CHAT_PACE
+    if at > now:
+        time.sleep(at - now)
+
+
+def _pace_hold(chat_id, seconds):
+    with _PACE_LOCK:
+        _PACE[chat_id] = max(_PACE.get(chat_id, 0.0), time.monotonic() + seconds)
 
 
 def safe(method, **kw):
@@ -845,11 +880,13 @@ def _delete_messages(phs):
             (fresh if time.time() - sent < MSG_DELETE_WINDOW else old).append(ph["msg_id"])
     for i in range(0, len(fresh), 100):
         chunk = fresh[i:i + 100]
+        pace(CHAT_ID)
         if not safe("deleteMessages", chat_id=CHAT_ID, message_ids=chunk):
             for mid in chunk:                    # на всякий случай по одному
                 if not safe("deleteMessage", chat_id=CHAT_ID, message_id=mid):
                     old.append(mid)
     for mid in old:                              # старше 48 часов: удалить нельзя — меняем фото на заглушку
+        pace(CHAT_ID)
         with open(deleted_placeholder(), "rb") as f:
             if not safe("editMessageMedia", files={"f": ("deleted.jpg", f)}, chat_id=CHAT_ID, message_id=mid,
                         media={"type": "photo", "media": "attach://f", "caption": L("Удалено", "Deleted")},
@@ -1002,6 +1039,7 @@ VIEW_SLOTS = max(1, FAST_WORKERS - 1) if FAST_WORKERS > 2 else FAST_WORKERS
 RQ_PENDING = {0: {}, 1: {}, 2: {}}    # срочность -> {пользователь: deque[pid]} (порядок ключей = очередь по кругу)
 RQ_QUEUED = {}                        # pid -> (срочность, нужен ли чат)
 VIEW_CHAT = {}                        # pid в работе -> нужна ли версия для чата
+VIEW_PRIO = {}                        # pid в работе -> срочность (с ней же правка уйдёт в чат)
 
 
 def schedule_view(pid, prio=0, chat=True, uid=0):
@@ -1010,6 +1048,7 @@ def schedule_view(pid, prio=0, chat=True, uid=0):
         if pid in VIEW_INFLIGHT:
             VIEW_DIRTY.add(pid)
             VIEW_CHAT[pid] = VIEW_CHAT.get(pid, False) or chat
+            VIEW_PRIO[pid] = min(VIEW_PRIO.get(pid, prio), prio)
             return
         if pid in RQ_QUEUED:
             old_prio, old_chat = RQ_QUEUED[pid]
@@ -1042,13 +1081,14 @@ def _pump():
                         if dq:
                             users[uid] = dq      # в конец круга
                         if pid in RQ_QUEUED:
-                            pick = (pid, RQ_QUEUED.pop(pid)[1])
+                            pick = (pid, RQ_QUEUED.pop(pid)[1], prio)
                 if pick:
                     break
             if pick is None:
                 return
             VIEW_INFLIGHT.add(pick[0])
             VIEW_CHAT[pick[0]] = pick[1]
+            VIEW_PRIO[pick[0]] = pick[2]
         _submit_view(pick[0])
 
 
@@ -1062,6 +1102,8 @@ def _release(pid):
         VIEW_INFLIGHT.discard(pid)
         VIEW_DIRTY.discard(pid)
         VIEW_CHAT.pop(pid, None)
+        VIEW_PRIO.pop(pid, None)
+    batch_step(pid, "gone")
 
 
 def _submit_view(pid):
@@ -1080,6 +1122,7 @@ def _submit_view(pid):
 
 def _view_done(pid, rev, chat, fut):
     err = fut.exception()
+    result = "fail"
     if err:
         log.warning("view #%d: %s", pid, err)
     else:
@@ -1088,20 +1131,92 @@ def _view_done(pid, rev, chat, fut):
         if not cur or cur["hidden"]:            # кадр удалили, пока он рисовался — не оставлять файлы
             for p in (view, thumb, str(TMP / f"chat_{pid}_{rev}.jpg")):
                 remove(p)
+            result = "gone"
         elif cur["rev"] == rev:
             upd(pid, view=view, thumb=thumb, rendered_rev=rev, updated=time.time())
+            result = "ok"
             if chat:
-                queue_tg_update(pid)
+                with JOB_LOCK:
+                    prio = VIEW_PRIO.get(pid, 1)
+                queue_tg_update(pid, urgent=prio == 0)
     with JOB_LOCK:
         again = pid in VIEW_DIRTY
         VIEW_DIRTY.discard(pid)
         if not again:
             VIEW_INFLIGHT.discard(pid)
             VIEW_CHAT.pop(pid, None)
+            VIEW_PRIO.pop(pid, None)
     if again:
         _submit_view(pid)
     else:
+        batch_step(pid, result)
         _pump()
+
+
+# Пакетная правка из «Проявки»: кадры встают в общую очередь со срочностью 1, а когда проявится последний,
+# в чат уходит одно итоговое сообщение. Сами фото в чате обновляются фоном, не чаще раза в секунду.
+BATCHES = {}      # номер пакета -> {"left": set(pid), "ok", "fail", "total", "text"}
+BATCH_OF = {}     # pid -> номер пакета, в котором он ещё не проявлен
+_BATCH_SEQ = itertools.count(1)
+
+
+def batch_track(pids, text):
+    finished = []
+    with JOB_LOCK:
+        bid = next(_BATCH_SEQ)
+        BATCHES[bid] = {"left": set(pids), "pids": list(pids), "ok": 0, "fail": 0, "total": len(pids), "text": text}
+        for pid in pids:
+            old = BATCH_OF.get(pid)
+            if old in BATCHES:                   # кадр перешёл в новый пакет — в старом считаем его готовым
+                b = BATCHES[old]
+                b["left"].discard(pid)
+                b["ok"] += 1
+                if not b["left"]:
+                    finished.append(BATCHES.pop(old))
+            BATCH_OF[pid] = bid
+    for b in finished:
+        NET.submit(_batch_report, b)
+    return bid
+
+
+def batch_step(pid, result):
+    """Кадр из пакета дорисован (ok), не получился (fail) или удалён (gone)."""
+    with JOB_LOCK:
+        bid = BATCH_OF.pop(pid, None)
+        b = BATCHES.get(bid)
+        if not b:
+            return
+        b["left"].discard(pid)
+        b["ok" if result == "ok" else "fail"] += result != "gone"
+        if result == "gone":
+            b["total"] -= 1
+        if b["left"]:
+            return
+        BATCHES.pop(bid)
+    NET.submit(_batch_report, b)
+
+
+def _batch_report(b):
+    if b["total"] <= 0:
+        return
+    t = time.time()
+    while time.time() - t < 900:                 # итог — после того, как сами фото в чате обновились
+        with TG_COND:
+            if not TG_BUSY.intersection(b["pids"]):
+                break
+        time.sleep(0.5)
+    n = b["ok"]
+    text = L(f"Готово: {n} {plural_ru(n, 'кадр', 'кадра', 'кадров')} → {b['text']}",
+             f"Done: {n} frame{'' if n == 1 else 's'} → {b['text']}")
+    if b["fail"]:
+        text += L(f"\nНе получилось: {b['fail']}", f"\nFailed: {b['fail']}")
+    pace(CHAT_ID)
+    safe("sendMessage", chat_id=CHAT_ID, text=text, disable_notification=True)
+
+
+def plural_ru(n, one, few, many):
+    a, b = n % 10, n % 100
+    return one if a == 1 and b != 11 else few if 2 <= a <= 4 and not 12 <= b <= 14 else many
 
 
 def export_photo(pid):
@@ -1146,13 +1261,28 @@ def _export_done(pid, ph, out, fut):
 
 
 TG_PENDING = set()
+TG_URGENT = set()      # правки одного кадра — в чат вперёд пакетных
+TG_BUSY = set()        # кадры, которые ещё не дошли до чата (в очереди, рисуются или заливаются)
 TG_COND = threading.Condition()
 
 
-def queue_tg_update(pid):
+def queue_tg_update(pid, urgent=False):
     with TG_COND:
         TG_PENDING.add(pid)
+        TG_BUSY.add(pid)
+        if urgent:
+            TG_URGENT.add(pid)
         TG_COND.notify()
+
+
+def _tg_order(pid):
+    return (pid not in TG_URGENT, pid)
+
+
+def _tg_settled(pid):
+    with TG_COND:
+        if pid not in TG_PENDING:
+            TG_BUSY.discard(pid)
 
 
 TG_RENDER_AHEAD = 2   # сколько кадров для чата рисуем заранее, пока заливается текущий
@@ -1162,6 +1292,7 @@ def _tg_upload(pid, rev, path):
     ph = get(pid)
     if not ph or ph["hidden"] or ph["rev"] != rev:
         return   # кадр убрали или снова поменяли — свежий вариант уже в очереди
+    pace(CHAT_ID)
     with EDIT_LOCK, open(path, "rb") as f:
         res = None
         if ph["msg_id"]:
@@ -1196,7 +1327,7 @@ def tg_worker():
         with TG_COND:
             if not TG_PENDING and not inflight:
                 TG_COND.wait(timeout=0.5 if ready else None)   # ждём, не крутясь вхолостую
-            for pid in sorted(TG_PENDING):
+            for pid in sorted(TG_PENDING, key=_tg_order):
                 if len(inflight) + len(start_now) >= TG_RENDER_AHEAD:
                     break
                 if pid in inflight or pid in ready:
@@ -1206,6 +1337,7 @@ def tg_worker():
         for pid in start_now:
             ph = get(pid)
             if not ph or ph["hidden"] or not has(ph["work"]):
+                _tg_settled(pid)
                 continue
             path = TMP / f"chat_{pid}_{ph['rev']}.jpg"
             if path.exists():                  # обычно уже нарисован вместе с версией для «Проявки»
@@ -1220,26 +1352,34 @@ def tg_worker():
                     if fut.exception():
                         log.warning("chat render #%d: %s", pid, fut.exception())
                         remove(str(path))
+                        _tg_settled(pid)
                     else:
                         ready[pid] = (rev, path)
-        for pid in sorted(ready):
+        for pid in sorted(ready, key=_tg_order):
             ph = get(pid)
             if ph and not ph["msg_id"] and older_unsent(pid):
                 continue   # новый кадр не обгоняет более ранний, который ещё проявляется
             rev, path = ready.pop(pid)
+            with TG_COND:
+                TG_URGENT.discard(pid)
             try:
                 _tg_upload(pid, rev, path)
             except Exception:
                 log.exception("tg upload #%d", pid)
             finally:
                 remove(str(path))
+                _tg_settled(pid)
 
 
-def apply_changes(ph, changes, sync_tg=None):
-    """Поставить изменения в очередь и сразу вернуть состояние. Рисуется фоном."""
+def apply_changes(ph, changes, sync_tg=None, prio=0):
+    """Поставить изменения в очередь и сразу вернуть состояние. Рисуется фоном.
+    prio: 0 — правка одного кадра, 1 — пакетная (уступает одиночным)."""
     fields = {}
+    cur = get(ph["id"])
     if "preset" in changes:
         k = canon(changes["preset"])
+        if k == "auto" and cur:                 # пакетом: каждому кадру его собственный автовыбор
+            k = cur["auto_key"] or "original"
         if k != "original" and k not in PRESETS:
             raise ValueError(L("неизвестная плёнка", "unknown film"))
         fields["preset"] = k
@@ -1251,7 +1391,6 @@ def apply_changes(ph, changes, sync_tg=None):
     for f in ("stamp", "frame"):
         if f in changes:
             fields[f] = 1 if changes[f] else 0
-    cur = get(ph["id"])
     if not cur or not has(cur["work"]):
         raise RuntimeError(L("кадр в архиве: исходник удалён для экономии места", "frame is archived: the original was deleted to save space"))
     if "leak" in changes:
@@ -1267,11 +1406,12 @@ def apply_changes(ph, changes, sync_tg=None):
     if changes.get("leak_shift"):
         fields["leak_seed"] = int(cur.get("leak_seed") or 0) + 1
         fields.setdefault("leak", 1)
+    fields = {k: v for k, v in fields.items() if cur.get(k) != v}   # уже так — не перерисовывать
     if not fields:
         return cur
     cols = ", ".join(f"{k}=?" for k in fields)
     run(f"UPDATE photos SET {cols}, rev=rev+1, updated=? WHERE id=?", (*fields.values(), time.time(), ph["id"]))
-    schedule_view(ph["id"])
+    schedule_view(ph["id"], prio=prio)
     return get(ph["id"])
 
 
@@ -1897,10 +2037,51 @@ def batch_ids(data):
     return [r["id"] for r in q(f"SELECT id FROM photos WHERE hidden=0 AND id IN ({marks}) ORDER BY id", ids)]
 
 
+def batch_edit(ids, changes):
+    """Плёнка, засвет, сила для многих кадров: в базу сразу, рисуются очередью (срочность 1)."""
+    if not isinstance(changes, dict):
+        raise ValueError(L("нет изменений", "no changes"))
+    changes = {k: v for k, v in changes.items() if k in ("preset", "strength", "leak")}
+    if not changes:
+        raise ValueError(L("нет изменений", "no changes"))
+    if "preset" in changes and changes["preset"] != "auto" and canon(str(changes["preset"])) not in (*PRESETS, "original"):
+        raise ValueError(L("неизвестная плёнка", "unknown film"))
+    if "strength" in changes and changes["strength"] not in STRENGTHS:
+        raise ValueError(L("неверная сила", "invalid strength"))
+    if "leak" in changes and changes["leak"] not in ("", None, *LEAKS):
+        raise ValueError(L("неизвестный засвет", "unknown light leak"))
+    parts = []
+    if "preset" in changes:
+        parts.append(L("авто по ситуации", "auto by scene") if changes["preset"] == "auto" else pname(canon(changes["preset"])))
+    if "strength" in changes:
+        parts.append(L("сила", "strength") + f" {changes['strength']}%")
+    if "leak" in changes:
+        parts.append(L("засвет", "leak") + f": {LEAKS[changes['leak']][0]}" if changes["leak"] in LEAKS
+                     else L("без засвета", "no leak"))
+    live = [pid for pid in ids if has((get(pid) or {}).get("work"))]
+    bid = batch_track(live, ", ".join(parts))   # до постановки в очередь: быстрый кадр не должен проскочить мимо учёта
+    queued = 0
+    for pid in live:
+        ph = get(pid)
+        try:
+            before = ph["rev"]
+            after = apply_changes(ph, changes, prio=1)
+        except RuntimeError:                      # успели заархивировать
+            batch_step(pid, "gone")
+            continue
+        if after["rev"] == before:                # и так уже такой — рисовать нечего
+            batch_step(pid, "gone")
+        else:
+            queued += 1
+    return {"ok": True, "queued": queued, "same": len(live) - queued, "skipped": len(ids) - len(live), "batch": bid}
+
+
 def batch_action(data):
-    """Действия над выбранными кадрами из «Проявки»: удалить, прислать файлы."""
+    """Действия над выбранными кадрами из «Проявки»: правка, удаление, файлы."""
     action = data.get("action")
     ids = batch_ids(data)
+    if action == "edit":
+        return batch_edit(ids, data.get("changes"))
     if action == "delete":
         return {"ok": True, "done": delete_photos(ids)}
     if action == "files":
