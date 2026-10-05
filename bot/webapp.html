@@ -322,7 +322,15 @@
     <div class="st-row"><span class="cap muted" data-i18n="Name">Имя</span><button class="st-val" id="stName"></button></div>
     <div class="st-row"><span class="cap muted" data-i18n="Language">Язык</span>
       <div class="opts cap st-opts"><button class="opt" data-lang="ru">Русский</button><button class="opt" data-lang="en">English</button></div></div>
+    <div class="st-row"><span class="cap muted" data-i18n="Theme">Тема</span>
+      <div class="opts cap st-opts"><button class="opt" data-theme-set="auto" data-i18n="Auto">Авто</button><button class="opt" data-theme-set="light" data-i18n="Light">Светлая</button><button class="opt" data-theme-set="dark" data-i18n="Dark">Тёмная</button></div></div>
     <div class="st-row"><span class="cap muted" data-i18n="New frames">Новым кадрам</span><select class="st-select" id="stFilm" aria-label="Плёнка для новых кадров" data-i18n-aria="Film for new frames"></select></div>
+  </div>
+  <div class="st-sec" id="stPushSec">
+    <div class="st-h cap muted" data-i18n="Notifications">Уведомления</div>
+    <div class="st-row"><span data-i18n="New frames on this device">О новых кадрах на этом устройстве</span>
+      <div class="opts cap st-opts"><button class="opt" data-push="1" data-i18n="On">Вкл</button><button class="opt" data-push="0" data-i18n="Off">Выкл</button></div></div>
+    <p class="muted st-p" id="stPushNote"></p>
   </div>
   <div class="st-sec">
     <div class="st-h cap muted" data-i18n="Storage">Место</div>
@@ -473,10 +481,15 @@ async function reauth() {
 }
 
 /* ---------- тема как в Telegram ---------- */
+const THEME_KEY = "proyavka.theme";       // auto | light | dark — у каждого устройства своя
 function applyTheme() {
-  const dark = tg && tg.colorScheme ? tg.colorScheme === "dark" : matchMedia("(prefers-color-scheme: dark)").matches;
+  const pref = stored(THEME_KEY) || "auto";
+  const dark = pref === "auto" ? (tg && tg.colorScheme ? tg.colorScheme === "dark" : matchMedia("(prefers-color-scheme: dark)").matches)
+                               : pref === "dark";
   document.documentElement.dataset.theme = dark ? "dark" : "light";
   const bg = dark ? "#000000" : "#ffffff";
+  document.querySelectorAll('meta[name="theme-color"]').forEach((m) => { m.removeAttribute("media"); m.content = bg; });
+  document.querySelectorAll("[data-theme-set]").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.themeSet === pref)));
   try { tg.setHeaderColor(bg); tg.setBackgroundColor(bg); tg.setBottomBarColor && tg.setBottomBarColor(bg); } catch (e) {}
 }
 
@@ -1176,6 +1189,8 @@ async function openSettings() {
   if (tg) tg.BackButton.show();
   syncHistory();
   await renderMe();
+  applyTheme();
+  renderPush();
   renderDevices();
   if (me && me.admin) renderUsers();
 }
@@ -1214,6 +1229,59 @@ $("stName").onclick = async () => {
 document.querySelectorAll("[data-lang]").forEach((b) => {
   b.onclick = async () => { if (me && b.dataset.lang !== me.lang && await saveMe({ lang: b.dataset.lang })) location.reload(); };
 });
+document.querySelectorAll("[data-theme-set]").forEach((b) => {
+  b.onclick = () => { stored(THEME_KEY, b.dataset.themeSet === "auto" ? null : b.dataset.themeSet); applyTheme(); haptic(); };
+});
+
+/* уведомления о новых кадрах: подписка Web Push у каждого устройства своя */
+const b64u8 = (b) => { const s = atob(b.replace(/-/g, "+").replace(/_/g, "/") + "=".repeat((4 - (b.length % 4)) % 4)); return Uint8Array.from(s, (c) => c.charCodeAt(0)); };
+async function pushReg() { return "serviceWorker" in navigator ? navigator.serviceWorker.getRegistration() : null; }
+async function pushState() {
+  if (tg) return "tg";
+  if (!("PushManager" in window) || !("Notification" in window) || !("serviceWorker" in navigator)) return ios && !standalone ? "ios" : "unsupported";
+  if (Notification.permission === "denied") return "denied";
+  const reg = await pushReg();
+  if (!reg) return "unsupported";
+  return (await reg.pushManager.getSubscription()) ? "on" : "off";
+}
+async function renderPush() {
+  const st = await pushState().catch(() => "unsupported");
+  $("stPushSec").hidden = st === "tg";
+  document.querySelectorAll("[data-push]").forEach((b) => {
+    b.setAttribute("aria-pressed", String((b.dataset.push === "1") === (st === "on")));
+    b.disabled = !["on", "off"].includes(st);
+  });
+  $("stPushNote").textContent = {
+    on: T("Придёт, когда проявятся новые кадры, — если «Проявка» сейчас закрыта.", "You'll get one when new frames are developed — if Proyavka is closed at the time."),
+    off: T("Выключены на этом устройстве.", "Off on this device."),
+    ios: T("На iPhone уведомления работают в приложении с экрана «Домой»: «Поделиться» → «На экран „Домой“».", "On iPhone notifications work in the Home Screen app: Share → Add to Home Screen."),
+    denied: T("Уведомления запрещены для этого сайта — разреши их в настройках браузера или телефона.", "Notifications are blocked for this site — allow them in the browser or phone settings."),
+    unsupported: T("Этот браузер не умеет уведомления.", "This browser doesn't support notifications."),
+  }[st] || "";
+}
+document.querySelectorAll("[data-push]").forEach((b) => {
+  b.onclick = async () => {
+    try {
+      const reg = await pushReg();
+      const sub = reg && await reg.pushManager.getSubscription();
+      if (b.dataset.push === "1" && !sub) {
+        if (await Notification.requestPermission() !== "granted") return renderPush();   // сразу по нажатию — иначе Safari не спросит
+        const info = await api("/api/push");
+        if (!info.supported) throw new Error(T("на сервере нет библиотеки для уведомлений — обнови «Проявку»", "the server can't send notifications — update Proyavka"));
+        const s = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64u8(info.key) });
+        await api("/api/push/subscribe", s.toJSON());
+        toast(T("Уведомления включены", "Notifications are on"));
+      } else if (b.dataset.push === "0" && sub) {
+        await api("/api/push/unsubscribe", { endpoint: sub.endpoint }).catch(() => {});
+        await sub.unsubscribe();
+        toast(T("Уведомления выключены", "Notifications are off"));
+      }
+      haptic("success");
+    } catch (e) { toast(e.message); }
+    renderPush();
+  };
+});
+
 $("stFilm").onchange = async () => {
   if (await saveMe({ default_film: $("stFilm").value })) toast(T("Так будут проявляться новые кадры", "New frames will be developed like this"));
 };

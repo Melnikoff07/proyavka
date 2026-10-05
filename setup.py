@@ -442,6 +442,7 @@ def step_home(env):
           "Installing Python libraries (a couple of minutes on a Raspberry Pi)…"))
     run([str(VENV / "bin" / "pip"), "install", "-q", "-r", str(ROOT / "bot" / "requirements.txt")], capture=True)
     ensure_raw(env)
+    ensure_push()
     env.setdefault("BASE_DIR", "/var/lib/proyavka/data" if IS_ROOT else str(Path.home() / "proyavka-data"))
     env.setdefault("REMOTE_DIR", "/srv/camera/upload/")
     env.setdefault("STORAGE_GB", "20")
@@ -597,6 +598,17 @@ def show_camera_help(env):
 
 
 # ---------------- обслуживание ----------------
+def ensure_push():
+    """Уведомления о новых кадрах (Web Push) — библиотека pywebpush. Не встала — просто без уведомлений."""
+    if not (VENV / "bin" / "pip").exists():
+        return
+    r = run([str(VENV / "bin" / "pip"), "install", "-q", "pywebpush"], check=False, capture=True)
+    if r.returncode != 0:
+        warn(T("не удалось поставить pywebpush — уведомления о новых кадрах будут недоступны. ",
+               "could not install pywebpush — new-frame notifications will be unavailable. ")
+             + (r.stdout.strip().splitlines() or [""])[-1])
+
+
 def ensure_raw(env):
     """RAW_FILES=1 — нужна библиотека rawpy (LibRaw). Не встала (нет сборки под эту систему) — RAW выключаем."""
     if env.get("RAW_FILES", "1") != "1" or not (VENV / "bin" / "pip").exists():      # RAW по умолчанию включён
@@ -653,6 +665,7 @@ def finish_update(env):
     """Вторая половина обновления, уже новым кодом: библиотеки, настройки сервера, перезапуск бота."""
     run([str(VENV / "bin" / "pip"), "install", "-q", "-r", str(ROOT / "bot" / "requirements.txt")], capture=True)
     ensure_raw(env)
+    ensure_push()
     say(T("Обновляю настройки сервера-приёмника (nginx, FTP, приёмник камеры)…",
           "Updating the receiving server (nginx, FTP, camera receiver)…"))
     push_server(env)

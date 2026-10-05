@@ -15,6 +15,7 @@ Take a shot, and half a minute later it's in your feed already "on film": colour
 - crop (free, 1:1, 4:5, 3:2, 16:9) and batch edits: select a day's frames and change the film or leak, or delete them at once; deleted frames stay in the trash while there is space
 - full-size files: download one or a ZIP on a computer, save straight to Photos on iPhone
 - **no Telegram needed:** the app installs on a phone from the browser (iPhone: Share → Add to Home Screen; Android and computers: Install in Chrome or Edge); devices sign in with a one-time code or QR. Prefer Telegram? Connect a bot at setup or later in the settings — frames then also arrive in the chat with film buttons
+- notifications when new frames are developed (switch them on or off per device), light / dark / auto theme
 - one server for several people: family or friends by invite code, each with their own feed, camera and storage
 - English and Russian interface, chosen per user
 - runs on your own server — no subscriptions, no third-party cloud

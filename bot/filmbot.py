@@ -7,6 +7,7 @@ filmbot v5 — камера → сервер-приёмник → домашни
 Mini App: лента-контактный лист по дням, просмотр со свайпами и живыми превью плёнок.
 Хранилище чистится само: старые оригиналы и рабочие копии удаляются по лимитам.
 """
+import base64
 import collections
 import hashlib
 import hmac
@@ -902,6 +903,9 @@ def init_db():
             db.execute("ALTER TABLE users ADD COLUMN tg INTEGER")       # чат в Telegram (пусто — без Telegram)
         db.execute("""CREATE TABLE IF NOT EXISTS pairs(
             code TEXT PRIMARY KEY, uid INTEGER, exp REAL, kind TEXT)""")
+        db.execute("""CREATE TABLE IF NOT EXISTS push_subs(
+            id INTEGER PRIMARY KEY AUTOINCREMENT, owner INTEGER, device INTEGER, endpoint TEXT UNIQUE,
+            p256dh TEXT, auth TEXT, created REAL)""")
         db.execute("""CREATE TABLE IF NOT EXISTS devices(
             id INTEGER PRIMARY KEY AUTOINCREMENT, owner INTEGER, name TEXT, hash TEXT UNIQUE, created REAL, seen REAL)""")
         db.execute("INSERT OR IGNORE INTO users(id, role, lang, created) VALUES (?, 'admin', ?, ?)", (CHAT_ID, LANG, time.time()))
@@ -1647,6 +1651,8 @@ def _view_done(pid, rev, chat, fut):
         elif cur["rev"] == rev:
             upd(pid, view=view, thumb=thumb, rendered_rev=rev, updated=time.time())
             result = "ok"
+            if not cur.get("view") and (cur.get("created") or 0) > time.time() - 600:
+                push_soon(cur["owner"])          # новый кадр проявился впервые (не дорисовка старых)
             if chat:
                 with JOB_LOCK:
                     prio = VIEW_PRIO.get(pid, 1)
@@ -2397,6 +2403,7 @@ def delete_user(uid):
         SESSION_DEV.pop(tok, None)
     run("DELETE FROM devices WHERE owner=?", (uid,))
     run("DELETE FROM pairs WHERE uid=?", (uid,))
+    run("DELETE FROM push_subs WHERE owner=?", (uid,))
     with speak(uid):
         bye = L("Доступ к боту закрыт.", "Your access to the bot was removed.")
     run("DELETE FROM users WHERE id=?", (uid,))
@@ -3266,6 +3273,8 @@ def user_devices(uid):
 
 def drop_device(uid, did):
     n = run_count("DELETE FROM devices WHERE id=? AND owner=?", (did, uid))
+    if n:
+        run("DELETE FROM push_subs WHERE device=?", (did,))
     for tok in [t for t, d in SESSION_DEV.items() if d == did]:
         SESSION_DEV.pop(tok, None)
         SESSIONS.pop(tok, None)
@@ -3470,6 +3479,20 @@ def manifest():
 # Сервис-воркер нужен, чтобы «Проявку» можно было поставить как приложение. Хранит только саму страницу —
 # на случай, если сеть пропала; кадры и API идут мимо него.
 SW_JS = """const CACHE = "proyavka-shell-v1";
+self.addEventListener("push", (e) => {
+  let d = {};
+  try { d = e.data.json(); } catch (x) {}
+  e.waitUntil(self.registration.showNotification(d.title || "Proyavka", {
+    body: d.body || "", tag: d.tag || "proyavka", renotify: true, icon: "/icon-192.png", badge: "/icon-192.png",
+    data: { url: d.url || "/" } }));
+});
+self.addEventListener("notificationclick", (e) => {
+  e.notification.close();
+  e.waitUntil(self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((cs) => {
+    for (const c of cs) if ("focus" in c) return c.focus();
+    return self.clients.openWindow((e.notification.data && e.notification.data.url) || "/");
+  }));
+});
 self.addEventListener("install", () => self.skipWaiting());
 self.addEventListener("activate", (e) => e.waitUntil(self.clients.claim()));
 self.addEventListener("fetch", (e) => {
@@ -3487,6 +3510,102 @@ CSP = ("default-src 'self'; script-src 'self' 'unsafe-inline' https://telegram.o
        "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; "
        "img-src 'self' data: blob:; connect-src 'self'; worker-src 'self'; manifest-src 'self'; "
        "object-src 'none'; base-uri 'none'; form-action 'none'")
+
+
+# ================= уведомления (Web Push) =================
+# «Проявлено 3 новых кадра» на телефон и компьютер, когда «Проявка» закрыта. Подписка — у каждого устройства своя
+# (включается и выключается в настройках). Кадры, проявленные подряд, — одним уведомлением. Если приложение открыто
+# (оно спрашивает сервер каждые 1–5 с), не уведомляем: кадр и так виден. Библиотека pywebpush необязательна.
+try:
+    from cryptography.hazmat.primitives import serialization
+    from py_vapid import Vapid02
+    from pywebpush import WebPushException, webpush
+except ImportError:
+    webpush = None
+
+PUSH_DELAY = 20            # сек: собрать кадры, пришедшие подряд
+PUSH_QUIET = 30            # сек: приложение спрашивало сервер недавно — оно открыто
+LAST_POLL = {}             # устройство -> когда его приложение последний раз спрашивало сервер (открыто ли)
+PUSH_PENDING = {}          # пользователь -> сколько новых кадров ждут уведомления
+PUSH_LOCK = threading.Lock()
+_VAPID = {}
+
+
+def vapid():
+    """Ключ сервера для Web Push: создаётся один раз и лежит рядом с базой."""
+    with PUSH_LOCK:
+        if "v" not in _VAPID:
+            path = BASE / "vapid.pem"
+            if path.exists():
+                v = Vapid02.from_file(str(path))
+            else:
+                v = Vapid02()
+                v.generate_keys()
+                v.save_key(str(path))
+                os.chmod(path, 0o600)
+            raw = v.public_key.public_bytes(serialization.Encoding.X962, serialization.PublicFormat.UncompressedPoint)
+            _VAPID["v"], _VAPID["pub"] = v, base64.urlsafe_b64encode(raw).rstrip(b"=").decode()
+    return _VAPID["v"]
+
+
+def push_key():
+    vapid()
+    return _VAPID["pub"]
+
+
+def push_subscribe(uid, did, sub):
+    endpoint = str(sub.get("endpoint") or "")
+    keys = sub.get("keys") or {}
+    if not endpoint.startswith("https://") or len(endpoint) > 2000 or not keys.get("p256dh") or not keys.get("auth"):
+        raise ValueError(L("неверная подписка", "invalid subscription"))
+    run("DELETE FROM push_subs WHERE endpoint=?", (endpoint,))
+    run("INSERT INTO push_subs(owner, device, endpoint, p256dh, auth, created) VALUES (?,?,?,?,?,?)",
+        (uid, did, endpoint, str(keys["p256dh"])[:200], str(keys["auth"])[:100], time.time()))
+    log.info("push: подписка %s… от %d, устройство #%s", endpoint[:40], uid, did)
+
+
+def push_soon(uid):
+    if not webpush:
+        return
+    with PUSH_LOCK:
+        n = PUSH_PENDING.get(uid, 0)
+        PUSH_PENDING[uid] = n + 1
+    if not n:
+        t = threading.Timer(PUSH_DELAY, _push_flush, args=(uid,))
+        t.daemon = True
+        t.start()
+
+
+def _push_flush(uid):
+    with PUSH_LOCK:
+        n = PUSH_PENDING.pop(uid, 0)
+    now = time.time()
+    # тишина у каждого устройства своя: открытое окно на компьютере не глушит телефон
+    subs = [s for s in q("SELECT * FROM push_subs WHERE owner=?", (uid,))
+            if not (s["device"] and now - LAST_POLL.get(s["device"], 0) < PUSH_QUIET)]
+    if not n or not subs:
+        return
+    with speak(uid):
+        body = (L("Проявлен новый кадр", "A new frame is developed") if n == 1 else
+                L(f"Проявлено {n} {plural_ru(n, 'новый кадр', 'новых кадра', 'новых кадров')}", f"{n} new frames developed"))
+        data = json.dumps({"title": L("Проявка", "Proyavka"), "body": body, "tag": "new-frames", "url": "/"}, ensure_ascii=False)
+    sub_mail = "mailto:proyavka@" + (os.environ.get("DOMAIN") or "localhost")
+    sent = 0
+    for s in subs:
+        try:
+            webpush({"endpoint": s["endpoint"], "keys": {"p256dh": s["p256dh"], "auth": s["auth"]}}, data,
+                    vapid_private_key=vapid(), vapid_claims={"sub": sub_mail}, ttl=6 * 3600, timeout=15)
+            sent += 1
+        except WebPushException as e:
+            code = getattr(e.response, "status_code", None)
+            if code in (404, 410):              # устройство отписалось или подписка протухла
+                run("DELETE FROM push_subs WHERE id=?", (s["id"],))
+                log.info("push: подписка #%d больше не действует (%s), удалена", s["id"], code)
+            else:
+                log.warning("push to %d: %s", uid, e)
+        except Exception as e:
+            log.warning("push to %d: %s", uid, e)
+    log.info("уведомление «%s» для %d: отправлено на %d из %d устройств", body, uid, sent, len(subs))
 
 
 # ================= Mini App: веб-сервер =================
@@ -3910,7 +4029,10 @@ class Handler(BaseHTTPRequestHandler):
                 if not rows:
                     return self.err(404, L("кадры не найдены", "frames not found"))
                 return self.send_zip(rows)
+            if parts == ["api", "push"]:
+                return self.js({"supported": bool(webpush), "key": push_key() if webpush else None})
             if parts == ["api", "updates"]:
+                LAST_POLL[SESSION_DEV.get(self.headers.get("X-Token") or "") or ("u", uid)] = time.time()
                 since = float((qs.get("since") or ["0"])[0])
                 now = time.time()
                 rows = q("SELECT * FROM photos WHERE owner=? AND updated > ? ORDER BY id DESC LIMIT 500", (uid, since))
@@ -4026,6 +4148,15 @@ class Handler(BaseHTTPRequestHandler):
                 if not ph or not ph["hidden"]:
                     return self.err(404, L("кадр не найден", "frame not found"))
                 restore_photo(ph)
+                return self.js({"ok": True})
+            if parts == ["api", "push", "subscribe"]:
+                if not webpush:
+                    return self.err(400, L("на сервере нет библиотеки pywebpush — обнови «Проявку»",
+                                           "the server has no pywebpush library — update Proyavka"))
+                push_subscribe(uid, SESSION_DEV.get(self.headers.get("X-Token") or ""), data)
+                return self.js({"ok": True})
+            if parts == ["api", "push", "unsubscribe"]:
+                run("DELETE FROM push_subs WHERE endpoint=? AND owner=?", (str(data.get("endpoint") or ""), uid))
                 return self.js({"ok": True})
             if parts == ["api", "camera", "password"]:
                 new_ftp_password(uid)
