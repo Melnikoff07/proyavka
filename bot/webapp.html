@@ -207,6 +207,7 @@
       <div class="tabs cap" role="tablist">
         <button class="tab" role="tab" data-tab="film" aria-selected="true" data-i18n="Film">Плёнка</button>
         <button class="tab" role="tab" data-tab="leak" aria-selected="false" data-i18n="Leak">Засвет</button>
+        <button class="tab" id="bCrop" data-i18n="Crop">Кадр</button>
       </div>
       <div class="strip" id="strip" role="listbox" aria-label="Плёнка"></div>
       <div class="line"><span class="cap muted label" data-i18n="Strength">Сила</span><div class="opts cap" id="strength" role="group" aria-label="Сила эффекта" data-i18n-aria="Effect strength"></div></div>
@@ -221,7 +222,6 @@
     <p class="note" id="archNote" hidden data-i18n="The original was deleted to free up space. The developed version is kept, but the film can no longer be changed.">Исходник удалён, чтобы освободить место. Готовая версия осталась, но плёнку уже не поменять.</p>
     <div class="actions">
       <button class="btn" id="bFile">Отправить файл в чат</button>
-      <button class="link cap" id="bCrop" data-i18n="Crop">Кадр</button>
       <button class="link cap" id="bHide" data-i18n="Delete">Удалить</button>
     </div>
     </div>
@@ -745,7 +745,7 @@ function refreshViewerImage() {
 
 function renderStrip(p) {
   const strip = $("strip");
-  document.querySelectorAll(".tab").forEach((t) => t.setAttribute("aria-selected", String(t.dataset.tab === tab)));
+  document.querySelectorAll(".tab[data-tab]").forEach((t) => t.setAttribute("aria-selected", String(t.dataset.tab === tab)));
   strip.setAttribute("aria-label", tab === "film" ? T("Плёнка", "Film") : T("Засвет", "Leak"));
   const items = tab === "film"
     ? presets.map((f) => ({ key: f.key, name: f.name, title: f.when, src: prevUrl(p, f.key, p.leak), on: p.preset === f.key }))
@@ -780,7 +780,7 @@ function renderStrip(p) {
   if (sel) strip.scrollLeft = sel.offsetLeft - strip.clientWidth / 2 + sel.clientWidth / 2;
 }
 
-document.querySelectorAll(".tab").forEach((t) => {
+document.querySelectorAll(".tab[data-tab]").forEach((t) => {
   t.onclick = () => { if (tab !== t.dataset.tab) { tab = t.dataset.tab; haptic(); if (photos[cur]) renderStrip(photos[cur]); } };
 });
 
