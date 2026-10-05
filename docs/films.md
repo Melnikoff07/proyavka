@@ -14,6 +14,10 @@ A film in Proyavka is not an image file or a downloaded LUT — it's a dozen num
 
 Change a number → run → look. No Telegram or server needed. When happy, restart the bot: `sudo systemctl restart proyavka-bot`.
 
+## Your own LUT, no code
+
+Have a LUT from Lightroom, Resolve or a pack you bought? Send the `.cube` file to the bot or tap "Your LUT" at the end of the film list in Proyavka. It shows up among the films under photos, in Proyavka, in batch edits and in `/film`; strength blends it with the original, leaks, date and border work as usual. Only the person who uploaded a LUT can see it. List and delete: `/luts` (in Proyavka, long-press the LUT). 3D LUTs of size 2 to 65, up to 16 MB and 30 per person. Unlike Proyavka's films, a LUT is colour only: no grain, halation or vignette.
+
 ## Add a film
 
 Copy any block in `PRESETS` and give it a new key (lowercase, no spaces):

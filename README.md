@@ -9,6 +9,7 @@ Take a shot, and half a minute later it arrives in a Telegram bot already "on fi
 
 - 12 films, each with its own character, plus automatic choice by scene (night, sunset, overcast, landscape)
 - 12 light leaks, date stamp, negative frame, strength from 25 to 150 %
+- your own LUTs: send the bot a `.cube` file and it joins the film list; each user has their own, nobody else sees them
 - full-size export without Telegram compression
 - frames arrive by themselves: over FTP from cameras that support it, or via the app for Sony PlayMemories cameras; phone photos via the "+" button in the Mini App
 - crop (free, 1:1, 4:5, 3:2, 16:9) and batch edits: select a day's frames and change the film or leak, or delete them at once; deleted frames stay in the trash (`/trash`) while there is space

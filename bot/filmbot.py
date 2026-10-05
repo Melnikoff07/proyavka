@@ -244,8 +244,12 @@ def canon(key):
     return OLD_KEYS.get(key, key)
 
 
-def pname(key):
-    return L("Оригинал", "Original") if key == "original" else PRESETS[key]["name"]
+def pname(key, owner=None):
+    if key == "original":
+        return L("Оригинал", "Original")
+    if is_lut(key):
+        return LUT_NAMES.get(key) or lut_meta(owner, key).get("name") or "LUT"
+    return PRESETS[key]["name"] if key in PRESETS else key
 
 
 # ================= обработка =================
@@ -385,6 +389,103 @@ def vignette_layer(w, h, strength):
     v = 1 - strength * ((xx * xx + yy * yy) / 2) ** 1.5
     L = Image.fromarray((np.clip(v, 0, 1) * 255 + 0.5).astype(np.uint8)).resize((w, h), Image.BILINEAR)
     return Image.merge("RGB", (L, L, L))
+
+
+# ================= свои LUT пользователей =================
+# Файл .cube (3D LUT) загружается в чат или в «Проявку». Хранится в папке владельца (BASE/luts или
+# BASE/users/<id>/luts) таблицей numpy, ключ плёнки — "lut<id>". Видит и применяет его только владелец.
+LUT_RE = re.compile(r"lut(\d{1,9})")
+LUT_MAX_COUNT = 30
+LUT_MAX_BYTES = 16 * 1024 * 1024
+LUT_NAMES = {}            # "lut<id>" -> название (основной процесс)
+LUT_OWNER = {}            # "lut<id>" -> владелец
+USER_LUT_CACHE = {}       # путь -> (mtime, Color3DLUT) — в процессах-работниках
+
+
+def is_lut(key):
+    return bool(key) and LUT_RE.fullmatch(str(key)) is not None
+
+
+def lut_dir(owner):
+    return (BASE if owner == CHAT_ID else BASE / "users" / str(owner)) / "luts"
+
+
+def lut_meta(owner, key):
+    try:
+        return json.loads((lut_dir(owner) / f"{key}.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError, TypeError):
+        return {}
+
+
+def parse_cube(data):
+    """3D LUT в формате .cube (Adobe/Resolve): размер N, затем N³ строк «r g b», красный меняется быстрее всех."""
+    try:
+        text = data.decode("utf-8-sig")
+    except UnicodeDecodeError:
+        text = data.decode("latin-1")
+    size, dmin, dmax, rows = None, 0.0, 1.0, []
+    for line in text.splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        head = line.split()[0].upper()
+        if head == "LUT_1D_SIZE":
+            raise ValueError(L("это одномерный LUT, нужен трёхмерный (.cube с LUT_3D_SIZE)",
+                               "this is a 1D LUT, a 3D one is needed (.cube with LUT_3D_SIZE)"))
+        if head == "LUT_3D_SIZE":
+            size = int(line.split()[1])
+        elif head == "DOMAIN_MAX":
+            dmax = max(float(v) for v in line.split()[1:4])
+        elif head == "DOMAIN_MIN":
+            dmin = min(float(v) for v in line.split()[1:4])
+        elif head[0].isalpha() or head.startswith('"'):
+            continue                                # TITLE и прочие заголовки
+        else:
+            rows.append(line)
+    if not size or not 2 <= size <= 65:
+        raise ValueError(L("не похоже на 3D LUT .cube (нужен LUT_3D_SIZE от 2 до 65)",
+                           "doesn't look like a 3D .cube LUT (LUT_3D_SIZE from 2 to 65 needed)"))
+    try:
+        t = np.array(" ".join(rows).split(), dtype=np.float32).reshape(-1, 3)
+    except ValueError:
+        raise ValueError(L("в файле LUT есть битые строки", "the LUT file has broken lines"))
+    if t.shape[0] != size ** 3:
+        raise ValueError(L(f"в LUT {t.shape[0]} строк вместо {size ** 3}", f"the LUT has {t.shape[0]} rows instead of {size ** 3}"))
+    if dmax > 1.5:                                  # редкие LUT в целых числах (0–1023 и т. п.)
+        t = (t - dmin) / (dmax - dmin)
+    return size, np.clip(t, 0, 1).astype(np.float32)
+
+
+def user_lut(owner, key):
+    path = str(lut_dir(owner) / f"{key}.npy")
+    mtime = os.path.getmtime(path)                  # нет файла — OSError, кадр рисуется без LUT
+    with LUT_LOCK:
+        hit = USER_LUT_CACHE.get(path)
+        if hit and hit[0] == mtime:
+            return hit[1]
+    t = np.load(path)
+    n = round((t.size // 3) ** (1 / 3))
+    f = ImageFilter.Color3DLUT(n, np.ascontiguousarray(t.ravel()), channels=3)
+    with LUT_LOCK:
+        USER_LUT_CACHE[path] = (mtime, f)
+        while len(USER_LUT_CACHE) > 8:
+            USER_LUT_CACHE.pop(next(iter(USER_LUT_CACHE)))
+    return f
+
+
+def look(img, ph, key, strength, seed):
+    """Плёнка, свой LUT или оригинал. LUT — только цвет; сила смешивает его с исходником (больше 100% — усиливает)."""
+    if key == "original":
+        return img
+    if is_lut(key):
+        try:
+            lut = user_lut(ph.get("owner"), key)
+        except OSError:
+            return img
+        a = img.filter(lut)
+        k = strength / 100.0
+        return a if k == 1 else Image.blend(img, a, k)
+    return film(img, key, strength, seed)
 
 
 def film(img, key, strength=100, seed=0):
@@ -656,13 +757,13 @@ def render(ph, full=False, mode=None):
     mode = mode or ("full" if full else "work")
     img = source_image(ph, mode)
     key = ph["preset"]
-    out = img if key == "original" else film(img, key, ph["strength"], seed=ph["id"])
+    out = look(img, ph, key, ph["strength"], ph["id"])
     if ph["leak"]:
         out = light_leak(out, ph.get("leak_kind") or "edge", leak_seed(ph))
     if ph["stamp"]:
         out = date_stamp(out, ph["taken"])
     if ph["frame"]:
-        out = add_frame(out, ph["id"], pname(key))
+        out = add_frame(out, ph["id"], pname(key, ph.get("owner")))
     return out
 
 
@@ -778,6 +879,8 @@ def init_db():
         db.execute("""CREATE TABLE IF NOT EXISTS users(
             id INTEGER PRIMARY KEY, role TEXT DEFAULT 'user', name TEXT, lang TEXT, default_film TEXT DEFAULT 'auto',
             storage_gb REAL, cam_token TEXT, ftp_pass TEXT, created REAL, invited_by INTEGER)""")
+        db.execute("""CREATE TABLE IF NOT EXISTS luts(
+            id INTEGER PRIMARY KEY AUTOINCREMENT, owner INTEGER, name TEXT, size INTEGER, created REAL)""")
         db.execute("""CREATE TABLE IF NOT EXISTS invites(
             code TEXT PRIMARY KEY, created REAL, by INTEGER, used_by INTEGER, used_at REAL)""")
         db.execute("INSERT OR IGNORE INTO users(id, role, lang, created) VALUES (?, 'admin', ?, ?)", (CHAT_ID, LANG, time.time()))
@@ -792,6 +895,7 @@ def init_db():
             db.execute("UPDATE photos SET auto_key=? WHERE auto_key=?", (new, old))
         db.commit()
     load_users()
+    load_luts()
 
 
 def q(sql, args=()):
@@ -843,6 +947,62 @@ def set_user(uid, **kw):
     cols = ", ".join(f"{k}=?" for k in kw)
     run(f"UPDATE users SET {cols} WHERE id=?", (*kw.values(), uid))
     load_users()
+
+
+def load_luts():
+    rows = q("SELECT id, owner, name FROM luts")
+    LUT_NAMES.clear()
+    LUT_OWNER.clear()
+    for r in rows:
+        LUT_NAMES[f"lut{r['id']}"] = r["name"]
+        LUT_OWNER[f"lut{r['id']}"] = r["owner"]
+
+
+def user_luts(uid):
+    return q("SELECT * FROM luts WHERE owner=? ORDER BY id", (uid,))
+
+
+def valid_look(key, owner):
+    """Можно ли этому пользователю ставить такую плёнку: встроенные — всем, свой LUT — только владельцу."""
+    return key == "original" or key in PRESETS or (is_lut(key) and LUT_OWNER.get(key) == owner)
+
+
+def add_lut(owner, name, data):
+    if len(data) > LUT_MAX_BYTES:
+        raise ValueError(L("файл LUT больше 16 МБ", "the LUT file is larger than 16 MB"))
+    if len(user_luts(owner)) >= LUT_MAX_COUNT:
+        raise ValueError(L(f"уже {LUT_MAX_COUNT} LUT — удали ненужные (/luts)", f"already {LUT_MAX_COUNT} LUTs — delete some (/luts)"))
+    size, table = parse_cube(data)
+    name = re.sub(r"[\x00-\x1f]", "", Path(name or "LUT").stem).strip()[:32] or "LUT"
+    lid = run("INSERT INTO luts(owner, name, size, created) VALUES (?,?,?,?)", (owner, name, size, time.time()))
+    d = lut_dir(owner)
+    d.mkdir(parents=True, exist_ok=True)
+    tmp = d / f"lut{lid}.tmp.npy"
+    np.save(tmp, table)
+    os.replace(tmp, d / f"lut{lid}.npy")
+    (d / f"lut{lid}.json").write_text(json.dumps({"name": name, "size": size}, ensure_ascii=False), encoding="utf-8")
+    load_luts()
+    log.info("LUT lut%d «%s» (%d³) у %d", lid, name, size, owner)
+    return {"key": f"lut{lid}", "name": name, "size": size}
+
+
+def delete_lut(owner, key):
+    """Убрать свой LUT. Кадры с ним переходят на их автоплёнку и перерисовываются."""
+    if not is_lut(key) or LUT_OWNER.get(key) != owner:
+        raise ValueError(L("нет такого LUT", "no such LUT"))
+    rows = q("SELECT id, auto_key FROM photos WHERE owner=? AND preset=?", (owner, key))
+    for r in rows:
+        run("UPDATE photos SET preset=?, rev=rev+1, updated=? WHERE id=?", (r["auto_key"] or "original", time.time(), r["id"]))
+        schedule_view(r["id"], prio=1, uid=owner)
+    if (user(owner) or {}).get("default_film") == key:
+        set_user(owner, default_film="auto")
+    run("DELETE FROM luts WHERE id=? AND owner=?", (int(key[3:]), owner))
+    for ext in (".npy", ".json"):
+        remove(str(lut_dir(owner) / f"{key}{ext}"))
+    for f in PREVIEWS.glob(f"*_{key}_*.jpg"):
+        remove(str(f))
+    load_luts()
+    return len(rows)
 
 
 def storage_limit(uid):
@@ -943,7 +1103,7 @@ def caption(ph):
     if ph["auto_reason"]:
         meta.append(L("авто", "auto") + f": {auto_reason(ph)} → {pname(ph['auto_key'])}")
     leak = " · " + L("засвет", "leak") + f": {tr(LEAKS.get(ph.get('leak_kind') or 'edge', ('',))[0])}" if ph["leak"] else ""
-    return f"#{ph['id']} · {pname(ph['preset'])} · {ph['strength']}%{leak}\n" + " · ".join(meta)
+    return f"#{ph['id']} · {pname(ph['preset'], ph['owner'])} · {ph['strength']}%{leak}\n" + " · ".join(meta)
 
 
 def main_kb(ph):
@@ -952,7 +1112,7 @@ def main_kb(ph):
         return {"inline_keyboard": [[btn(L("🗄 В архиве", "🗄 Archived"), "x"), btn(L("🗑 Удалить", "🗑 Delete"), f"del:{pid}")]]}
     on = lambda f: "✅ " if ph[f] else ""
     return {"inline_keyboard": [
-        [btn(f"🎞 {pname(ph['preset'])} ▾", f"m:{pid}"), btn(L("🔍 Сравнить", "🔍 Compare"), f"c:{pid}")],
+        [btn(f"🎞 {pname(ph['preset'], ph['owner'])} ▾", f"m:{pid}"), btn(L("🔍 Сравнить", "🔍 Compare"), f"c:{pid}")],
         [btn("➖", f"s:{pid}:-"), btn(L("Сила", "Strength") + f" {ph['strength']}%", "x"), btn("➕", f"s:{pid}:+")],
         [btn(on("stamp") + L("📅 Дата", "📅 Date"), f"t:{pid}:stamp"), btn(on("frame") + L("🖼 Рамка", "🖼 Frame"), f"t:{pid}:frame"),
          btn(on("leak") + L("✨ Засвет ▾", "✨ Leak ▾"), f"lm:{pid}")],
@@ -962,10 +1122,10 @@ def main_kb(ph):
 
 def preset_kb(ph, prefix="p"):
     pid = ph["id"]
-    keys = list(PRESETS)
+    keys = list(PRESETS) + [f"lut{r['id']}" for r in user_luts(ph["owner"])]
     rows = []
     for i in range(0, len(keys), 3):
-        rows.append([btn(("• " if ph["preset"] == k else "") + PRESETS[k]["name"], f"{prefix}:{pid}:{k}")
+        rows.append([btn(("• " if ph["preset"] == k else "") + pname(k), f"{prefix}:{pid}:{k}")
                      for k in keys[i:i + 3]])
     if prefix == "p":
         rows.append([btn(L("↩️ Оригинал", "↩️ Original"), f"p:{pid}:original"),
@@ -1179,7 +1339,7 @@ def job_preview(ph, key, strength, path, leak=""):
         b.thumbnail((420, 420), Image.LANCZOS)
         save_atomic(b, str(base_path), 92)
     base = Image.open(base_path).convert("RGB")
-    out = base if key == "original" else film(base, key, strength, seed=ph["id"])
+    out = look(base, ph, key, strength, ph["id"])
     if leak:
         out = light_leak(out, leak, leak_seed(ph))
     return save_atomic(out, path, 84)
@@ -1613,7 +1773,7 @@ def apply_changes(ph, changes, sync_tg=None, prio=0):
         k = canon(changes["preset"])
         if k == "auto" and cur:                 # пакетом: каждому кадру его собственный автовыбор
             k = cur["auto_key"] or "original"
-        if k != "original" and k not in PRESETS:
+        if not valid_look(k, (cur or ph)["owner"]):
             raise ValueError(L("неизвестная плёнка", "unknown film"))
         fields["preset"] = k
     if "strength" in changes:
@@ -1776,6 +1936,8 @@ def help_text(uid):
                "• /storage — how much space is used, /trash — deleted frames, can be brought back while there is space."),
              L("• /camera — файлы и инструкция для настройки камеры.", "• /camera — files and guide to set up your camera."),
              L("• /lang — сменить язык (English).", "• /lang — switch language (русский)."),
+             L("• Свой LUT: пришли файл .cube — он появится среди плёнок, видишь его только ты. Список — /luts.",
+               "• Your own LUT: send a .cube file — it appears among the films, only you can see it. List: /luts."),
              L("• Можно прислать любое фото файлом — обработаю.", "• Send any photo as a file — I will develop it.")]
     if uid == ADMIN:
         lines += [L("• /invite — ссылка-приглашение для ещё одного человека, /users — кто пользуется ботом.",
@@ -1845,9 +2007,9 @@ def send_trash(uid, page=0, mid=None):
 def default_kb(uid):
     cur = (user(uid) or {}).get("default_film") or "auto"
     rows = [[btn(("• " if cur == "auto" else "") + L("🤖 Авто по ситуации", "🤖 Auto by scene"), "d:auto")]]
-    keys = list(PRESETS)
+    keys = list(PRESETS) + [f"lut{r['id']}" for r in user_luts(uid)]
     for i in range(0, len(keys), 3):
-        rows.append([btn(("• " if cur == k else "") + PRESETS[k]["name"], f"d:{k}") for k in keys[i:i + 3]])
+        rows.append([btn(("• " if cur == k else "") + pname(k), f"d:{k}") for k in keys[i:i + 3]])
     return {"inline_keyboard": rows}
 
 
@@ -1881,6 +2043,9 @@ def on_text(text, uid):
         tg("sendMessage", chat_id=uid, text=storage_text(uid))
     elif t == "/trash":
         send_trash(uid)
+    elif t == "/luts":
+        text, kb = luts_screen(uid)
+        tg("sendMessage", chat_id=uid, text=text, reply_markup=kb)
     elif t == "/camera":
         send_camera_setup(uid)
     elif t == "/lang":
@@ -1994,6 +2159,8 @@ def delete_user(uid):
         for p in PREVIEWS.glob(f"{ph['id']}_*.jpg"):
             remove(str(p))
     run("DELETE FROM photos WHERE owner=?", (uid,))
+    run("DELETE FROM luts WHERE owner=?", (uid,))
+    load_luts()
     if uid != ADMIN:
         shutil.rmtree(BASE / "users" / str(uid), ignore_errors=True)
     u = user(uid) or {}
@@ -2022,6 +2189,7 @@ def set_commands(uid):
         {"command": "film", "description": L("Плёнка по умолчанию", "Default film")},
         {"command": "storage", "description": L("Сколько места занято", "Storage used")},
         {"command": "trash", "description": L("Корзина: вернуть удалённое", "Trash: bring back deleted frames")},
+        {"command": "luts", "description": L("Свои LUT (.cube)", "Your own LUTs (.cube)")},
         {"command": "camera", "description": L("Настройка камеры: файлы и инструкция", "Camera setup: files and guide")},
         {"command": "lang", "description": L("English", "Русский")},
         {"command": "help", "description": L("Как пользоваться", "How to use")},
@@ -2158,6 +2326,21 @@ def on_callback(cb, uid):
     if kind == "tp":
         send_trash(uid, int(parts[1]), mid)
         return
+    if kind in ("lx", "lxy", "lxb"):
+        key = f"lut{parts[1]}" if len(parts) > 1 else ""
+        if kind == "lx" and LUT_OWNER.get(key) == uid:
+            safe("editMessageReplyMarkup", chat_id=uid, message_id=mid, reply_markup={"inline_keyboard": [
+                [btn(L(f"🗑 Да, удалить «{LUT_NAMES[key][:20]}»", f"🗑 Yes, delete \"{LUT_NAMES[key][:20]}\""), f"lxy:{parts[1]}")],
+                [btn(L("← Нет", "← No"), "lxb")]]})
+            return
+        if kind == "lxy" and LUT_OWNER.get(key) == uid:
+            n = delete_lut(uid, key)
+            if n:
+                safe("sendMessage", chat_id=uid, text=L(f"Кадры с этим LUT ({n}) переведены на автоплёнку.",
+                                                         f"Frames with this LUT ({n}) switched to their auto film."))
+        text, kb = luts_screen(uid)
+        safe("editMessageText", chat_id=uid, message_id=mid, text=text, reply_markup=kb)
+        return
     if kind == "r":
         ph = get(int(parts[1]))
         if ph and ph["owner"] == uid and ph["hidden"]:
@@ -2169,7 +2352,7 @@ def on_callback(cb, uid):
         return
     if kind == "d":
         key = canon(parts[1])
-        if key != "auto" and key not in PRESETS:
+        if key != "auto" and not valid_look(key, uid):
             return
         set_user(uid, default_film=key)
         label = L("Авто по ситуации", "Auto by scene") if key == "auto" else pname(key)
@@ -2268,6 +2451,29 @@ def download_tg_file(file_id, name, uid):
     os.replace(tmp, udir(uid, "incoming") / name)
 
 
+def download_tg_bytes(file_id, limit):
+    info = tg("getFile", file_id=file_id)
+    if (info.get("file_size") or 0) > limit:
+        raise ValueError(L("файл слишком большой", "file is too large"))
+    url = f"https://api.telegram.org/file/bot{BOT_TOKEN}/{info['file_path']}"
+    r = requests.get(url, timeout=(10, 120))
+    r.raise_for_status()
+    return r.content[:limit + 1]
+
+
+def luts_screen(uid):
+    rows = user_luts(uid)
+    if not rows:
+        return L("Своих LUT пока нет. Пришли файл .cube сюда в чат (или «+ LUT» в «Проявке») — он появится "
+                 "в списке плёнок. Видишь его только ты.",
+                 "No LUTs of your own yet. Send a .cube file here (or \"+ LUT\" in Proyavka) — it will appear in the "
+                 "film list. Only you can see it."), None
+    text = L("Твои LUT (видишь только ты):", "Your LUTs (only you can see them):") + "\n" + "\n".join(
+        f"• {r['name']} ({r['size']}³)" for r in rows)
+    kb = [[btn("🗑 " + r["name"][:24], f"lx:{r['id']}")] for r in rows]
+    return text, {"inline_keyboard": kb}
+
+
 def handle_updates(state):
     try:
         updates = tg("getUpdates", offset=state.get("offset", 0), timeout=5)
@@ -2299,7 +2505,17 @@ def handle_updates(state):
             if user(uid)["name"] != tg_name(msg["from"]):       # для /users: имя, как в Telegram
                 set_user(uid, name=tg_name(msg["from"]))
             with speak(uid):
-                if "document" in msg:
+                if "document" in msg and (msg["document"].get("file_name") or "").lower().endswith(".cube"):
+                    d = msg["document"]
+                    try:
+                        r = add_lut(uid, d["file_name"], download_tg_bytes(d["file_id"], LUT_MAX_BYTES))
+                        tg("sendMessage", chat_id=uid, text=L(f"LUT «{r['name']}» добавлен: он в списке плёнок под фото и в «Проявке». "
+                                                              "Видишь его только ты. Список — /luts",
+                                                              f"LUT \"{r['name']}\" added: it's in the film list under photos and in "
+                                                              "Proyavka. Only you can see it. List: /luts"))
+                    except ValueError as e:
+                        tg("sendMessage", chat_id=uid, text=L("Не получилось добавить LUT", "Could not add the LUT") + f": {e}")
+                elif "document" in msg:
                     d = msg["document"]
                     download_tg_file(d["file_id"], d.get("file_name") or f"tg_{u['update_id']}.jpg", uid)
                 elif "photo" in msg:
@@ -2639,7 +2855,7 @@ def check_init_data(init_data):
 def photo_json(ph):
     v = int(os.path.getmtime(ph["view"])) if has(ph.get("view")) else 0
     return {"id": ph["id"], "taken": ph["taken"], "iso": ph["iso"],
-            "preset": ph["preset"], "preset_name": pname(ph["preset"]),
+            "preset": ph["preset"], "preset_name": pname(ph["preset"], ph["owner"]),
             "auto_key": ph["auto_key"], "auto_reason": auto_reason(ph) if ph["auto_reason"] else "",
             "strength": ph["strength"], "stamp": bool(ph["stamp"]), "frame": bool(ph["frame"]),
             "leak": (ph.get("leak_kind") or "edge") if ph["leak"] else "",
@@ -2694,7 +2910,7 @@ def batch_edit(ids, changes, uid):
     changes = {k: v for k, v in changes.items() if k in ("preset", "strength", "leak")}
     if not changes:
         raise ValueError(L("нет изменений", "no changes"))
-    if "preset" in changes and changes["preset"] != "auto" and canon(str(changes["preset"])) not in (*PRESETS, "original"):
+    if "preset" in changes and changes["preset"] != "auto" and not valid_look(canon(str(changes["preset"])), uid):
         raise ValueError(L("неизвестная плёнка", "unknown film"))
     if "strength" in changes and changes["strength"] not in STRENGTHS:
         raise ValueError(L("неверная сила", "invalid strength"))
@@ -2870,6 +3086,8 @@ class Handler(BaseHTTPRequestHandler):
             if parts == ["api", "presets"]:
                 items = [{"key": "original", "name": L("Оригинал", "Original"), "when": L("без обработки", "unprocessed")}]
                 items += [{"key": k, "name": p["name"], "when": tr(p["when"]), "desc": tr(p["desc"])} for k, p in PRESETS.items()]
+                items += [{"key": f"lut{r['id']}", "name": r["name"], "when": f"LUT {r['size']}³", "desc": "", "lut": True}
+                          for r in user_luts(uid)]
                 leaks = [{"key": k, "name": tr(v[0]), "desc": tr(v[1])} for k, v in LEAKS.items()]
                 return self.js({"presets": items, "strengths": STRENGTHS, "leaks": leaks})
             if parts == ["api", "updates"]:
@@ -2895,7 +3113,7 @@ class Handler(BaseHTTPRequestHandler):
                 strength = int((qs.get("st") or ["100"])[0])
                 leak = (qs.get("lk") or [""])[0]
                 lseed = int((qs.get("ls") or ["0"])[0])
-                if (not ph or (key != "original" and key not in PRESETS) or strength not in STRENGTHS
+                if (not ph or not valid_look(key, uid) or strength not in STRENGTHS
                         or (leak and leak not in LEAKS)):
                     return self.err(404, L("нет такого превью", "no such preview"))
                 if not has(ph["work"]):
@@ -2934,8 +3152,12 @@ class Handler(BaseHTTPRequestHandler):
                             break
                         left -= len(chunk)
                     return self.err(401, L("нужна авторизация через Telegram", "Telegram authorization required"))
-                return self.js(receive_upload(self.rfile, int(self.headers.get("Content-Length") or 0),
-                                              (qs.get("name") or [""])[0], uid))
+                length = int(self.headers.get("Content-Length") or 0)
+                if (qs.get("lut") or [""])[0]:          # свой LUT (.cube)
+                    if length > LUT_MAX_BYTES:
+                        return self.err(400, L("файл LUT больше 16 МБ", "the LUT file is larger than 16 MB"))
+                    return self.js(add_lut(uid, (qs.get("name") or ["LUT"])[0], self.rfile.read(length)))
+                return self.js(receive_upload(self.rfile, length, (qs.get("name") or [""])[0], uid))
             data = self.body()
             if parts == ["api", "auth"]:
                 uid = check_init_data(data.get("initData", ""))
@@ -2955,6 +3177,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self.err(401, L("нужна авторизация через Telegram", "Telegram authorization required"))
             if parts == ["api", "batch"]:
                 return self.js(batch_action(data, uid))
+            if len(parts) == 4 and parts[:2] == ["api", "lut"] and parts[3] == "delete":
+                return self.js({"ok": True, "moved": delete_lut(uid, parts[2])})
             if len(parts) >= 3 and parts[:2] == ["api", "photo"]:
                 ph = self.mine(parts[2], uid)
                 if not ph or ph["hidden"]:
