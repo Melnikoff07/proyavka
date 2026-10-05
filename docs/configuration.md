@@ -76,6 +76,7 @@ Or `python3 setup.py` → "Status".
 2. The bot notices it instantly (`inotifywait`), takes the file and checks it's a complete JPEG.
 3. It picks a film (automatically by scene or the owner's default), renders the chat version and sends it to the frame owner in Telegram.
 4. The original stays in the data folder while there's space and `ORIGINALS_DAYS` hasn't passed — so you can change film, strength, leaks and export full size.
+5. A deleted frame disappears from the feed and the chat, but its files stay in the trash: bring it back with `/trash` in the chat. When space nears the limit, the trash is emptied first (oldest deletions first), then old originals.
 
 ## Try films without Telegram
 

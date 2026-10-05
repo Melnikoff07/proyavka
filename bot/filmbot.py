@@ -769,7 +769,8 @@ def init_db():
             db.execute("ALTER TABLE photos ADD COLUMN view TEXT")
         for col, decl in (("rev", "INTEGER DEFAULT 0"), ("rendered_rev", "INTEGER DEFAULT 0"), ("updated", "REAL DEFAULT 0"),
                           ("leak_kind", "TEXT DEFAULT 'edge'"), ("leak_seed", "INTEGER DEFAULT 0"), ("fp", "TEXT"),
-                          ("msg_at", "REAL"), ("crop", "TEXT"), ("owner", "INTEGER")):
+                          ("msg_at", "REAL"), ("crop", "TEXT"), ("owner", "INTEGER"),
+                          ("deleted_at", "REAL")):
             if col not in cols:
                 db.execute(f"ALTER TABLE photos ADD COLUMN {col} {decl}")
         # несколько пользователей: все кадры прежних версий — администратора (того, кто ставил бота)
@@ -1018,25 +1019,43 @@ MSG_DELETE_WINDOW = 47 * 3600     # Telegram даёт боту удалить с
 
 
 def delete_photos(ids):
-    """Удалить кадры насовсем: из ленты, из чата и с диска. В базе остаётся строка с отпечатком (fp),
-    поэтому повторная выгрузка того же кадра с камеры или телефона его не вернёт."""
+    """Убрать кадры из ленты и из чата в корзину. Файлы остаются на диске: кадр можно вернуть через /trash,
+    пока не понадобится место, — при нехватке места корзина чистится первой (cleanup).
+    Отпечаток (fp) тоже остаётся, поэтому повторная выгрузка того же кадра его не вернёт."""
     now = time.time()
     gone = []
     for pid in ids:
         ph = get(pid)
         if not ph or ph["hidden"]:
             continue
-        # rev+1 — результаты рисования, которое уже идёт, будут выброшены (_view_done это проверяет)
-        run("UPDATE photos SET hidden=1, src=NULL, work=NULL, view=NULL, thumb=NULL, file_id=NULL, "
-            "rev=rev+1, updated=? WHERE id=?", (now, pid))
-        for p in (ph["src"], ph["work"], ph["view"], ph["thumb"]):
-            remove(p)
-        for p in PREVIEWS.glob(f"{pid}_*.jpg"):
+        # rev+1 — рисование, которое уже идёт, не отправит кадр в чат (_view_done это проверяет)
+        run("UPDATE photos SET hidden=1, deleted_at=?, file_id=NULL, rev=rev+1, updated=? WHERE id=?", (now, now, pid))
+        for p in PREVIEWS.glob(f"{pid}_*.jpg"):      # превью — кэш, их не жалко
             remove(str(p))
         gone.append(ph)
     if gone:
         NET.submit(_delete_messages, gone)
     return len(gone)
+
+
+def restore_photo(ph):
+    """Вернуть кадр из корзины в ленту и в чат."""
+    if not has(ph["work"]):
+        raise RuntimeError(L("файлы кадра уже удалены, чтобы освободить место", "the frame's files were already deleted to free space"))
+    run("UPDATE photos SET hidden=0, deleted_at=NULL, rev=rev+1, updated=? WHERE id=?", (time.time(), ph["id"]))
+    schedule_view(ph["id"], prio=0, uid=ph["owner"])     # нарисуется и сам придёт в чат
+
+
+def purge_files(ph):
+    """Стереть файлы кадра из корзины окончательно (строка с отпечатком остаётся)."""
+    size = 0
+    for k in ("src", "work", "view", "thumb"):
+        if ph[k]:
+            size += fsize(ph[k])
+            remove(ph[k])
+    run("UPDATE photos SET src=NULL, work=NULL, view=NULL, thumb=NULL WHERE id=?", (ph["id"],))
+    log.info("cleanup: #%d из корзины удалён (%.1f MB)", ph["id"], size / 1e6)
+    return size
 
 
 def _delete_messages(phs):
@@ -1058,9 +1077,13 @@ def _delete_chat_messages(chat, phs):
         chunk = fresh[i:i + 100]
         pace(chat)
         if not safe("deleteMessages", chat_id=chat, message_ids=chunk):
-            for mid in chunk:                    # на всякий случай по одному
+            for mid in list(chunk):              # на всякий случай по одному
                 if not safe("deleteMessage", chat_id=chat, message_id=mid):
                     old.append(mid)
+                    chunk.remove(mid)
+        marks = ",".join("?" * len(chunk))       # сообщения больше нет — при возврате из корзины придёт новое
+        if chunk:
+            run(f"UPDATE photos SET msg_id=NULL WHERE owner=? AND msg_id IN ({marks})", (chat, *chunk))
     for mid in old:                              # старше 48 часов: удалить нельзя — меняем фото на заглушку
         pace(chat)
         with open(deleted_placeholder(), "rb") as f:
@@ -1330,9 +1353,8 @@ def _view_done(pid, rev, chat, fut):
     else:
         view, thumb = fut.result()
         cur = get(pid)
-        if not cur or cur["hidden"]:            # кадр удалили, пока он рисовался — не оставлять файлы
-            for p in (view, thumb, str(TMP / f"chat_{pid}_{rev}.jpg")):
-                remove(p)
+        if not cur or cur["hidden"]:            # кадр убрали в корзину, пока он рисовался — в чат не слать
+            remove(str(TMP / f"chat_{pid}_{rev}.jpg"))
             result = "gone"
         elif cur["rev"] == rev:
             upd(pid, view=view, thumb=thumb, rendered_rev=rev, updated=time.time())
@@ -1690,6 +1712,13 @@ def cleanup():
         limit = storage_limit(uid) * 1e9
         if total[0] <= limit:
             continue
+        for ph in q("SELECT * FROM photos WHERE owner=? AND hidden=1 AND (src IS NOT NULL OR work IS NOT NULL "
+                    "OR view IS NOT NULL OR thumb IS NOT NULL) ORDER BY deleted_at, id", (uid,)):
+            if total[0] <= limit:                # сначала корзина: самое давно удалённое
+                break
+            total[0] -= purge_files(ph)
+        if total[0] <= limit:
+            continue
         for size in _free_space("SELECT id, {f} AS p FROM photos WHERE owner=? AND {f} IS NOT NULL ORDER BY id",
                                 (uid,), lambda: total[0] > limit):
             total[0] -= size
@@ -1702,6 +1731,11 @@ def cleanup():
     min_free = MIN_FREE_GB * 1e9
     free = [shutil.disk_usage(BASE).free]
     if free[0] < min_free:
+        for ph in q("SELECT * FROM photos WHERE hidden=1 AND (src IS NOT NULL OR work IS NOT NULL "
+                    "OR view IS NOT NULL OR thumb IS NOT NULL) ORDER BY deleted_at, id"):
+            if free[0] >= min_free:
+                return
+            free[0] += purge_files(ph)
         for size in _free_space("SELECT id, {f} AS p FROM photos WHERE {f} IS NOT NULL ORDER BY id", (),
                                 lambda: free[0] < min_free):
             free[0] += size
@@ -1738,7 +1772,8 @@ def help_text(uid):
              L("• ⬇️ Файл — полный размер без сжатия Telegram.", "• ⬇️ File — full size without Telegram compression."),
              L("• 📚 Лента — сетка кадров в чате, 📅 Сегодня — альбом за день.",
                "• 📚 Feed — grid of frames in the chat, 📅 Today — album of the day."),
-             L("• /storage — сколько места занято.", "• /storage — how much space is used."),
+             L("• /storage — сколько места занято, /trash — корзина: удалённые кадры можно вернуть, пока хватает места.",
+               "• /storage — how much space is used, /trash — deleted frames, can be brought back while there is space."),
              L("• /camera — файлы и инструкция для настройки камеры.", "• /camera — files and guide to set up your camera."),
              L("• /lang — сменить язык (English).", "• /lang — switch language (русский)."),
              L("• Можно прислать любое фото файлом — обработаю.", "• Send any photo as a file — I will develop it.")]
@@ -1771,6 +1806,40 @@ def gallery_page(page, uid):
     if WEBAPP_URL:
         kb.append([{"text": L("📱 Открыть «Проявку»", "📱 Open Proyavka"), "web_app": {"url": WEBAPP_URL}}])
     return gallery_image(rows), {"inline_keyboard": kb}, L(f"Лента: {total} кадров. Нажми номер — пришлю кадр с кнопками.", f"Feed: {total} frames. Tap a number to get the frame with buttons.")
+
+
+def trash_page(page, uid):
+    """Корзина: удалённые кадры, у которых ещё есть файлы. Номер под картинкой — вернуть кадр."""
+    where = "owner=? AND hidden=1 AND work IS NOT NULL"
+    total = q(f"SELECT COUNT(*) AS n FROM photos WHERE {where}", (uid,))[0]["n"]
+    if not total:
+        return None, None, L("Корзина пуста.", "The trash is empty.")
+    pages = max(1, math.ceil(total / PAGE))
+    page = max(0, min(page, pages - 1))
+    rows = q(f"SELECT * FROM photos WHERE {where} ORDER BY deleted_at DESC, id DESC LIMIT ? OFFSET ?", (uid, PAGE, page * PAGE))
+    kb = [[btn(f"↩ #{r['id']}", f"r:{r['id']}") for r in rows[i:i + 4]] for i in range(0, len(rows), 4)]
+    if pages > 1:
+        kb.append([btn("◀", f"tp:{page - 1}"), btn(f"{page + 1}/{pages}", "x"), btn("▶", f"tp:{page + 1}")])
+    cap = L(f"Корзина: {total}. Нажми номер — кадр вернётся в ленту и в чат. Когда места не хватает, "
+            "корзина чистится первой, начиная с давно удалённого.",
+            f"Trash: {total}. Tap a number to bring the frame back to the feed and the chat. When space runs low, "
+            "the trash is emptied first, oldest deletions first.")
+    return gallery_image(rows), {"inline_keyboard": kb}, cap
+
+
+def send_trash(uid, page=0, mid=None):
+    img, kb, cap = trash_page(page, uid)
+    if img is None:
+        if mid:
+            safe("editMessageCaption", chat_id=uid, message_id=mid, caption=cap, reply_markup={"inline_keyboard": []})
+        else:
+            tg("sendMessage", chat_id=uid, text=cap)
+        return
+    if mid:
+        safe("editMessageMedia", files={"f": ("t.jpg", jpeg(img, 88))}, chat_id=uid, message_id=mid,
+             media={"type": "photo", "media": "attach://f", "caption": cap}, reply_markup=kb)
+    else:
+        tg("sendPhoto", files={"photo": ("t.jpg", jpeg(img, 88))}, chat_id=uid, caption=cap, reply_markup=kb)
 
 
 def default_kb(uid):
@@ -1810,6 +1879,8 @@ def on_text(text, uid):
         tg("sendMessage", chat_id=uid, text=L("Какую плёнку ставить новым кадрам?", "Which film for new frames?"), reply_markup=default_kb(uid))
     elif t == "/storage":
         tg("sendMessage", chat_id=uid, text=storage_text(uid))
+    elif t == "/trash":
+        send_trash(uid)
     elif t == "/camera":
         send_camera_setup(uid)
     elif t == "/lang":
@@ -1950,6 +2021,7 @@ def set_commands(uid):
         {"command": "today", "description": L("Альбом за сегодня", "Today's album")},
         {"command": "film", "description": L("Плёнка по умолчанию", "Default film")},
         {"command": "storage", "description": L("Сколько места занято", "Storage used")},
+        {"command": "trash", "description": L("Корзина: вернуть удалённое", "Trash: bring back deleted frames")},
         {"command": "camera", "description": L("Настройка камеры: файлы и инструкция", "Camera setup: files and guide")},
         {"command": "lang", "description": L("English", "Русский")},
         {"command": "help", "description": L("Как пользоваться", "How to use")},
@@ -2069,7 +2141,8 @@ def on_callback(cb, uid):
     dev = L("Проявляю…", "Developing…")
     notes = {"p": dev, "cp": dev, "s": dev, "t": dev, "l": dev, "ls": dev,
              "f": L("Готовлю файл, пришлю в чат", "Preparing the file, will send it to the chat"),
-             "c": L("Собираю лист…", "Building the sheet…"), "dely": L("Удаляю", "Deleting")}
+             "c": L("Собираю лист…", "Building the sheet…"), "dely": L("Убираю в корзину", "Moving to trash"),
+             "r": L("Возвращаю", "Restoring")}
     safe("answerCallbackQuery", callback_query_id=cb["id"], text=notes.get(kind))
     if kind == "x":
         return
@@ -2081,6 +2154,18 @@ def on_callback(cb, uid):
         media = {"type": "photo", "media": "attach://f", "caption": cap}
         safe("editMessageMedia", files={"f": ("g.jpg", jpeg(img, 88))}, chat_id=uid,
              message_id=mid, media=media, reply_markup=kb)
+        return
+    if kind == "tp":
+        send_trash(uid, int(parts[1]), mid)
+        return
+    if kind == "r":
+        ph = get(int(parts[1]))
+        if ph and ph["owner"] == uid and ph["hidden"]:
+            try:
+                restore_photo(ph)
+            except RuntimeError as e:
+                safe("sendMessage", chat_id=uid, text=str(e))
+            send_trash(uid, 0, mid)
         return
     if kind == "d":
         key = canon(parts[1])
@@ -2147,7 +2232,7 @@ def on_callback(cb, uid):
         send_new(ph)
     elif kind == "del":       # сначала спросить: удаление стирает и файлы
         safe("editMessageReplyMarkup", chat_id=uid, message_id=mid, reply_markup={"inline_keyboard": [
-            [btn(L("🗑 Да, удалить", "🗑 Yes, delete"), f"dely:{ph['id']}"), btn(L("← Нет", "← No"), f"b:{ph['id']}")]]})
+            [btn(L("🗑 Да, в корзину", "🗑 Yes, to trash"), f"dely:{ph['id']}"), btn(L("← Нет", "← No"), f"b:{ph['id']}")]]})
     elif kind == "dely":
         hide_photo(ph)
 

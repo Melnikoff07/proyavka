@@ -515,12 +515,12 @@ $("sDelete").onclick = () => {
       total = Math.max(0, total - r.done);
       exitSelect();
       rebuildFeed();
-      toast(T(`Удалено: ${r.done}`, `Deleted: ${r.done}`));
+      toast(T(`В корзине: ${r.done}. Вернуть — /trash в чате`, `Moved to trash: ${r.done}. Restore with /trash in the chat`));
       haptic("success");
     } catch (e) { toast(e.message); }
   };
-  const q = T(`Удалить ${n} ${plural(n, "кадр", "кадра", "кадров")} из ленты, чата и с диска? Это нельзя отменить.`,
-              `Delete ${n} frame${n === 1 ? "" : "s"} from the feed, the chat and the disk? This can't be undone.`);
+  const q = T(`Убрать ${n} ${plural(n, "кадр", "кадра", "кадров")} из ленты и чата в корзину? Вернуть можно через /trash, пока хватает места.`,
+              `Move ${n} frame${n === 1 ? "" : "s"} from the feed and the chat to the trash? You can bring them back with /trash while there is space.`);
   if (tg && tg.showConfirm) tg.showConfirm(q, go); else go(confirm(q));
 };
 
@@ -873,11 +873,11 @@ $("bHide").onclick = () => {
       if (!photos.length) return closeViewer();
       cur = Math.min(cur, photos.length - 1);
       renderViewer();
-      toast(T("Кадр удалён", "Frame deleted"));
+      toast(T("Кадр в корзине. Вернуть — /trash в чате", "Frame moved to trash. Restore with /trash in the chat"));
     } catch (e) { toast(e.message); }
   };
-  const q = T(`Удалить кадр ${pad2(p.id)} из ленты, чата и с диска? Это нельзя отменить.`,
-              `Delete frame ${pad2(p.id)} from the feed, the chat and the disk? This can't be undone.`);
+  const q = T(`Убрать кадр ${pad2(p.id)} из ленты и чата в корзину? Вернуть можно через /trash, пока хватает места.`,
+              `Move frame ${pad2(p.id)} from the feed and the chat to the trash? You can bring it back with /trash while there is space.`);
   if (tg && tg.showConfirm) tg.showConfirm(q, go); else go(confirm(q));
 };
 
