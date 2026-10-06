@@ -58,6 +58,10 @@ Colour is applied in this order: saturation → gamma → contrast → highlight
 | `grain_size` | `1.6` | grain size (pixels at 3000 px) | 1.3 fine … 2 coarse |
 | `grain_color` | `0.3` | share of colour noise in the grain; 0 — monochrome grain | 0 … 0.5 |
 | `vignette` | `0.2` | corner darkening | 0 … 0.3 |
+| `hue` | `(0, 0, 0, 0, 0, 0)` | hue shift in degrees for six colour bands: red, yellow, green, cyan, blue, magenta; the other bands and greys stay put | `(0, 0, -22, 0, 0, 0)` — greens lean yellow, the classic "film green" |
+| `bsat` | `(1, 1, 1, 1, 1, 1)` | saturation multiplier for the same six bands | `(1, 1, 0.8, 1, 1.25, 1)` — calmer greens, richer blues |
+| `grain_shadow` | `0` | extra grain in the shadows, like a negative; 0 — as before | 0.3 … 0.8 |
+| `linear` | `0` | 1 — halation and bloom are computed in linear light: a wider, softer glow proportional to how bright the source is; slower on full-size exports | 0 or 1 |
 
 The **Strength** buttons (25–150 %) blend the film with the original; grain and vignette scale with it too.
 

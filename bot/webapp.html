@@ -253,6 +253,10 @@
   .ed-sl .v { color: var(--muted); }
   .ed-sl input[type=range] { width: 100%; margin: 6px 0 0; accent-color: var(--text); height: 28px; }
   .ed-h { padding: 22px var(--pad) 2px; }
+  details.ed-fold > summary { padding: 22px var(--pad) 2px; cursor: pointer; list-style: none; }
+  details.ed-fold > summary::-webkit-details-marker { display: none; }
+  details.ed-fold > summary::after { content: " +"; }
+  details.ed-fold[open] > summary::after { content: " −"; }
   .layer3 { z-index: 14; }
   .maintabs { display: flex; gap: 22px; padding: 0 var(--pad) 16px; }
   .maintabs[hidden] { display: none; }
@@ -1903,6 +1907,13 @@ const tintSliders = (f) => [
   { n: [`Холод ↔ тепло`, `Cool ↔ warm`], min: -0.08, max: 0.08, step: 0.002, get: (P) => axGet(P[f], AX_TEMP), set: (P, v) => { P[f] = axSet(P[f], AX_TEMP, v); } },
   { n: [`Пурпур ↔ зелень`, `Magenta ↔ green`], min: -0.06, max: 0.06, step: 0.002, get: (P) => axGet(P[f], AX_TINT), set: (P, v) => { P[f] = axSet(P[f], AX_TINT, v); } }];
 const simple = (k, ru, en, min, max, step) => ({ n: [ru, en], min, max, step, get: (P) => P[k], set: (P, v) => { P[k] = v; } });
+const BANDS = [["Красные", "Reds"], ["Жёлтые", "Yellows"], ["Зелёные", "Greens"], ["Голубые", "Cyans"], ["Синие", "Blues"], ["Пурпурные", "Magentas"]];
+const sgn = (v) => (v > 0 ? "+" : "") + Math.round(v);
+const bandSliders = () => BANDS.flatMap(([ru, en], i) => [
+  { n: [`${ru}: оттенок`, `${en}: hue`], min: -40, max: 40, step: 1, fmt: (v) => `${sgn(v)}°`,
+    get: (P) => P.hue[i], set: (P, v) => { P.hue = P.hue.map((x, j) => (j === i ? v : x)); } },
+  { n: [`${ru}: насыщенность`, `${en}: saturation`], min: -60, max: 80, step: 1, fmt: sgn,
+    get: (P) => (P.bsat[i] - 1) * 100, set: (P, v) => { P.bsat = P.bsat.map((x, j) => (j === i ? 1 + v / 100 : x)); } }]);
 const ED_SECTIONS = [
   { h: ["Цвет", "Colour"], s: [simple("sat", "Насыщенность", "Saturation", 0, 2, 0.01), simple("contrast", "Контраст", "Contrast", 0, 1, 0.01),
     { n: ["Выцветание", "Fade"], min: 0, max: 0.15, step: 0.005, get: (P) => mean3(P.lift), set: (P, v) => { const d = v - mean3(P.lift); P.lift = P.lift.map((x) => clamp(x + d, 0, 0.15)); } },
@@ -1912,9 +1923,11 @@ const ED_SECTIONS = [
   { h: ["Свечение", "Glow"], s: [simple("halation", "Красное свечение огней", "Red halation", 0, 1.2, 0.01), simple("bloom", "Дымка", "Bloom", 0, 0.3, 0.005),
     simple("soften", "Мягкость", "Softness", 0, 1.5, 0.02)] },
   { h: ["Зерно и виньетка", "Grain and vignette"], s: [simple("grain", "Зерно", "Grain", 0, 0.12, 0.002), simple("grain_size", "Размер зерна", "Grain size", 1, 3, 0.05),
+    simple("grain_shadow", "Зерно в тенях", "Grain in shadows", 0, 1, 0.02),
     simple("grain_color", "Цветность зерна", "Grain colour", 0, 1, 0.02), simple("vignette", "Виньетка", "Vignette", 0, 0.5, 0.01)] },
+  { h: ["Цвета по полосам", "Colour bands"], fold: true, s: bandSliders() },
 ];
-const pctOf = (s, v) => Math.round(s.min < 0 ? (v / s.max) * 100 : ((v - s.min) / (s.max - s.min)) * 100);
+const pctOf = (s, v) => (s.fmt ? s.fmt(v) : Math.round(s.min < 0 ? (v / s.max) * 100 : ((v - s.min) / (s.max - s.min)) * 100));
 const lookRev = {};         // ключ плёнки -> метка правки: превью в ленте берутся заново, а не из кэша браузера
 let ed = null;              // { key, P, orig, photo, rows, seq, timer, ctl }
 const deep = (o) => JSON.parse(JSON.stringify(o));
@@ -1967,10 +1980,21 @@ async function openEditor({ key } = {}) {
   $("edNoPic").textContent = T("Нет готового кадра для просмотра. Плёнку можно сохранить и применить позже.", "No finished frame to preview on. You can save the film and apply it later.");
   const frag = document.createDocumentFragment();
   for (const sec of ED_SECTIONS) {
-    const h = document.createElement("div");
-    h.className = "ed-h cap muted";
-    h.textContent = T(...sec.h);
-    frag.appendChild(h);
+    let box = frag;
+    if (sec.fold) {                           // редкие настройки — под спойлером, чтобы не пугать
+      box = document.createElement("details");
+      box.className = "ed-fold";
+      const sm = document.createElement("summary");
+      sm.className = "cap muted";
+      sm.textContent = T(...sec.h);
+      box.appendChild(sm);
+      frag.appendChild(box);
+    } else {
+      const h = document.createElement("div");
+      h.className = "ed-h cap muted";
+      h.textContent = T(...sec.h);
+      frag.appendChild(h);
+    }
     for (const s of sec.s) {
       const el = document.createElement("div");
       el.className = "ed-sl";
@@ -1980,16 +2004,23 @@ async function openEditor({ key } = {}) {
       input.setAttribute("aria-label", T(...s.n));
       input.oninput = () => { s.set(ed.P, Number(input.value)); vEl.textContent = pctOf(s, Number(input.value)); edPreview(); };
       ed.rows.push({ s, input, vEl });
-      frag.appendChild(el);
+      box.appendChild(el);
     }
   }
   const bw = document.createElement("div");
   bw.className = "ed-sl";
   bw.style.paddingTop = "22px";
-  bw.innerHTML = `<button class="tog" aria-pressed="false"></button>`;
-  bw.firstChild.textContent = T("Чёрно-белая", "Black & white");
-  bw.firstChild.onclick = () => { ed.P.bw = ed.P.bw ? null : [0.3, 0.55, 0.15]; edSync(); edPreview(); };
-  ed.bwBtn = bw.firstChild;
+  bw.style.display = "flex";
+  bw.style.flexDirection = "column";
+  bw.style.alignItems = "flex-start";
+  bw.style.gap = "6px";
+  bw.innerHTML = `<button class="tog" aria-pressed="false"></button><button class="tog" aria-pressed="false"></button>`;
+  bw.children[0].textContent = T("Чёрно-белая", "Black & white");
+  bw.children[0].onclick = () => { ed.P.bw = ed.P.bw ? null : [0.3, 0.55, 0.15]; edSync(); edPreview(); };
+  bw.children[1].textContent = T("Свечение в линейном свете (мягче и шире)", "Glow in linear light (softer, wider)");
+  bw.children[1].onclick = () => { ed.P.linear = ed.P.linear > 0.5 ? 0 : 1; edSync(); edPreview(); };
+  ed.bwBtn = bw.children[0];
+  ed.linBtn = bw.children[1];
   frag.appendChild(bw);
   $("edBody").replaceChildren(frag);
   edSync();
@@ -1999,6 +2030,7 @@ async function openEditor({ key } = {}) {
 function edSync() {
   for (const { s, input, vEl } of ed.rows) { const v = s.get(ed.P); input.value = v; vEl.textContent = pctOf(s, v); }
   ed.bwBtn.setAttribute("aria-pressed", String(!!ed.P.bw));
+  ed.linBtn.setAttribute("aria-pressed", String(ed.P.linear > 0.5));
 }
 function edPreview() {
   if (!ed) return;

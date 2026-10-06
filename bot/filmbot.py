@@ -177,6 +177,9 @@ DEFAULTS = dict(
     gamma=(1.0, 1.0, 1.0), shadow_tint=(0, 0, 0), high_tint=(0, 0, 0),
     halation=0.3, hal_thr=0.72, bloom=0.08, soften=0.5,
     grain=0.04, grain_size=1.6, grain_color=0.3, vignette=0.2, bw=None,
+    hue=(0.0,) * 6, bsat=(1.0,) * 6,       # сдвиг оттенка (°) и множитель насыщенности по полосам R, Y, G, C, B, M
+    grain_shadow=0.0,                      # насколько крупнее и заметнее зерно в тенях (0 — как раньше)
+    linear=0.0,                            # 1 — свечение и дымка считаются в линейном свете (физичнее), 0 — как раньше
 )
 
 PRESETS = {
@@ -312,6 +315,29 @@ def grain_field(h, w, size, rng):
     return np.asarray(Image.fromarray(n).resize((w, h), Image.BICUBIC), dtype=np.float32)
 
 
+def band_adjust(a, hue, bsat):
+    """Оттенок и насыщенность отдельно по шести цветовым полосам (красный, жёлтый, зелёный, голубой, синий, пурпурный).
+    Именно такие сдвиги делают зелень «кодаковской», а кожу — «портровской»; серое они не трогают. a — (N,3), 0..1."""
+    mx, mn = a.max(axis=1), a.min(axis=1)
+    d = mx - mn
+    safe = np.where(d == 0, 1.0, d)
+    r, g, b = a[:, 0], a[:, 1], a[:, 2]
+    h = np.where(mx == r, ((g - b) / safe) % 6, np.where(mx == g, (b - r) / safe + 2, (r - g) / safe + 4)) * 60.0
+    h = np.where(d == 0, 0.0, h)
+    s = np.where(mx == 0, 0.0, d / np.where(mx == 0, 1.0, mx))
+    dist = np.abs(((h[:, None] - np.arange(6, dtype=np.float32)[None, :] * 60.0 + 180.0) % 360.0) - 180.0)
+    w = np.clip(1.0 - dist / 60.0, 0.0, 1.0)                  # веса соседних полос плавно перетекают, в сумме дают 1
+    dh = (w @ v3(hue)) * np.clip(s * 4.0, 0.0, 1.0)           # у почти серых оттенок неустойчив — сдвиг гасим
+    h2 = (h + dh) % 360.0
+    s2 = np.clip(s * (w @ v3(bsat)), 0.0, 1.0)
+    c = mx * s2
+    x = c * (1.0 - np.abs((h2 / 60.0) % 2.0 - 1.0))
+    sector = (h2 // 60.0).astype(np.int64) % 6
+    z = np.zeros_like(c)
+    out = np.stack([np.choose(sector, [c, x, z, z, x, c]), np.choose(sector, [x, c, c, x, z, z]), np.choose(sector, [z, z, x, c, c, x])], axis=1)
+    return out + (mx - c)[:, None]
+
+
 def color_fn(a, p):
     """Цвет плёнки для массива пикселей (N,3). Запекается в 3D-LUT."""
     if p["bw"]:
@@ -320,6 +346,8 @@ def color_fn(a, p):
     else:
         l = a @ LUMA
         a = l[:, None] + (a - l[:, None]) * p["sat"]
+        if any(p["hue"]) or any(x != 1.0 for x in p["bsat"]):        # без полос — ровно прежний результат
+            a = band_adjust(np.clip(a, 0, 1), p["hue"], p["bsat"])
     a = np.clip(a, 0, 1) ** v3(p["gamma"])
     s = a * a * (3 - 2 * a)
     a = a + p["contrast"] * (s - a)
@@ -387,6 +415,55 @@ def fx_layer(img, p):
         b = np.asarray(small, dtype=np.float32) / 255.0
         acc = 1 - (1 - acc) * (1 - b * b * p["bloom"])
     return Image.fromarray((np.clip(acc, 0, 1) * 255 + 0.5).astype(np.uint8)).resize((w, h), Image.BILINEAR)
+
+
+def to_linear(a):
+    return np.where(a <= 0.04045, a / 12.92, ((a + 0.055) / 1.055) ** 2.4)
+
+
+def from_linear(a):
+    a = np.clip(a, 0.0, 1.0)
+    return np.where(a <= 0.0031308, a * 12.92, 1.055 * a ** (1 / 2.4) - 0.055)
+
+
+def fx_linear(img, p):
+    """То же свечение и дымка, но энергией в линейном свете: яркие огни дают мягкое красное облако пропорционально
+    своей яркости, а не «потолку» sRGB. Считается на копии ~700 px; результат — float (h, w, 3) в линейных единицах."""
+    if p["halation"] <= 0 and p["bloom"] <= 0:
+        return None
+    w, h = img.size
+    f = max(1, int(max(w, h) / 700))
+    sw, sh = max(1, w // f), max(1, h // f)
+    sl = to_linear(np.asarray(img.resize((sw, sh), Image.BOX), dtype=np.float32) / 255.0)
+    acc = np.zeros((sh, sw, 3), dtype=np.float32)
+    if p["halation"] > 0:
+        thr = float(to_linear(np.float32(p["hal_thr"])))
+        m = np.clip(((sl @ LUMA) - thr) / (1 - thr), 0, 1)
+        r = max(w, h) * 0.008 / f
+        near = 1 - np.exp(-blur_mask(m, r) * 4)
+        far = 1 - np.exp(-blur_mask(m, r * 5) * 20)
+        halo = (near * 0.5 + far * 0.5) * (1 - m * 0.7)
+        acc += halo[..., None] * (p["halation"] * 0.5 * v3((1.0, 0.22, 0.05)))
+    if p["bloom"] > 0:
+        sig = max(w, h) * 0.012 / f
+        blur = np.stack([blur_mask(sl[..., c], sig) for c in range(3)], axis=-1)
+        acc += blur * blur * (p["bloom"] * 0.6)
+    return acc
+
+
+def apply_fx_linear(img, acc, strip=256):
+    """Прибавить свечение к кадру в линейном свете. Идём полосами по strip строк (256: пик памяти ~100 МБ на кадр 24 Мп): полный кадр во float — сотни мегабайт."""
+    w, h = img.size
+    sh, sw = acc.shape[:2]
+    out = Image.new("RGB", (w, h))
+    for y0 in range(0, h, strip):
+        y1 = min(h, y0 + strip)
+        box = (0, y0 * sh / h, sw, y1 * sh / h)
+        fx = np.stack([np.asarray(Image.fromarray(np.ascontiguousarray(acc[..., c])).resize((w, y1 - y0), Image.BILINEAR, box=box),
+                                  dtype=np.float32) for c in range(3)], axis=-1)
+        lin = to_linear(np.asarray(img.crop((0, y0, w, y1)), dtype=np.float32) / 255.0) + fx
+        out.paste(Image.fromarray((from_linear(lin) * 255 + 0.5).astype(np.uint8)), (0, y0))
+    return out
 
 
 GRAIN_GAIN = 1.75  # калибровка под прежний вид зерна
@@ -518,6 +595,7 @@ LOOK_FIELDS = {                    # поле -> (сколько чисел, м�
     "sat": (1, 0.0, 2.0), "gamma": (3, 0.7, 1.3), "shadow_tint": (3, -0.1, 0.1), "high_tint": (3, -0.1, 0.1),
     "halation": (1, 0.0, 1.2), "hal_thr": (1, 0.4, 0.95), "bloom": (1, 0.0, 0.3), "soften": (1, 0.0, 1.5),
     "grain": (1, 0.0, 0.12), "grain_size": (1, 1.0, 3.0), "grain_color": (1, 0.0, 1.0), "vignette": (1, 0.0, 0.5),
+    "hue": (6, -40.0, 40.0), "bsat": (6, 0.4, 1.8), "grain_shadow": (1, 0.0, 1.0), "linear": (1, 0.0, 1.0),
 }
 LOOK_CODE_PREFIX = "proyavka-look:1:"
 LOOK_META_CACHE = {}               # путь -> (mtime, параметры или None) — в процессах-работниках
@@ -594,7 +672,9 @@ def clean_text(s, n):
 
 def look_code(name, author, p):
     """Текст, которым можно поделиться где угодно: плёнка целиком в одной строке."""
-    blob = json.dumps({"name": name, "by": author, "p": params_json(p)}, ensure_ascii=False, separators=(",", ":"))
+    defaults = params_json(clean_params({}))
+    blob = json.dumps({"name": name, "by": author, "p": {k: v for k, v in params_json(p).items() if v != defaults[k]}},
+                      ensure_ascii=False, separators=(",", ":"))      # поля по умолчанию не пишем: код короче, а у старых серверов он тот же
     return LOOK_CODE_PREFIX + base64.urlsafe_b64encode(blob.encode("utf-8")).decode().rstrip("=")
 
 
@@ -639,14 +719,23 @@ def film(img, key, strength=100, seed=0, p=None):
     if soft >= 0.6:  # убираем цифровую «звонкость»; на малых размерах эффект невидим
         img = img.filter(ImageFilter.GaussianBlur(soft))
     orig = img
-    fx = fx_layer(img, p)
-    a = ImageChops.screen(img, fx) if fx is not None else img
+    if p["linear"] > 0.5:
+        acc = fx_linear(img, p)
+        a = apply_fx_linear(img, acc) if acc is not None else img
+    else:
+        fx = fx_layer(img, p)
+        a = ImageChops.screen(img, fx) if fx is not None else img
     a = a.filter(preset_lut(key, pr))
     k = strength / 100.0
     if k != 1:
         a = Image.blend(orig, a, k)
     if p["grain"] > 0:
-        a = ImageChops.soft_light(a, grain_layer(w, h, p, k, rng))
+        g = grain_layer(w, h, p, k, rng)
+        a = ImageChops.soft_light(a, g)
+        if p["grain_shadow"] > 0:       # у негатива в тенях зерно крупнее и заметнее: второй проход тем же шумом, только по теням
+            gs = p["grain_shadow"]
+            mask = a.convert("L").point([int(255 * min(1.0, gs * (1 - i / 255) ** 1.5)) for i in range(256)])
+            a = ImageChops.soft_light(a, Image.composite(g, Image.new("RGB", (w, h), (128, 128, 128)), mask))
     if p["vignette"] > 0:
         a = ImageChops.multiply(a, vignette_layer(w, h, p["vignette"] * min(k, 1.5)))
     return a
