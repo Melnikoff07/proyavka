@@ -2,7 +2,7 @@
 
 English first, [по-русски — ниже](#журнал-изменений).
 
-## Unreleased
+## 1.5 — 2026-10-07
 
 ### Films reworked
 - **Ten built-in films were rebuilt from scratch** (Super 400 and Portrait 400 stay as they were). Measured on a ColorChecker chart, grey ramps, a landscape and a night scene: the old films had nearly straight tone curves (they all looked like one film), one saturation multiplier for every colour, and a wide red halation veil that turned blue skies and night scenes purple. The new ones have their own curves and colour, modelled on Ultramax, Classic Chrome/Kodachrome, Gold, Velvia, Vision3 250D printed on 2383, CineStill 800T, Acros and Tri-X.
@@ -94,7 +94,7 @@ English first, [по-русски — ниже](#журнал-изменений
 
 # Журнал изменений
 
-## Не выпущено
+## 1.5 — 2026-10-07
 
 ### Плёнки заново
 - **Десять встроенных плёнок собраны заново** (Super 400 и Portrait 400 — как были). Замеры на мишени ColorChecker, серых шкалах, пейзаже и ночной сцене показали: у прежних тональные кривые были почти прямыми (все плёнки по тону — одна и та же), насыщенность менялась одним множителем на все цвета, а широкая красная вуаль халяции уводила голубое небо и ночь в фиолетовый. У новых — свои кривые и цвет; прототипы — Ultramax, Classic Chrome/Kodachrome, Gold, Velvia, Vision3 250D с печатью на 2383, CineStill 800T, Acros и Tri-X.
