@@ -2,6 +2,9 @@
 
 English first, [по-русски — ниже](#журнал-изменений).
 
+## 1.5.3 — 2026-10-07
+- Camera app 1.4.3: on the a6000 a `config.txt` written by Windows in lowercase shows up in the folder, but the camera's system says it isn't a file. The app no longer trusts that check: it tries the listed name, `CONFIG.TXT` and `config.txt` and takes the first one that actually opens. If none opens, the log shows for each one whether it exists, its size and the exact error.
+
 ## 1.5.2 — 2026-10-07
 - Camera app 1.4.2: cameras on Android 2.3 (a6000 and others) see the card only in short DOS names (8.3), so `config.txt.txt` shows up there as `CONFIG~1.TXT`. The app now accepts any `CONFIG*.TXT`. If the file still isn't found, the screen and the log list the files in the folder.
 
@@ -101,6 +104,9 @@ English first, [по-русски — ниже](#журнал-изменений
 ---
 
 # Журнал изменений
+
+## 1.5.3 — 2026-10-07
+- Приложение камеры 1.4.3: на a6000 `config.txt`, записанный Windows строчными буквами, виден в папке, но система камеры говорит, что это не файл. Приложение больше не верит этой проверке: пробует имя из списка, `CONFIG.TXT` и `config.txt` и берёт первый, который действительно открывается. Если не открылся ни один — в журнале по каждому: есть ли он, размер и точная ошибка.
 
 ## 1.5.2 — 2026-10-07
 - Приложение камеры 1.4.2: камеры на Android 2.3 (a6000 и другие) видят карту только в коротких именах DOS (8.3), и `config.txt.txt` там выглядит как `CONFIG~1.TXT`. Теперь подходит любой `CONFIG*.TXT`. Если файл всё же не нашёлся — на экране и в журнале список файлов в папке.

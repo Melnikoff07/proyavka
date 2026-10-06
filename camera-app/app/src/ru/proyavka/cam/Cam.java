@@ -98,14 +98,34 @@ final class Cam {
             where.append(d.getPath());
             File[] list = d.listFiles();
             if (list == null) continue;
-            for (String want : new String[] {"config.txt", "config.txt.txt", "config"}) {
-                for (File f : list) if (f.isFile() && f.getName().equalsIgnoreCase(want)) { configWhere = where.toString(); return f; }
-            }
-            // камеры на Android 2.3 видят карту только в коротких именах DOS 8.3: config.txt.txt там — CONFIG~1.TXT
+            // Кандидаты по порядку: точные имена, потом любой CONFIG*.TXT (на Android 2.3 config.txt.txt — это CONFIG~1.TXT),
+            // потом те же имена напрямую. isFile() не спрашиваем: на a6000 файл, записанный Windows строчными буквами, виден
+            // в списке, но isFile() о нём говорит «нет» — берём первый, который действительно открывается.
+            List<File> cand = new ArrayList<File>();
+            for (String want : new String[] {"config.txt", "config.txt.txt", "config"})
+                for (File f : list) if (f.getName().equalsIgnoreCase(want) && !cand.contains(f)) cand.add(f);
             for (File f : list) {
                 String n = f.getName().toUpperCase(java.util.Locale.US);
-                if (f.isFile() && n.startsWith("CONFIG") && n.endsWith(".TXT")) { configWhere = where.toString(); return f; }
+                if (n.startsWith("CONFIG") && n.endsWith(".TXT") && !cand.contains(f)) cand.add(f);
             }
+            for (String n : new String[] {"CONFIG.TXT", "config.txt", "Config.txt"}) {
+                File f = new File(d, n);
+                if (!cand.contains(f)) cand.add(f);
+            }
+            StringBuilder why = new StringBuilder();
+            for (File f : cand) {
+                if (f.isDirectory()) { why.append(f.getName()).append(": is a folder; "); continue; }
+                try {
+                    new FileInputStream(f).close();
+                    configWhere = where.toString();
+                    return f;
+                } catch (IOException e) {
+                    if (f.exists() || list.length > 0 && java.util.Arrays.asList(list).contains(f))
+                        why.append(f.getName()).append(": exists=").append(f.exists()).append(" file=").append(f.isFile())
+                           .append(" read=").append(f.canRead()).append(" size=").append(f.length()).append(" -> ").append(e).append("; ");
+                }
+            }
+            if (why.length() > 0) Log.i("config candidates in " + d.getPath() + ": " + why);
             if (seen.length() == 0) {
                 StringBuilder s = new StringBuilder();
                 for (File f : list) s.append(s.length() > 0 ? ", " : "").append(f.getName());
@@ -117,12 +137,16 @@ final class Cam {
     }
 
     private static void load(Properties p, File f) throws IOException {
-        if (!f.exists()) {
-            for (File g : f.getParentFile() == null || f.getParentFile().listFiles() == null ? new File[0] : f.getParentFile().listFiles())
-                if (g.getName().equalsIgnoreCase(f.getName())) { f = g; break; }   // WIFI.TXT вместо wifi.txt
-            if (!f.exists()) return;
+        byte[] b;
+        try {
+            b = readAll(f);                       // открываем сразу: exists()/isFile() на a6000 врут о файлах, записанных Windows
+        } catch (java.io.FileNotFoundException e) {
+            File[] list = f.getParentFile() == null ? null : f.getParentFile().listFiles();
+            File g = null;
+            if (list != null) for (File x : list) if (x.getName().equalsIgnoreCase(f.getName())) { g = x; break; }   // WIFI.TXT вместо wifi.txt
+            if (g == null || g.equals(f)) return;
+            try { b = readAll(g); } catch (java.io.FileNotFoundException e2) { return; }
         }
-        byte[] b = readAll(f);
         p.load(new java.io.StringReader(decode(b)));
     }
 
