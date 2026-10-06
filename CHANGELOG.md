@@ -22,6 +22,9 @@ English first, [по-русски — ниже](#журнал-изменений
 ### Film editor: the basics
 - A new first tab, **Basics**: exposure, contrast, highlights, shadows, whites, blacks, temperature and tint — applied before the film, like in any photo editor. Exposure rolls bright parts off softly instead of clipping.
 
+### Burger theme
+- A third theme next to light and dark: cream, brown and red, rounded buttons, and the app name drawn between two buns (Settings → Theme → Burger).
+
 ## 1.4 — 2026-10-06
 
 ### Your own films and the community
@@ -106,6 +109,9 @@ English first, [по-русски — ниже](#журнал-изменений
 
 ### Редактор плёнки: основное
 - Новая первая вкладка **«Основное»**: экспозиция, контраст, света, тени, белые, чёрные, температура и оттенок — до плёнки, как в любом фоторедакторе. Экспозиция сжимает яркое мягко, а не обрезает.
+
+### Тема «Бургер»
+- Третья тема рядом со светлой и тёмной: кремовый, коричневый и красный, скруглённые кнопки, а название нарисовано между двумя булками («Настройки» → «Тема» → «Бургер»).
 
 ## 1.4 — 2026-10-06
 
