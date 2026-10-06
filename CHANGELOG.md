@@ -2,6 +2,10 @@
 
 English first, [по-русски — ниже](#журнал-изменений).
 
+## 1.5.4 — 2026-10-07
+- Camera app 1.4.4: on Android 2.3 cameras (a6000…) the app crashed with OutOfMemoryError on the first frame and the camera closed it. Android 2.3's HTTPS connection ignores streaming mode and buffers the whole file in memory. There the app now sends each frame itself over the TLS connection, 32 KB at a time, checking the server certificate's name itself; Android 4.1 cameras keep the old path. Checked: a 12 MB frame over port 8443 with a 24 MB memory limit.
+- The log never stops the app, even if writing it fails.
+
 ## 1.5.3 — 2026-10-07
 - Camera app 1.4.3: on the a6000 a `config.txt` written by Windows in lowercase shows up in the folder, but the camera's system says it isn't a file. The app no longer trusts that check: it tries the listed name, `CONFIG.TXT` and `config.txt` and takes the first one that actually opens. If none opens, the log shows for each one whether it exists, its size and the exact error.
 
@@ -104,6 +108,10 @@ English first, [по-русски — ниже](#журнал-изменений
 ---
 
 # Журнал изменений
+
+## 1.5.4 — 2026-10-07
+- Приложение камеры 1.4.4: на камерах с Android 2.3 (a6000…) приложение падало с OutOfMemoryError на первом же кадре, и камера его закрывала. HTTPS-соединение Android 2.3 не включает потоковую отправку и держит весь файл в памяти. Теперь там приложение шлёт кадр само поверх TLS-соединения, по 32 КБ, и само проверяет имя в сертификате сервера; на камерах с Android 4.1 — прежний путь. Проверено: кадр 12 МБ через порт 8443 при пределе памяти 24 МБ.
+- Журнал никогда не останавливает приложение, даже если записать его не удалось.
 
 ## 1.5.3 — 2026-10-07
 - Приложение камеры 1.4.3: на a6000 `config.txt`, записанный Windows строчными буквами, виден в папке, но система камеры говорит, что это не файл. Приложение больше не верит этой проверке: пробует имя из списка, `CONFIG.TXT` и `config.txt` и берёт первый, который действительно открывается. Если не открылся ни один — в журнале по каждому: есть ли он, размер и точная ошибка.

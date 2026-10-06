@@ -203,7 +203,10 @@ public class MainActivity extends Activity {
     private Uploader uploader(Properties cfg) throws Exception {
         String url = cfg.getProperty("url", "").trim(), token = cfg.getProperty("token", "").trim();
         if (url.length() == 0 || token.length() == 0) return null;
-        if (android.os.Build.VERSION.SDK_INT < 16) url = legacyUrl(cfg, url);
+        if (android.os.Build.VERSION.SDK_INT < 16) {
+            url = legacyUrl(cfg, url);
+            Uploader.raw = true;           // Android 2.3: HttpsURLConnection копит файл в памяти — шлём кадр сами
+        }
         String model = android.os.Build.MODEL == null ? "" : android.os.Build.MODEL.replaceAll("[^A-Za-z0-9-]", "");
         return new Uploader(url, token, cfg.getProperty("prefix", model.length() > 0 ? model + "_" : "cam_").trim(),
                 Tls.factory(Cam.certs(this)), new File(Cam.dir(), "sent.txt"));

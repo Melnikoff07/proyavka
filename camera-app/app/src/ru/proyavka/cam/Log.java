@@ -60,6 +60,6 @@ public final class Log {
             } finally {
                 w.close();
             }
-        } catch (Exception e) { /* нет карты — журнала не будет, работе это не мешает */ }
+        } catch (Throwable e) { /* нет карты — журнала не будет, работе это не мешает */ }
     }
 }
