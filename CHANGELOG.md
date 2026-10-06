@@ -5,6 +5,7 @@ English first, [по-русски — ниже](#журнал-изменений
 ## 1.5.1 — 2026-10-07
 - Camera app 1.4.1: finds `PROYAVKA/config.txt` however it was saved — any letter case, `config.txt.txt` (Windows with hidden extensions), UTF-8 with or without BOM, UTF-16 (Notepad "Unicode") — and also looks in other card paths of older cameras.
 - If the settings still can't be read, the camera says exactly why: where it looked, or which keys the file has; the hint points to Settings → Camera in the app, not only to the bot.
+- A log on the card, `PROYAVKA/log.txt`: camera model and Android version, what was found in config.txt, the server address, the TLS version, every upload and every error with its stack trace, crashes too. No token in it — send it along with a question.
 
 ## 1.5 — 2026-10-07
 
@@ -101,6 +102,7 @@ English first, [по-русски — ниже](#журнал-изменений
 ## 1.5.1 — 2026-10-07
 - Приложение камеры 1.4.1: находит `PROYAVKA/config.txt`, как бы его ни сохранили — в любом регистре букв, как `config.txt.txt` (Windows со скрытыми расширениями), в UTF-8 с меткой BOM и без, в UTF-16 («Юникод» в Блокноте), — и ищет его и по другим путям к карте на старых камерах.
 - Если настройки всё же не прочитались, камера пишет, почему именно: где искала или какие ключи нашлись в файле; подсказка ведёт в «Настройки» → «Камера» в приложении, а не только в бота.
+- Журнал на карте, `PROYAVKA/log.txt`: модель камеры и версия Android, что нашлось в config.txt, адрес сервера, версия TLS, каждая отправка и каждая ошибка со стеком, падения тоже. Токена в нём нет — его можно присылать вместе с вопросом.
 
 ## 1.5 — 2026-10-07
 

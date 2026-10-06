@@ -56,6 +56,7 @@ public class MainActivity extends Activity {
         wifi = (WifiManager) getSystemService(Context.WIFI_SERVICE);
         Cam.exitAll = false;
         Cam.initLang(this);
+        Log.start(this);
 
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
@@ -180,6 +181,7 @@ public class MainActivity extends Activity {
             List<String> names = new ArrayList<String>();
             for (Cam.Net n : nets) names.add(n.ssid);
             Uploader u = uploader(cfg);
+            logConfig(cfg);
             if (u == null) {
                 st = Cam.L("Нет настроек сервера", "No server settings");
                 dt = noConfig(cfg);
@@ -192,6 +194,7 @@ public class MainActivity extends Activity {
         } catch (Exception e) {
             st = Cam.L("Ошибка", "Error");
             dt = String.valueOf(e.getMessage());
+            Log.e("refresh", e);
         }
         status.setText(st);
         detail.setText(dt);
@@ -204,6 +207,18 @@ public class MainActivity extends Activity {
         String model = android.os.Build.MODEL == null ? "" : android.os.Build.MODEL.replaceAll("[^A-Za-z0-9-]", "");
         return new Uploader(url, token, cfg.getProperty("prefix", model.length() > 0 ? model + "_" : "cam_").trim(),
                 Tls.factory(Cam.certs(this)), new File(Cam.dir(), "sent.txt"));
+    }
+
+    private static String lastConfigLog = "";
+
+    /** В журнал — что с настройками (только когда это меняется, экран обновляется часто). Токен и пароли не пишутся. */
+    static void logConfig(Properties cfg) {
+        List<String> keys = new ArrayList<String>();
+        for (Object k : cfg.keySet()) if (!String.valueOf(k).contains("pass")) keys.add(String.valueOf(k));
+        String s = "config: " + (Cam.configFound == null ? "not found, looked in " + Cam.configWhere : Cam.configFound.getPath())
+                + ", keys: " + Cam.join(keys) + ", url: " + cfg.getProperty("url", "-")
+                + (android.os.Build.VERSION.SDK_INT < 16 ? " -> old Android, sending to " + legacyUrl(cfg, cfg.getProperty("url", "").trim()) : "");
+        if (!s.equals(lastConfigLog)) { lastConfigLog = s; Log.i(s); }
     }
 
     /** Почему нет настроек: файла нет (и где искали) или в нём нет адреса/токена (и что в нём нашлось). */
@@ -244,9 +259,12 @@ public class MainActivity extends Activity {
     private void work() {
         String result;
         try {
+            Log.i("send: start");
             result = send();
+            Log.i("send: " + result);
         } catch (Exception e) {
             result = Cam.L("Ошибка: ", "Error: ") + e.getMessage();
+            Log.e("send failed", e);
         }
         final String r = result;
         releaseWifiLock();
@@ -303,7 +321,9 @@ public class MainActivity extends Activity {
         wifiLock = wifi.createWifiLock(android.os.Build.VERSION.SDK_INT >= 12 ? 3 : WifiManager.WIFI_MODE_FULL, "proyavka");
         wifiLock.acquire();   // без энергосбережения Wi-Fi на время отправки
         show(Cam.L("Проверяю сервер", "Checking the server"), Cam.L("Сеть: ", "Network: ") + Cam.currentSsid(this, wifi), 0);
+        Log.i("wifi: " + Cam.currentSsid(this, wifi) + ", ping " + u.base());
         u.ping();
+        Log.i("ping ok");
 
         // отправка
         int ok = 0;
@@ -328,8 +348,10 @@ public class MainActivity extends Activity {
                     });
                     u.markSent(f);
                     sent = true;
+                    Log.i("sent " + f.getName() + " (" + f.length() / 1024 + " KB)");
                 } catch (IOException e) {
                     lastErr = e.getMessage();
+                    Log.e("upload " + f.getName() + " (try " + t + ")", e);
                     if (!u.isCancelled() && t < TRIES) {
                         show(null, f.getName() + ": " + lastErr + Cam.L(", ещё попытка", ", retrying"), -1);
                         SystemClock.sleep(2000L * t);

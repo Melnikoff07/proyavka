@@ -54,6 +54,11 @@ public final class Tls {
                 List<String> sup = Arrays.asList(ss.getSupportedProtocols());
                 for (String p : new String[] {"TLSv1.2", "TLSv1.1"}) if (sup.contains(p)) want.add(p);
                 if (!want.isEmpty()) ss.setEnabledProtocols(want.toArray(new String[0]));
+                ss.addHandshakeCompletedListener(new javax.net.ssl.HandshakeCompletedListener() {
+                    @Override public void handshakeCompleted(javax.net.ssl.HandshakeCompletedEvent ev) {
+                        Log.i("tls: " + ev.getSession().getProtocol() + " " + ev.getCipherSuite());
+                    }
+                });
             }
             return s;
         }

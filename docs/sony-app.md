@@ -74,4 +74,5 @@ The app speaks the language set in the wizard (`lang` in `config.txt`); without 
 | "No new frames" | Everything is sent already. To send again, delete `PROYAVKA/sent.txt` |
 | pmca-gui: "Error 504 … Invalid contents for install" | An app older than 1.4 on an Android 2.3 camera (a6000 etc.) — download the current Proyavka.apk |
 | Android 2.3 camera (a6000…) can't reach the server | Update the server (`setup.py` → Update) so port 8443 is set up; allow TCP 8443 in the hosting firewall |
+| Anything else | The app keeps a log on the card: `PROYAVKA/log.txt` (camera model, Android version, what it found in config.txt, the server address, every error). Send it along with your question — there is no token in it |
 | pmca-gui can't see the camera | Try the other USB mode (MTP ↔ Mass Storage), another cable or port; close apps that open the camera |

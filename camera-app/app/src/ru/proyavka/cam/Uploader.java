@@ -55,6 +55,9 @@ public final class Uploader {
 
     public boolean isCancelled() { return cancelled; }
 
+    /** Адрес сервера (без токена) — для журнала. */
+    public String base() { return base; }
+
     /** Ключ кадра: папка/имя + размер + время. После форматирования карты имена повторятся, но время будет другим. */
     static String key(File f) {
         return f.getParentFile().getName() + "/" + f.getName() + ":" + f.length() + ":" + f.lastModified();
