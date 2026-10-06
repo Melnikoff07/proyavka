@@ -15,7 +15,7 @@
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@400;500&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@400;500&family=Lilita+One&display=swap" rel="stylesheet">
 <style>
   :root {
     --bg: #ffffff;
@@ -37,6 +37,33 @@
     --btn-bg: #ffffff;
     --btn-text: #000000;
   }
+  /* тема «Бургер»: кремовый фон, коричневый текст, красные кнопки, логотип — «Проявка» между двух булок */
+  [data-theme="burger"] {
+    --bg: #f5ebdc;
+    --tile: #ecdcc5;
+    --text: #502314;
+    --muted: #8a6a52;
+    --rule: #e3cfb3;
+    --btn-bg: #d62300;
+    --btn-text: #f5ebdc;
+    --bun: #ff8732;
+    --display: "Lilita One", "Inter Tight", Arial, sans-serif;
+  }
+  [data-theme="burger"] .hero h1 { position: relative; display: inline-block; padding: 19px 6px 17px; font-family: var(--display);
+    font-weight: 400; font-size: 34px; letter-spacing: .01em; text-transform: uppercase; color: var(--btn-bg); line-height: 1; }
+  [data-theme="burger"] .hero h1::before, [data-theme="burger"] .hero h1::after { content: ""; position: absolute; left: 0; right: 0; background: var(--bun); }
+  [data-theme="burger"] .hero h1::before { top: 0; height: 17px; border-radius: 60% 60% 5px 5px / 100% 100% 5px 5px;       /* верхняя булка с кунжутом */
+    background-image: radial-gradient(ellipse 2px 1.4px at 22% 42%, #f5ebdc 95%, transparent), radial-gradient(ellipse 2px 1.4px at 41% 26%, #f5ebdc 95%, transparent),
+                      radial-gradient(ellipse 2px 1.4px at 60% 40%, #f5ebdc 95%, transparent), radial-gradient(ellipse 2px 1.4px at 78% 30%, #f5ebdc 95%, transparent); }
+  [data-theme="burger"] .hero h1::after { bottom: 0; height: 13px; border-radius: 5px 5px 50% 50% / 5px 5px 100% 100%; }
+  [data-theme="burger"] .hero .total { font-family: var(--display); font-weight: 400; color: var(--text); }
+  [data-theme="burger"] .btn, [data-theme="burger"] .add, [data-theme="burger"] .pill { border-radius: 999px; }
+  [data-theme="burger"] .add { border-color: var(--btn-bg); color: var(--btn-bg); }
+  [data-theme="burger"] .menu { border-radius: 14px; border-color: var(--text); }
+  [data-theme="burger"] .tile, [data-theme="burger"] .film .pic, [data-theme="burger"] .film .pic img { border-radius: 10px; }
+  [data-theme="burger"] .tabs.seg { border-radius: 999px; overflow: hidden; border-color: var(--text); }
+  [data-theme="burger"] .seg .tab + .tab { border-left-color: var(--text); }
+  [data-theme="burger"] .vtitle .name { font-family: var(--display); font-weight: 400; letter-spacing: .01em; }
   * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
   html, body { margin: 0; background: var(--bg); color: var(--text); font: 400 14px/1.4 var(--font); font-feature-settings: "tnum" 1; }
   body { padding-bottom: env(safe-area-inset-bottom, 0px); overscroll-behavior: none; -webkit-font-smoothing: antialiased; }
@@ -495,7 +522,7 @@
     <div class="st-row"><span class="cap muted" data-i18n="Language">Язык</span>
       <div class="opts cap st-opts"><button class="opt" data-lang="ru">Русский</button><button class="opt" data-lang="en">English</button></div></div>
     <div class="st-row"><span class="cap muted" data-i18n="Theme">Тема</span>
-      <div class="opts cap st-opts"><button class="opt" data-theme-set="auto" data-i18n="Auto">Авто</button><button class="opt" data-theme-set="light" data-i18n="Light">Светлая</button><button class="opt" data-theme-set="dark" data-i18n="Dark">Тёмная</button></div></div>
+      <div class="opts cap st-opts"><button class="opt" data-theme-set="auto" data-i18n="Auto">Авто</button><button class="opt" data-theme-set="light" data-i18n="Light">Светлая</button><button class="opt" data-theme-set="dark" data-i18n="Dark">Тёмная</button><button class="opt" data-theme-set="burger" data-i18n="Burger">Бургер</button></div></div>
     <div class="st-row"><span class="cap muted" data-i18n="New frames">Новым кадрам</span><select class="st-select" id="stFilm" aria-label="Плёнка для новых кадров" data-i18n-aria="Film for new frames"></select></div>
   </div>
   <div class="st-sec" id="stPushSec">
@@ -682,13 +709,14 @@ async function reauth() {
 }
 
 /* ---------- тема как в Telegram ---------- */
-const THEME_KEY = "proyavka.theme";       // auto | light | dark — у каждого устройства своя
+const THEME_KEY = "proyavka.theme";       // auto | light | dark | burger — у каждого устройства своя
 function applyTheme() {
   const pref = stored(THEME_KEY) || "auto";
   const dark = pref === "auto" ? (tg && tg.colorScheme ? tg.colorScheme === "dark" : matchMedia("(prefers-color-scheme: dark)").matches)
                                : pref === "dark";
-  document.documentElement.dataset.theme = dark ? "dark" : "light";
-  const bg = dark ? "#000000" : "#ffffff";
+  const burger = pref === "burger";
+  document.documentElement.dataset.theme = burger ? "burger" : dark ? "dark" : "light";
+  const bg = burger ? "#f5ebdc" : dark ? "#000000" : "#ffffff";
   document.querySelectorAll('meta[name="theme-color"]').forEach((m) => { m.removeAttribute("media"); m.content = bg; });
   document.querySelectorAll("[data-theme-set]").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.themeSet === pref)));
   try { tg.setHeaderColor(bg); tg.setBackgroundColor(bg); tg.setBottomBarColor && tg.setBottomBarColor(bg); } catch (e) {}
