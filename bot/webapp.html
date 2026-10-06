@@ -253,14 +253,31 @@
   .ed-sl .v { color: var(--muted); }
   .ed-sl input[type=range] { width: 100%; margin: 6px 0 0; accent-color: var(--text); height: 28px; }
   .ed-h { padding: 22px var(--pad) 2px; }
+  .layer3 { z-index: 14; }
+  /* ползунок «до/после»: накладка ровно по готовой картинке; слева «до», справа «после», тянуть можно только за ручку */
+  .cmp-ov { position: absolute; pointer-events: none; --p: 50%; }
+  .cmp-ov[hidden] { display: none; }
+  .cmp-ov > img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: fill; clip-path: inset(0 calc(100% - var(--p)) 0 0); }
+  .cmp-h { position: absolute; top: 0; bottom: 0; left: var(--p); width: 44px; margin-left: -22px; pointer-events: auto; touch-action: none; cursor: ew-resize; }
+  .cmp-h::before { content: ""; position: absolute; left: 50%; top: 0; bottom: 0; width: 2px; margin-left: -1px; background: #fff; box-shadow: 0 0 0 1px rgba(0,0,0,.35); }
+  .cmp-h i { position: absolute; left: 50%; top: 50%; width: 30px; height: 30px; margin: -15px 0 0 -15px; border-radius: 50%; background: #fff;
+             box-shadow: 0 0 0 1px rgba(0,0,0,.35); color: #000; display: flex; align-items: center; justify-content: center; font-style: normal; font-size: 13px; }
+  .cmp-h i::after { content: "◂▸"; letter-spacing: -1px; }
+  .cmp-l, .cmp-r { position: absolute; top: 8px; padding: 3px 6px; background: rgba(0,0,0,.55); color: #fff; pointer-events: none; }
+  .cmp-l { left: 8px; } .cmp-r { right: 8px; }
+  .lv-pic { height: 46vh; }
+  .lv-info { padding: 4px var(--pad) 0; }
+  .lv-info .nm { font-size: 22px; font-weight: 500; letter-spacing: -.025em; }
+  .lv-info p { margin: 6px 0 0; }
+  .lv-nav button { padding: 0 8px; font-size: 18px; }
+  .ed-pic.busy img, .lv-pic.busy img { opacity: .7; }
+  .cm-card { cursor: pointer; }
   .cm-grid { padding: 14px var(--pad) 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px 10px; }
   @media (min-width: 600px) { .cm-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
   .cm-card .tile span { padding: 0 12px; text-align: center; }
   .cm-card .tile img { width: 100%; height: 100%; object-fit: cover; }
   .cm-card .nm { margin-top: 7px; font-weight: 500; }
   .cm-card .ds { margin-top: 2px; font-size: 12px; line-height: 1.3; min-height: 2.6em; }
-  .cm-card button.go { margin-top: 6px; text-decoration: underline; text-underline-offset: 3px; text-decoration-thickness: 1px; }
-  .cm-card button.go:disabled { text-decoration: none; opacity: 1; color: var(--muted); }
   .cm-import { display: flex; gap: 10px; padding: 12px var(--pad) 0; }
   .cm-import input { flex: 1; min-width: 0; font: inherit; color: var(--text); background: var(--tile); border: 0; padding: 0 12px; height: 44px;
                      text-transform: none; letter-spacing: 0; }
@@ -310,6 +327,7 @@
         <div class="opts cap">
           <button class="tog" data-toggle="stamp" aria-pressed="false" data-i18n="Date">Дата</button>
           <button class="tog" data-toggle="frame" aria-pressed="false" data-i18n="Frame">Рамка</button>
+          <button class="tog" id="bCmp" aria-pressed="false" data-i18n="Before / after">До / после</button>
           <button class="opt" id="bShift" aria-label="Сдвинуть засвет, другой вариант" data-i18n-aria="Shift the leak, another variant" data-i18n="Shift leak">Сдвинуть засвет</button>
         </div>
       </div>
@@ -354,6 +372,7 @@
   <div class="vbar cap"><span class="vleft"><button class="vback" id="edBack" aria-label="Назад" data-i18n-aria="Back">←</button><span id="edTitle"></span></span><span></span><span></span></div>
   <div class="ed-pic" id="edPic"><img id="edImg" alt="" hidden><p class="muted" id="edNoPic" hidden></p></div>
   <div class="ed-top"><input class="al-name" id="edName" maxlength="32" autocomplete="off">
+    <button class="tog" id="edCmp" aria-pressed="false" style="align-self:flex-start" data-i18n="Before / after">До / после</button>
     <select class="st-select" id="edBase" aria-label="Начать с" data-i18n-aria="Start from"></select></div>
   <div id="edBody"></div>
   <div class="actions"><button class="btn" id="edSave"></button><button class="link cap" id="edReset" data-i18n="Reset">Сбросить</button></div>
@@ -361,6 +380,14 @@
 <section class="settings layer2" id="community" hidden aria-label="Сообщество" data-i18n-aria="Community">
   <div class="vbar cap"><span class="vleft"><button class="vback" id="cmBack" aria-label="Назад" data-i18n-aria="Back">←</button><span data-i18n="Community">Сообщество</span></span><span></span><span></span></div>
   <div id="cmBody"></div>
+</section>
+<section class="settings layer3" id="lookView" hidden aria-label="Плёнка" data-i18n-aria="Film">
+  <div class="vbar cap"><span class="vleft"><button class="vback" id="lvBack" aria-label="Назад" data-i18n-aria="Back">←</button><span id="lvTitle"></span></span><span class="muted" id="lvPos"></span>
+    <span class="lv-nav"><button id="lvPrev" aria-label="Предыдущая" data-i18n-aria="Previous">‹</button><button id="lvNext" aria-label="Следующая" data-i18n-aria="Next">›</button></span></div>
+  <div class="ed-pic lv-pic" id="lvPic"><img id="lvImg" alt=""></div>
+  <div class="line"><div class="opts cap" id="lvSrc" style="justify-content:flex-start;gap:22px"></div></div>
+  <div class="lv-info"><div class="nm" id="lvName"></div><div class="cap muted" id="lvBy"></div><p class="muted" id="lvDesc"></p></div>
+  <div class="actions"><button class="btn" id="lvGo"></button><button class="link cap" id="lvAdd"></button></div>
 </section>
 <section class="settings" id="settings" hidden aria-label="Настройки" data-i18n-aria="Settings">
   <div class="vbar cap"><span class="vleft"><button class="vback" id="stBack" aria-label="Назад" data-i18n-aria="Back">←</button><span data-i18n="Settings">Настройки</span></span><span></span><span></span></div>
@@ -758,7 +785,7 @@ $("sDelete").onclick = () => {
 
 /* вне Telegram нет его кнопки «назад»: открытые слои кладём в историю, системный «назад» их закрывает */
 let histPushed = false, histIgnore = false;
-function layerOpen() { return cur >= 0 || selecting || !$("sheet").hidden || !$("albumSheet").hidden || !$("settings").hidden || !$("lookEd").hidden || !$("community").hidden || !!crop; }
+function layerOpen() { return cur >= 0 || selecting || !$("sheet").hidden || !$("albumSheet").hidden || !$("settings").hidden || !$("lookEd").hidden || !$("community").hidden || !$("lookView").hidden || !!crop; }
 function syncHistory() {
   if (tg) return;
   const open = layerOpen();
@@ -775,6 +802,7 @@ addEventListener("popstate", () => {
 
 function onBack() {
   if (!$("albumSheet").hidden) return closeAlbumSheet();
+  if (!$("lookView").hidden) return closeLookView();
   if (!$("lookEd").hidden) return closeEditor();
   if (!$("community").hidden) return closeCommunity();
   if (!$("settings").hidden) return closeSettings();
@@ -975,6 +1003,7 @@ function openViewer(i) {
 }
 function closeViewer() {
   if (crop) exitCrop(true);
+  vCmp.hide();
   $("viewer").hidden = true;
   document.body.style.overflow = "";
   cur = -1;
@@ -1000,6 +1029,7 @@ function refreshViewerImage() {
   $("bFile").textContent = fileLabel(p);
   $("vname").textContent = p.preset_name;
   $("vwhen").textContent = p.leak ? T("Засвет", "Leak") + `: ${leakName(p.leak)}` : (p.auto_reason ? T("Авто", "Auto") + `: ${p.auto_reason}` : "");
+  syncViewerCompare();
 }
 
 function renderStrip(p) {
@@ -1060,6 +1090,7 @@ function renderViewer() {
   $("controls").hidden = p.archived;
   $("archNote").hidden = !p.archived;
   $("bCrop").hidden = p.archived;
+  $("bCmp").hidden = p.archived;
 
   if (!p.archived) {
     renderStrip(p);
@@ -1164,9 +1195,10 @@ $("bHide").onclick = () => {
 
 /* свайпы между кадрами — работают всегда, даже пока кадр проявляется */
 let sx = 0, sy = 0;
-$("stage").addEventListener("touchstart", (e) => { sx = e.touches[0].clientX; sy = e.touches[0].clientY; }, { passive: true });
+let sxOk = true;
+$("stage").addEventListener("touchstart", (e) => { sx = e.touches[0].clientX; sy = e.touches[0].clientY; sxOk = !e.target.closest(".cmp-h"); }, { passive: true });
 $("stage").addEventListener("touchend", (e) => {
-  if (crop) return;
+  if (crop || !sxOk) return;
   const dx = e.changedTouches[0].clientX - sx, dy = e.changedTouches[0].clientY - sy;
   if (Math.abs(dx) < 50 || Math.abs(dx) < Math.abs(dy)) return;
   const next = cur + (dx < 0 ? 1 : -1);
@@ -1793,6 +1825,65 @@ function holdToDelete(el, key, name) {
   el.addEventListener("click", (e) => { if (t === "fired") { t = null; e.stopImmediatePropagation(); } }, true);
 }
 
+/* ---------- ползунок «до/после» ---------- */
+// Накладка с исходным кадром ложится ровно поверх готовой картинки img (в host с position), слева «до», справа «после».
+function attachCompare(img, host) {
+  const ov = document.createElement("div");
+  ov.className = "cmp-ov";
+  ov.hidden = true;
+  ov.innerHTML = `<img alt=""><span class="cmp-l cap"></span><span class="cmp-r cap"></span><div class="cmp-h" role="slider" tabindex="0" aria-valuemin="0" aria-valuemax="100"><i></i></div>`;
+  host.appendChild(ov);
+  const before = ov.querySelector("img"), handle = ov.querySelector(".cmp-h");
+  const c = {
+    on: false,
+    sync() {
+      if (!c.on) return;
+      Object.assign(ov.style, { left: img.offsetLeft + "px", top: img.offsetTop + "px", width: img.offsetWidth + "px", height: img.offsetHeight + "px" });
+    },
+    show(src) {
+      c.on = true;
+      ov.hidden = false;
+      ov.querySelector(".cmp-l").textContent = T("До", "Before");
+      ov.querySelector(".cmp-r").textContent = T("После", "After");
+      if (before.getAttribute("src") !== src) before.src = src;
+      c.sync();
+    },
+    hide() { c.on = false; ov.hidden = true; },
+  };
+  const move = (clientX) => {
+    const r = ov.getBoundingClientRect();
+    if (!r.width) return;
+    const v = clamp((clientX - r.left) / r.width, 0, 1) * 100;
+    ov.style.setProperty("--p", v + "%");
+    handle.setAttribute("aria-valuenow", Math.round(v));
+  };
+  handle.addEventListener("pointerdown", (e) => { handle.setPointerCapture(e.pointerId); handle.dataset.drag = "1"; e.preventDefault(); e.stopPropagation(); });
+  handle.addEventListener("pointermove", (e) => { if (handle.dataset.drag) move(e.clientX); });
+  const end = (e) => { delete handle.dataset.drag; try { handle.releasePointerCapture(e.pointerId); } catch (x) {} };
+  handle.addEventListener("pointerup", end);
+  handle.addEventListener("pointercancel", end);
+  handle.addEventListener("keydown", (e) => {
+    if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
+    const now = parseFloat(ov.style.getPropertyValue("--p")) || 50;
+    ov.style.setProperty("--p", clamp(now + (e.key === "ArrowLeft" ? -5 : 5), 0, 100) + "%");
+    e.preventDefault();
+    e.stopPropagation();
+  });
+  new ResizeObserver(() => c.sync()).observe(img);
+  img.addEventListener("load", () => c.sync());
+  addEventListener("resize", () => c.sync());
+  return c;
+}
+const vCmp = attachCompare($("vimg"), $("stage"));
+let cmpOn = false;
+function origUrl(p, edge) { return url(`/img/orig/${p.id}`, `&e=${edge}${p.crop ? `&c=${p.crop.join(",")}` : ""}`); }
+function syncViewerCompare() {
+  const p = photos[cur];
+  $("bCmp").setAttribute("aria-pressed", String(cmpOn));
+  if (cmpOn && p && !p.archived && !crop) vCmp.show(origUrl(p, 1600)); else vCmp.hide();
+}
+$("bCmp").onclick = () => { cmpOn = !cmpOn; haptic(); syncViewerCompare(); };
+
 /* ---------- свои плёнки: редактор, коды, сообщество ---------- */
 // Плёнка — несколько чисел (контраст, зерно, халяция…). Редактор крутит их ползунками, сервер на каждое движение
 // присылает кадр с получившейся плёнкой; сохраняется только по кнопке.
@@ -1833,7 +1924,7 @@ function showLayer(el) {
 }
 function hideLayer(el) {
   el.hidden = true;
-  const still = cur >= 0 || !$("settings").hidden;
+  const still = cur >= 0 || ["settings", "lookEd", "community", "lookView"].some((id) => !$(id).hidden);
   document.body.style.overflow = still ? "hidden" : "";
   if (tg && !still && !selecting) tg.BackButton.hide();
   syncHistory();
@@ -1861,6 +1952,9 @@ async function openEditor({ key } = {}) {
     ...presets.filter((f) => f.p).map((f) => Object.assign(document.createElement("option"), { value: f.key, textContent: f.name })));
   base.value = "";
   $("edImg").hidden = true;
+  edCmp.hide();
+  $("edCmp").setAttribute("aria-pressed", "false");
+  $("edCmp").hidden = !ed.photo;
   $("edNoPic").hidden = !!ed.photo;
   $("edNoPic").textContent = T("Нет готового кадра для просмотра. Плёнку можно сохранить и применить позже.", "No finished frame to preview on. You can save the film and apply it later.");
   const frag = document.createDocumentFragment();
@@ -1922,8 +2016,16 @@ function edPreview() {
     finally { if (ed === e && my === e.seq) $("edPic").classList.remove("busy"); }
   }, 140);
 }
+const edCmp = attachCompare($("edImg"), $("edPic"));
+$("edCmp").onclick = () => {
+  if (!ed || !ed.photo) return;
+  const on = $("edCmp").getAttribute("aria-pressed") !== "true";
+  $("edCmp").setAttribute("aria-pressed", String(on));
+  if (on) edCmp.show(origUrl(ed.photo, 420)); else edCmp.hide();
+};
 function closeEditor() {
   if (!ed) return;
+  edCmp.hide();
   clearTimeout(ed.timer);
   if (ed.ctl) ed.ctl.abort();
   ed = null;
@@ -1994,17 +2096,27 @@ async function shareLook(f) {
   if (j.suggest_url) $("lkSuggest").onclick = () => openExternal(j.suggest_url);
 }
 
+let cm = null;              // { looks, ctx } — каталог и кадр, с которого его открыли (null — из настроек)
 async function openCommunity() {
+  const c = cur >= 0 ? photos[cur] : null;
+  cm = { looks: [], ctx: c && !c.archived && c.ready ? c : null };
   $("cmBody").innerHTML = `<p class="muted st-p">${T("Загружаю каталог…", "Loading the catalog…")}</p>`;
   showLayer($("community"));
   let j;
   try { j = await api("/api/community"); } catch (e) { $("cmBody").innerHTML = ""; return toast(e.message); }
   if ($("community").hidden) return;
+  cm.looks = j.looks;
+  renderCommunity();
+}
+function renderCommunity() {
   const body = document.createDocumentFragment();
   const intro = document.createElement("p");
   intro.className = "muted st-p";
-  intro.textContent = T("Плёнки, которые собрали и выложили люди. Превью — на твоём последнем кадре. Добавленная плёнка появится в ленте плёнок.",
-                        "Films that people made and shared. Previews use your latest frame. An added film shows up in the film strip.");
+  intro.textContent = cm.ctx
+    ? T("Плёнки, которые собрали и выложили люди. Нажми на плёнку — увидишь её на своём кадре с ползунком «до/после».",
+        "Films that people made and shared. Tap one to see it on your frame with a before/after slider.")
+    : T("Плёнки, которые собрали и выложили люди. Нажми на плёнку, чтобы рассмотреть. Чтобы примерить на свой кадр, открой каталог из просмотра кадра.",
+        "Films that people made and shared. Tap one to look closer. To try it on your own frame, open the catalog from the frame viewer.");
   body.appendChild(intro);
   const imp = document.createElement("form");
   imp.className = "cm-import";
@@ -2026,52 +2138,124 @@ async function openCommunity() {
   body.appendChild(imp);
   const grid = document.createElement("div");
   grid.className = "cm-grid";
-  if (!j.looks.length) {
+  if (!cm.looks.length) {
     const none = document.createElement("p");
     none.className = "muted st-p";
     none.textContent = T("Каталог пока пуст или не загрузился.", "The catalog is empty or could not be loaded.");
     body.appendChild(none);
   }
-  for (const l of j.looks) {
+  cm.looks.forEach((l, i) => {
     const card = document.createElement("div");
     card.className = "cm-card";
-    const pic = j.sample ? `<img loading="lazy" decoding="async" alt="" src="${esc(url(`/img/look/${l.id}`, `&p=${j.sample}&h=${l.h}`))}">` : `<span class="cap muted"></span>`;
-    card.innerHTML = `<div class="tile">${pic}</div><div class="nm"></div><div class="cap muted by"></div><div class="ds muted"></div><button class="go cap"></button>`;
-    card.querySelector(".nm").textContent = l.name;
+    card.tabIndex = 0;
+    card.setAttribute("role", "button");
+    // картинка — готовый кадр, который приложил автор: сервер её только отдаёт, ничего не рисуя
+    card.innerHTML = `<div class="tile"><img loading="lazy" decoding="async" alt="" src="${esc(url(`/img/cm/${l.id}`, `&h=${l.h}`))}"></div><div class="nm"></div><div class="cap muted by"></div><div class="ds muted"></div>`;
+    card.querySelector(".nm").textContent = l.name + (l.installed ? "  ✓" : "");
     card.querySelector(".by").textContent = (l.by ? T("автор ", "by ") + l.by : "") + (l.bw ? (l.by ? " · " : "") + T("ч/б", "b&w") : "");
     card.querySelector(".ds").textContent = l.desc;
-    const sp = card.querySelector(".tile span");
-    if (sp) sp.textContent = l.name;
-    const go = card.querySelector(".go");
-    const paint = () => {
-      const canApply = l.installed && cur >= 0 && photos[cur];
-      go.textContent = !l.installed ? T("Добавить", "Add") : canApply ? T("Применить к кадру", "Apply to frame") : T("✓ У тебя", "✓ Added");
-      go.disabled = !!l.installed && !canApply;
-    };
-    paint();
-    go.onclick = async () => {
-      if (l.installed) { closeCommunity(); return apply({ preset: l.installed }); }
-      go.disabled = true;
-      try {
-        const r = await api("/api/community/add", { id: l.id });
-        l.installed = r.key;
-        await reloadPresets();
-        toast(T(`Плёнка «${r.name}» добавлена`, `Film "${r.name}" added`));
-        haptic("success");
-      } catch (err) { toast(err.message); }
-      paint();
-    };
+    card.onclick = () => openLookView(i);
+    card.onkeydown = (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); openLookView(i); } };
     grid.appendChild(card);
-  }
+  });
   body.appendChild(grid);
   const note = document.createElement("p");
   note.className = "muted st-p";
-  note.textContent = T("Свою плёнку можно предложить в каталог: «⋯» → «Мои плёнки» → «Поделиться».", "To suggest your own film: ⋯ → My films → Share.");
+  note.textContent = T("Свою плёнку можно предложить в каталог: «⋯» → «Мои плёнки» → «Поделиться». Превью в каталоге нарисованы на общем образце.",
+                       "To suggest your own film: ⋯ → My films → Share. Catalog previews use a shared sample photo.");
   body.appendChild(note);
   $("cmBody").replaceChildren(body);
 }
 function closeCommunity() { if (!$("community").hidden) hideLayer($("community")); }
 $("cmBack").onclick = () => onBack();
+
+/* экран плёнки: ползунок «до/после» на твоём кадре или на образце, потом «Добавить» / «Применить» */
+let lv = null;              // { i, src: "mine" | "sample" }
+const lvCmp = attachCompare($("lvImg"), $("lvPic"));
+function openLookView(i) {
+  lv = { i, src: cm.ctx ? "mine" : "sample" };
+  showLayer($("lookView"));
+  renderLookView();
+}
+function closeLookView() {
+  if (!lv) return;
+  lv = null;
+  lvCmp.hide();
+  hideLayer($("lookView"));
+}
+function renderLookView() {
+  const l = cm.looks[lv.i], mine = lv.src === "mine" && cm.ctx;
+  let before, after;
+  if (mine) {
+    const c = cm.ctx.crop ? `&c=${cm.ctx.crop.join(",")}` : "";
+    before = origUrl(cm.ctx, 1000);
+    after = url(`/img/look/${l.id}`, `&p=${cm.ctx.id}&e=1000&h=${l.h}${c}`);
+  } else {
+    before = url(`/img/cm/${l.id}-before`, `&h=${l.h}`);
+    after = url(`/img/cm/${l.id}`, `&h=${l.h}`);
+  }
+  $("lvTitle").textContent = T("Плёнка", "Film");
+  $("lvPos").textContent = `${lv.i + 1} / ${cm.looks.length}`;
+  $("lvPrev").disabled = lv.i === 0;
+  $("lvNext").disabled = lv.i === cm.looks.length - 1;
+  $("lvName").textContent = l.name + (l.installed ? "  ✓" : "");
+  $("lvBy").textContent = (l.by ? T("автор ", "by ") + l.by : "") + (l.bw ? (l.by ? " · " : "") + T("ч/б", "b&w") : "");
+  $("lvDesc").textContent = l.desc;
+  const pic = $("lvPic"), img = $("lvImg");
+  pic.classList.add("busy");                // на своём кадре плёнка рисуется на сервере — секунду это видно
+  img.onload = () => pic.classList.remove("busy");
+  img.onerror = () => { pic.classList.remove("busy"); toast(T("Не удалось показать плёнку", "Could not show the film")); };
+  if (img.getAttribute("src") !== after) img.src = after; else pic.classList.remove("busy");
+  lvCmp.show(before);
+  const src = $("lvSrc");
+  src.replaceChildren(...[["mine", T("Мой кадр", "My frame"), !!cm.ctx], ["sample", T("Образец", "Sample"), true]].filter((x) => x[2]).map(([k, name]) => {
+    const b = document.createElement("button");
+    b.className = "opt";
+    b.textContent = name;
+    b.setAttribute("aria-pressed", String(lv.src === k));
+    b.onclick = () => { if (lv.src !== k) { lv.src = k; renderLookView(); } };
+    return b;
+  }));
+  const go = $("lvGo"), add = $("lvAdd");
+  if (cm.ctx) {
+    go.textContent = l.installed ? T("Применить к кадру", "Apply to frame") : T("Добавить и применить", "Add and apply");
+    add.textContent = l.installed ? "" : T("Только добавить", "Add only");
+    add.hidden = !!l.installed;
+    go.disabled = false;
+  } else {
+    go.textContent = l.installed ? T("✓ Уже у тебя", "✓ Already yours") : T("Добавить", "Add");
+    go.disabled = !!l.installed;
+    add.hidden = true;
+  }
+}
+async function lvDo(andApply) {
+  const l = cm.looks[lv.i];
+  $("lvGo").disabled = true;
+  try {
+    if (!l.installed) {
+      const r = await api("/api/community/add", { id: l.id });
+      l.installed = r.key;
+      lookRev[r.key] = Date.now();
+      await reloadPresets();
+      toast(T(`Плёнка «${r.name}» добавлена`, `Film "${r.name}" added`));
+      haptic("success");
+    }
+    if (andApply && cm.ctx) {
+      const key = l.installed;
+      closeLookView();
+      closeCommunity();
+      if (photos[cur]) apply({ preset: key });
+      return;
+    }
+    renderLookView();
+    renderCommunity();
+  } catch (err) { toast(err.message); renderLookView(); }
+}
+$("lvGo").onclick = () => lvDo(true);
+$("lvAdd").onclick = () => lvDo(false);
+$("lvBack").onclick = () => onBack();
+$("lvPrev").onclick = () => { if (lv && lv.i > 0) { lv.i--; renderLookView(); } };
+$("lvNext").onclick = () => { if (lv && lv.i < cm.looks.length - 1) { lv.i++; renderLookView(); } };
 $("stCommunity").onclick = openCommunity;
 
 /* ---------- кадрирование ---------- */
@@ -2087,6 +2271,7 @@ function enterCrop() {
   if (!p || p.archived) return;
   const c = p.crop || [0, 0, 1, 1];
   crop = { x: c[0], y: c[1], w: c[2], h: c[3], ratio: 0, key: "free", W: 0, H: 0 };
+  syncViewerCompare();
   $("vmain").hidden = true;
   $("cropui").hidden = false;
   $("stage").classList.add("cropping", "busy");

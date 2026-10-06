@@ -1296,11 +1296,6 @@ def community_json(uid):
         src = lut_meta(uid, f"lut{r['id']}").get("src")
         if src:
             have[src] = f"lut{r['id']}"
-    sample = None
-    for r in q("SELECT id, work FROM photos WHERE owner=? AND hidden=0 AND work IS NOT NULL ORDER BY taken DESC, id DESC LIMIT 5", (uid,)):
-        if has(r["work"]):
-            sample = r["id"]
-            break
     en = user_lang(uid) == "en"
     items = []
     for e in community_catalog():
@@ -1308,7 +1303,7 @@ def community_json(uid):
         items.append({"id": e["id"], "name": e["name"], "by": e["by"], "h": e["h"], "bw": bool(e["p"]["bw"]),
                       "desc": (d.get("en") if en else d.get("ru")) or d.get("ru") or d.get("en") or "",
                       "installed": have.get(e["id"], "")})
-    return {"looks": items, "sample": sample, "repo": COMMUNITY_REPO}
+    return {"looks": items, "repo": COMMUNITY_REPO}
 
 
 def community_add(uid, cid):
@@ -1338,15 +1333,60 @@ def try_look(uid, data):
     return FAST.submit(job_try, dict(ph), params, strength).result(timeout=120)
 
 
-def community_preview(ph, cid):
+def community_preview(ph, cid, edge=420):
     """Плёнка каталога на кадре пользователя; файл-кэш на сутки."""
     for e in community_catalog():
         if e["id"] == cid:
-            path = PREVIEWS / f"{ph['id']}_cm{e['h']}_100.jpg"
+            path = PREVIEWS / f"{ph['id']}_cm{e['h']}_100{'' if edge == 420 else '_' + str(edge)}.jpg"
             if not path.exists():
-                FAST.submit(job_try, dict(ph), e["p"], 100, str(path)).result(timeout=120)
+                FAST.submit(job_try, dict(ph), e["p"], 100, str(path), edge).result(timeout=120)
             return path
     return None
+
+
+def original_file(ph, edge):
+    """Кадр без плёнки того же размера, что и готовый, — для ползунка «до/после»."""
+    path = base_path(ph, edge)
+    if not path.exists():
+        FAST.submit(job_base, dict(ph), edge).result(timeout=120)
+    return path
+
+
+def community_image(name):
+    """Готовая картинка плёнки каталога: <id> — как она выглядит на образце, <id>-before — исходник под неё (по умолчанию
+    общий образец), sample — сам образец. Они лежат рядом с каталогом (community/looks/): сервер забирает их по мере надобности
+    и кэширует, поэтому показывать каталог можно без единой отрисовки у себя."""
+    sample = COMMUNITY_BUNDLED.parent / "sample.jpg"
+    if name == "sample":
+        return sample if sample.exists() else None
+    cid = name.removesuffix("-before")
+    entry = next((e for e in community_catalog() if e["id"] == cid), None)
+    if not entry:
+        return None
+    cache = BASE / "community"
+    cached = cache / f"{name}.{entry['h']}.jpg"
+    if cached.exists():
+        return cached
+    remote = COMMUNITY_URL.rsplit("/", 1)[0] + "/looks/" if COMMUNITY_URL.startswith("https://") else ""
+    if remote:
+        try:
+            r = requests.get(f"{remote}{name}.jpg", timeout=8, stream=True)
+            data = r.raw.read(1_500_001, decode_content=True) if r.status_code == 200 else b""
+            if 0 < len(data) <= 1_500_000:
+                im = Image.open(io.BytesIO(data))
+                if im.format == "JPEG" and max(im.size) <= 2400:           # чужой файл: только небольшой JPEG
+                    im.load()
+                    cache.mkdir(exist_ok=True)
+                    for old in cache.glob(f"{name}.*.jpg"):
+                        remove(str(old))
+                    cached.write_bytes(data)
+                    return cached
+        except (requests.RequestException, OSError, ValueError):
+            pass
+    local = COMMUNITY_BUNDLED.parent / "looks" / f"{name}.jpg"
+    if local.exists():
+        return local
+    return sample if name.endswith("-before") and sample.exists() else None
 
 
 def storage_limit(uid):
@@ -1774,20 +1814,31 @@ def job_full(ph, path):
     return save_atomic(render(ph, full=True), path, 95)
 
 
-def preview_base(ph):
-    """Уменьшенный кадр (420 px) — основа всех превью; кадрированное сперва вырезается, потом уменьшается."""
-    crop = ph.get("crop")
-    base_path = PREVIEWS / f"{ph['id']}_base{crop_tag(crop)}.jpg"
-    if not base_path.exists():
+BASE_EDGES = (420, 1000, 1600)     # 420 — полоска плёнок и редактор, 1000 — просмотр плёнки сообщества, 1600 — «до/после» в кадре
+
+
+def base_path(ph, edge=420):
+    return PREVIEWS / f"{ph['id']}_base{'' if edge == 420 else edge}{crop_tag(ph.get('crop'))}.jpg"
+
+
+def preview_base(ph, edge=420):
+    """Уменьшенный кадр без плёнки — основа превью; кадрированное сперва вырезается, потом уменьшается."""
+    path = base_path(ph, edge)
+    if not path.exists():
         b = Image.open(ph["work"])
-        if crop:
-            b = crop_img(b, crop)
+        if ph.get("crop"):
+            b = crop_img(b, ph["crop"])
         else:
-            b.draft("RGB", (420, 420))
+            b.draft("RGB", (edge, edge))
         b = b.convert("RGB")
-        b.thumbnail((420, 420), Image.LANCZOS)
-        save_atomic(b, str(base_path), 92)
-    return Image.open(base_path).convert("RGB")
+        b.thumbnail((edge, edge), Image.LANCZOS)
+        save_atomic(b, str(path), 92)
+    return Image.open(path).convert("RGB")
+
+
+def job_base(ph, edge):
+    preview_base(ph, edge)
+    return str(base_path(ph, edge))
 
 
 def job_preview(ph, key, strength, path, leak=""):
@@ -1798,10 +1849,10 @@ def job_preview(ph, key, strength, path, leak=""):
     return save_atomic(out, path, 84)
 
 
-def job_try(ph, params, strength, path=None):
+def job_try(ph, params, strength, path=None, edge=420):
     """Кадр с плёнкой, которой ещё нет в базе: живой просмотр в редакторе и превью плёнок сообщества.
     Без path — JPEG байтами (редактор не засоряет диск), с path — файлом-кэшем."""
-    out = film(preview_base(ph), "custom", strength, ph["id"], params)
+    out = film(preview_base(ph, edge), "custom", strength, ph["id"], params)
     if path:
         return save_atomic(out, path, 84)
     buf = io.BytesIO()
@@ -4579,13 +4630,22 @@ class Handler(BaseHTTPRequestHandler):
                 return self.js(user_look(uid, parts[2]))
             if len(parts) == 4 and parts[:2] == ["api", "look"] and parts[3] == "share":
                 return self.js(look_share(uid, parts[2]))
-            if len(parts) == 3 and parts[:2] == ["img", "look"]:
-                ph = self.mine((qs.get("p") or [""])[0], uid)
-                if not ph or ph["hidden"] or not has(ph["work"]):
+            if len(parts) == 3 and parts[:2] in (["img", "look"], ["img", "orig"]):
+                try:
+                    edge = int((qs.get("e") or ["420"])[0])
+                except ValueError:
+                    edge = 0
+                ph = self.mine((qs.get("p") or [parts[2]])[0], uid)
+                if not ph or ph["hidden"] or not has(ph["work"]) or edge not in BASE_EDGES:
                     return self.err(404, L("нет кадра", "no frame"))
-                path = community_preview(ph, parts[2])
+                path = original_file(ph, edge) if parts[1] == "orig" else community_preview(ph, parts[2], edge)
                 if not path:
                     return self.err(404, L("нет такой плёнки", "no such film"))
+                return self.file(str(path))
+            if len(parts) == 3 and parts[:2] == ["img", "cm"]:
+                path = community_image(parts[2]) if re.fullmatch(r"[a-z0-9][a-z0-9-]{0,50}", parts[2]) else None
+                if not path:
+                    return self.err(404, L("нет картинки", "no image"))
                 return self.file(str(path))
             if parts == ["api", "albums"]:
                 return self.js({"albums": user_albums(uid)})

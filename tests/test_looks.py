@@ -122,7 +122,7 @@ if __name__ == "__main__":
     # --- каталог сообщества (копия из репозитория) ---
     c = h.get("/api/community")
     check(f"каталог: {len(c['looks'])} плёнок", len(c["looks"]) >= 3 and all(x["name"] and x["h"] for x in c["looks"]))
-    check("образец для превью — кадр пользователя", c["sample"] in [x["id"] for x in h.photos()])
+    check("каталог не рисует превью сам: образца-кадра в ответе нет", "sample" not in c)
     first = c["looks"][0]
     pv = h.get(f"/img/look/{first['id']}?p={pid}")
     check("превью плёнки каталога — картинка на моём кадре", isinstance(pv, bytes) and pv[:3] == b"\xff\xd8\xff")
@@ -134,6 +134,25 @@ if __name__ == "__main__":
     check("повторно не дублируется", ad2.get("again") and ad2["key"] == ad["key"])
     check("в каталоге помечена как добавленная", next(x for x in h.get("/api/community")["looks"] if x["id"] == first["id"])["installed"] == ad["key"])
     check("неизвестная плёнка каталога — 400", h.post("/api/community/add", {"id": "net-takoy"}).get("_status") == 400)
+
+    # --- готовые картинки каталога и «до/после» ---
+    def size(b):
+        return Image.open(io.BytesIO(b)).size
+    cm_img = h.get(f"/img/cm/{first['id']}")
+    check(f"картинка плёнки каталога отдаётся готовой: {size(cm_img) if isinstance(cm_img, bytes) else cm_img}", isinstance(cm_img, bytes) and max(size(cm_img)) == 900)
+    bf = h.get(f"/img/cm/{first['id']}-before")
+    sm = h.get("/img/cm/sample")
+    check("исходник под неё — по умолчанию общий образец", isinstance(bf, bytes) and bf == sm and max(size(sm)) == 1400)
+    check("чужое имя и обход пути — 404", all(h.get(f"/img/cm/{n}").get("_status") == 404 for n in ("net-takoy", "net-takoy-before", "..%2f..%2fetc", "WARM")))
+    check("образец — без метаданных (место и время съёмки не раскрываются)", not Image.open(io.BytesIO(sm)).getexif())
+    o1 = h.get(f"/img/orig/{pid}?e=1000")
+    o16 = h.get(f"/img/orig/{pid}?e=1600")
+    check(f"кадр без плёнки для «до/после»: {size(o1)} и {size(o16)}", max(size(o1)) == 900 and max(size(o16)) == 900 and size(o1) == size(o16))      # кадры этого теста 900 px: увеличивать нечего
+    check("размер вне списка — 404", h.get(f"/img/orig/{pid}?e=777").get("_status") == 404 and h.get(f"/img/look/{first['id']}?p={pid}&e=5000").get("_status") == 404)
+    big = h.get(f"/img/look/{first['id']}?p={pid}&e=1000")
+    check(f"плёнка каталога на моём кадре крупно: {size(big)}", max(size(big)) == 900 and size(big) == size(o1))
+    check("чужой кадр без плёнки не отдаётся", h2.get(f"/img/orig/{pid}?e=1000").get("_status") == 404)
+    check("без входа — 401", h.req(f"/img/orig/{pid}?e=420", auth=False).get("_status") == 401)
 
     # --- битый каталог из сети не ломает ничего ---
     raw = {"looks": [{"id": "ok-one", "name": "Ok", "p": {"contrast": 0.3}},
