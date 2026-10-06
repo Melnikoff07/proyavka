@@ -44,6 +44,7 @@ if __name__ == "__main__":
     pub = harness.Harness(fb, h.port, h.base)          # без входа
     page = pub.get(f"/a/{tok}", auth=False)
     check("страница открывается без входа", isinstance(page, bytes) and "Прогулка b".encode() in page)
+    check("в подвале контакт автора и ссылка на проект", b"https://t.me/Sashkere" in page and b"github.com/Melnikoff07/proyavka" in page)
     check("превью ссылки: og:image", b'og:image' in page and f"/a/{tok}/view/".encode() in page)
     lst = pub.get(f"/a/{tok}/list", auth=False)
     check(f"список: {len(lst.get('photos', []))} кадра по времени", [p["id"] for p in lst["photos"]] == sorted(ids[:3]))
@@ -52,6 +53,7 @@ if __name__ == "__main__":
     check("миниатюра отдаётся", isinstance(t, bytes) and t[:3] == b"\xff\xd8\xff")
     check("кадр не из альбома — 404", pub.get(f"/a/{tok}/view/{ids[3]}", auth=False).get("_status") == 404)
     check("чужой кадр — 404", pub.get(f"/a/{tok}/view/{other}", auth=False).get("_status") == 404)
+    check("«О проекте» в настройках: GitHub и Telegram", h.get("/api/me")["about"] == {"project": fb.PROJECT_URL, "tg": "Sashkere"})
     check("лента без входа закрыта", pub.get("/api/photos", auth=False).get("_status") == 401)
 
     t0 = time.time()

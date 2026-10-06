@@ -37,6 +37,7 @@ One `NAME=value` per line. After editing: `sudo systemctl restart proyavka-bot`.
 | `DAILY_UPLOAD_LIMIT` | `300` | frames per 24 hours an invited user may send (the admin has no limit); `0` — no limit |
 | `COMMUNITY_URL` | GitHub raw `community/looks.json` | where the server downloads the community film catalog (once an hour; a copy is kept on disk and in the repo). Empty — use only the copy from the repo |
 | `COMMUNITY_REPO` | `Melnikoff07/proyavka` | repository that "Suggest to the catalog" opens an issue in; empty hides the button |
+| `CONTACT_TG` | `Sashkere` | Telegram username shown in the album footer and in ⋯ → About; set your own when you fork, empty hides it |
 | `RAW_FILES` | `1` | accept RAW (ARW, CR2/CR3, NEF, RAF, DNG, ORF, RW2…); on by default, `0` turns it off (`python3 setup.py --raw=0` or Storage and speed in the menu). The wizard installs the `rawpy` library; if it can't be installed, RAW stays off. If the camera sends RAW+JPEG, the JPEG is used and the RAW is dropped |
 | `MAX_MEGAPIXELS` | `120` | larger images are rejected right away — protection against "bombs" that blow up in memory |
 | `CLEANUP_MINUTES` | `15` | how often storage limits are checked (also right after frames arrive) |

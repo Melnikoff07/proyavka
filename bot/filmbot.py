@@ -2778,6 +2778,9 @@ def set_commands(uid):
 
 # ================= настройка камеры прямо из чата =================
 PROJECT_URL = os.environ.get("PROJECT_URL", "https://github.com/Melnikoff07/proyavka")
+CONTACT_TG = os.environ.get("CONTACT_TG", "Sashkere").strip().lstrip("@")     # контакт автора: подвал альбомов и «⋯» → «О проекте»; пусто — скрыть
+if not re.fullmatch(r"[A-Za-z0-9_]{4,32}", CONTACT_TG):
+    CONTACT_TG = ""
 APP_ROOT = Path(__file__).resolve().parent.parent
 CAMERA_CONFIG = APP_ROOT / "camera-config" / "config.txt"
 FTP_ROOT_CERT = APP_ROOT / "camera-app" / "certs" / "isrgrootx1.pem"
@@ -3737,7 +3740,8 @@ def me_json(uid):
             "default_film": u.get("default_film") or "auto", "used": sum(user_usage(uid).values()),
             "limit": storage_limit(uid) * 1e9, "frames": n["n"] or 0, "trash": n["t"] or 0, "orig_days": ORIG_DAYS,
             "telegram": {"bot": bot_name_safe(), "linked": bool(u.get("tg")),
-                         "can_unlink": uid >= WEB_BASE and bool(u.get("tg"))}}
+                         "can_unlink": uid >= WEB_BASE and bool(u.get("tg"))},
+            "about": {"project": PROJECT_URL, "tg": CONTACT_TG}}
 
 
 def set_me(uid, data):
@@ -4061,7 +4065,9 @@ def album_page(a):
             f'<meta property="og:description" content="{html_esc(L("Проявка", "Proyavka"))} · {len(rows)}">\n'
             + (f'<meta property="og:image" content="{html_esc(image)}">\n' if image else ""))
     return (page.replace("<!--META-->", meta).replace("{{TITLE}}", html_esc(title))
-                .replace("{{PROJECT}}", html_esc(PROJECT_URL)))
+                .replace("{{PROJECT}}", html_esc(PROJECT_URL))
+                .replace("{{CONTACT}}", f' · <a href="https://t.me/{CONTACT_TG}" target="_blank" rel="noopener">Telegram @{CONTACT_TG}</a>'
+                         if CONTACT_TG else ""))
 
 
 def full_file(ph):

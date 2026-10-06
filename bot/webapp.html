@@ -427,6 +427,11 @@
     <div class="actions"><button class="btn" id="stInviteBtn" data-i18n="Invite a person">Пригласить человека</button></div>
     <p class="muted st-p" data-i18n="Each person gets their own feed, frames, camera and storage. Technically the server admin can open any file on it.">У каждого своя лента, кадры, камера и место. Технически администратор сервера может открыть любые файлы на нём.</p>
   </div>
+  <div class="st-sec">
+    <div class="st-h cap muted" data-i18n="About">О проекте</div>
+    <p class="muted st-p" style="padding-top:0" data-i18n="Open source, runs on your own server. Questions, ideas, bugs:">Открытый код, работает на твоём сервере. Вопросы, идеи, ошибки:</p>
+    <div id="stAbout"></div>
+  </div>
 </section>
 <div class="uploader" id="uploader" hidden role="status">
   <div class="up-row cap"><span id="upText"></span><button id="upCancel" data-i18n="Cancel">Отмена</button></div>
@@ -1301,6 +1306,14 @@ async function renderMe(j) {
   $("stTrashBtn").textContent = me.trash ? T(`Корзина: ${me.trash}`, `Trash: ${me.trash}`) : T("Корзина пуста", "The trash is empty");
   $("stTrashBtn").disabled = !me.trash;
   $("stAdmin").hidden = !me.admin;
+  const ab = me.about || {};
+  $("stAbout").replaceChildren(...[[ab.project, "GitHub"], [ab.tg ? `https://t.me/${ab.tg}` : "", ab.tg ? `Telegram @${ab.tg}` : ""]].filter((x) => x[0]).map(([u, t]) => {
+    const b = document.createElement("button");
+    b.className = "st-link cap";
+    b.textContent = t;
+    b.onclick = () => openLink(u);
+    return b;
+  }));
   renderTg();
 }
 async function saveMe(changes) {
