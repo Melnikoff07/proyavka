@@ -55,6 +55,7 @@ def code_of(link):
 
 if __name__ == "__main__":
     h = harness.start(port=8110)
+    from proyavka import config, database      # после start: настройки читаются из окружения при импорте
     fb = h.fb
     h.add_user(BOB, "en", "Bob")
     h.auth(ADMIN)
@@ -102,7 +103,7 @@ if __name__ == "__main__":
     dev_key, dev_tok = r["device"], r["token"]
     r2 = post(h, "/api/pair", {"code": code, "name": "чужой"})
     check(f"код второй раз не срабатывает: {r2.get('error', '')[:50]}", r2["_status"] == 403)
-    row = fb.q("SELECT * FROM devices")[0]
+    row = database.q("SELECT * FROM devices")[0]
     check(f"на сервере хеш, а не ключ; имя очищено: {row['name']!r}",
           row["hash"] != dev_key and len(row["hash"]) == 64 and "<" not in row["name"] and row["owner"] == ADMIN)
 
@@ -140,7 +141,7 @@ if __name__ == "__main__":
     names = z.namelist()
     check(f"архив за {time.time() - t:.1f} с: {names}", st == 200 and len(names) == 2 and z.testzip() is None
           and all(Image.open(z.open(n)).size[0] >= 6000 for n in names))
-    check("временные файлы убраны", not list(fb.TMP.glob("zip_*")) and not list(fb.TMP.glob("dl_*")))
+    check("временные файлы убраны", not list(config.TMP.glob("zip_*")) and not list(config.TMP.glob("dl_*")))
 
     # Боб: своё устройство из «Проявки», чужие кадры не видит
     hb = h.as_user(BOB)
@@ -155,9 +156,9 @@ if __name__ == "__main__":
     check(f"чужой кадр Бобу не скачать: {st}", st == 404)
     st, hd, body = raw_get(h, f"/api/zip?ids={pids[0]}", bob_tok)
     check(f"и архивом тоже: {st}", st == 404)
-    bob_dev = fb.q("SELECT id FROM devices WHERE owner=?", (BOB,))[0]["id"]
+    bob_dev = database.q("SELECT id FROM devices WHERE owner=?", (BOB,))[0]["id"]
     r = post(h, f"/api/device/{bob_dev}/delete", {}, dev_tok2)
-    check("чужое устройство не отключить", r.get("ok") is False and fb.q("SELECT 1 FROM devices WHERE id=?", (bob_dev,)))
+    check("чужое устройство не отключить", r.get("ok") is False and database.q("SELECT 1 FROM devices WHERE id=?", (bob_dev,)))
 
     # бот: /devices и отключение кнопкой
     t0 = time.time()
@@ -166,7 +167,7 @@ if __name__ == "__main__":
     kb = msg["reply_markup"]["inline_keyboard"]
     check(f"/devices: {msg['text'].splitlines()[1]}", "iPhone" in msg["text"] and kb[0][0]["callback_data"] == f"dv:{row['id']}")
     fb.on_callback({"id": "1", "data": kb[0][0]["callback_data"], "message": {"message_id": 5}}, ADMIN)
-    check("устройство отключено кнопкой", not fb.q("SELECT 1 FROM devices WHERE owner=?", (ADMIN,)))
+    check("устройство отключено кнопкой", not database.q("SELECT 1 FROM devices WHERE owner=?", (ADMIN,)))
     st, hd, body = raw_get(h, "/api/photos", dev_tok2)
     check(f"его сессия сразу закрыта: {st}", st == 401)
     r = post(h, "/api/auth", {"device": dev_key})
@@ -176,7 +177,7 @@ if __name__ == "__main__":
 
     # просроченный код и подбор
     link = fb.make_pair(ADMIN)
-    fb.run("UPDATE pairs SET exp=? WHERE code=?", (time.time() - 1, code_of(link)))
+    database.run("UPDATE pairs SET exp=? WHERE code=?", (time.time() - 1, code_of(link)))
     check("просроченный код не работает", post(h, "/api/pair", {"code": code_of(link)})["_status"] == 403)
     t = time.time()
     codes = [post(h, "/api/pair", {"code": f"guess{i:020d}"}, ip="10.0.0.9")["_status"] for i in range(fb.FAIL_MAX + 1)]
@@ -193,7 +194,7 @@ if __name__ == "__main__":
 
     # удаление пользователя убирает и его устройства
     fb.delete_user(BOB)
-    check("Боб удалён — его устройства тоже", not fb.q("SELECT 1 FROM devices WHERE owner=?", (BOB,)))
+    check("Боб удалён — его устройства тоже", not database.q("SELECT 1 FROM devices WHERE owner=?", (BOB,)))
     st, hd, body = raw_get(h, "/api/photos", bob_tok)
     check(f"сессия устройства Боба закрыта: {st}", st == 401)
     harness.done()

@@ -1,4 +1,9 @@
 """Обработка кадра: открытие оригиналов (в том числе RAW), кадрирование, засветы, дата и рамка, листы-превью, автовыбор плёнки."""
+import hashlib
+import math
+import numpy as np
+import os
+import threading
 from PIL import Image
 from PIL import ImageChops
 from PIL import ImageDraw
@@ -7,23 +12,11 @@ from PIL import ImageFont
 from PIL import ImageOps
 from datetime import datetime
 from pathlib import Path
-import hashlib
-import math
-import numpy as np
-import os
-import threading
 
-from .config import FULL_EDGE
-from .config import LUMA
-from .config import RAW_EXTS
-from .config import VIEW_EDGE
-from .config import WORK_EDGE
-from .film import PRESETS
-from .film import film
-from .film import look
-from .film import pname
-from .i18n import L
+from . import film
+from .config import FULL_EDGE, LUMA, RAW_EXTS, VIEW_EDGE, WORK_EDGE
 from .i18n import tr
+from .film import L, PRESETS, look, pname
 
 # ================= засветы =================
 FIRE = [(0.0, (0.55, 0.05, 0.02)), (0.35, (0.95, 0.25, 0.05)), (0.7, (1.0, 0.6, 0.15)), (1.0, (1.0, 0.92, 0.7))]
@@ -409,3 +402,28 @@ def open_src(path, need=None):
     if need:
         im.draft("RGB", (need, need))
     return ImageOps.exif_transpose(im)
+
+
+def read_exif(im):
+    taken, iso = None, None
+    try:
+        ex = im.getexif()
+        ifd = ex.get_ifd(0x8769)
+        raw = ifd.get(36867) or ex.get(306)
+        if raw:
+            taken = datetime.strptime(str(raw)[:16], "%Y:%m:%d %H:%M").strftime("%Y-%m-%d %H:%M")
+        iso_v = ifd.get(34855)
+        if isinstance(iso_v, (tuple, list)):
+            iso_v = iso_v[0]
+        iso = int(iso_v) if iso_v else None
+    except Exception:
+        pass
+    return taken, iso
+
+
+def fingerprint(path):
+    """Отпечаток кадра: хеш начала файла (там EXIF с точным временем съёмки) + размер."""
+    h = hashlib.sha1()
+    with open(path, "rb") as fh:
+        h.update(fh.read(262144))
+    return f"{h.hexdigest()}:{os.path.getsize(path)}"

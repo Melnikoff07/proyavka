@@ -24,6 +24,7 @@ def jpeg(seed, size=(1200, 800)):
 
 if __name__ == "__main__":
     h = harness.start(port=8108, extra_env={"DAILY_UPLOAD_LIMIT": "3", "MAX_MEGAPIXELS": "50"})
+    from proyavka import users      # после start: настройки читаются из окружения при импорте
     from proyavka import i18n      # после start: настройки читаются из окружения при импорте
     fb = h.fb
     h.add_user(BOB, "ru", "Bob")
@@ -37,9 +38,9 @@ if __name__ == "__main__":
     t = time.time()
     r = hb.req("/api/upload?name=bomb.png", raw=buf.getvalue(), ctype="image/png")
     check(f"«бомба» отклонена за {time.time() - t:.1f} с: {r.get('error')}", r.get("_status") == 400)
-    check("в папке приёма её нет", not any(fb.udir(BOB, "incoming").iterdir()))
+    check("в папке приёма её нет", not any(users.udir(BOB, "incoming").iterdir()))
     # та же бомба через «камеру» (FTP): кладём прямо в папку приёма
-    bomb = fb.udir(BOB, "incoming") / "bomb2.png"
+    bomb = users.udir(BOB, "incoming") / "bomb2.png"
     bomb.write_bytes(buf.getvalue())
     h.wait(lambda: not bomb.exists(), timeout=60)
     check("через камеру — не обработана, бот жив", not h.photos() and any("Не смог" in str(c[2].get("text")) for c in h.calls("sendMessage")))
@@ -49,8 +50,8 @@ if __name__ == "__main__":
     h.wait(lambda: len([p for p in h.photos() if p["owner"] == BOB]) == 3, timeout=60)
     r = hb.req("/api/upload?name=b4.jpg", raw=jpeg(9), ctype="image/jpeg")
     check(f"3 кадра приняты, 4-й — отказ: {r.get('error')}", all(oks) and r.get("_status") == 400)
-    (fb.udir(BOB, "incoming") / "cam.jpg").write_bytes(jpeg(10))
-    h.wait(lambda: not (fb.udir(BOB, "incoming") / "cam.jpg").exists(), timeout=30)
+    (users.udir(BOB, "incoming") / "cam.jpg").write_bytes(jpeg(10))
+    h.wait(lambda: not (users.udir(BOB, "incoming") / "cam.jpg").exists(), timeout=30)
     time.sleep(1)
     check("и с камеры тоже не принят", len([p for p in h.photos() if p["owner"] == BOB]) == 3)
     check("ему сказали один раз", len([c for c in h.calls("sendMessage") if c[2].get("chat_id") == BOB and "предел" in str(c[2].get("text"))]) == 1)
@@ -62,12 +63,12 @@ if __name__ == "__main__":
     # лимит места — сразу после приёма
     h.wait(lambda: all(p["rendered_rev"] == p["rev"] for p in h.photos()), timeout=60)
     used = sum(fb.user_usage(ADMIN).values())
-    fb.set_user(ADMIN, storage_gb=used * 0.6 / 1e9)
+    users.set_user(ADMIN, storage_gb=used * 0.6 / 1e9)
     h.req("/api/upload?name=a9.jpg", raw=jpeg(99), ctype="image/jpeg")
     h.wait(lambda: len([p for p in h.photos() if p["owner"] == ADMIN]) == 5, timeout=60)
     time.sleep(1)
     after = sum(fb.user_usage(ADMIN).values())
-    check(f"лимит места соблюдён сразу: {after / 1e6:.1f} МБ из {fb.storage_limit(ADMIN) * 1e3:.1f}", after <= fb.storage_limit(ADMIN) * 1e9)
+    check(f"лимит места соблюдён сразу: {after / 1e6:.1f} МБ из {users.storage_limit(ADMIN) * 1e3:.1f}", after <= users.storage_limit(ADMIN) * 1e9)
     newest = max(h.photos(), key=lambda p: p["id"])
     check("новый кадр цел, срезаны старые оригиналы", newest["work"] and os.path.exists(newest["work"]))
     with i18n.speak(ADMIN):

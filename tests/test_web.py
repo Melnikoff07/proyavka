@@ -42,9 +42,10 @@ if __name__ == "__main__":
     conf = Path(tempfile.mkdtemp()) / "config.env"
     conf.write_text("LANGUAGE=ru\nCHAT_ID=900000000000000\n", encoding="utf-8")
     h = harness.start(port=8111, uid=WEB, extra_env={"BOT_TOKEN": "", "CONFIG_FILE": str(conf), "DOMAIN": "test.sslip.io"})
+    from proyavka import config, database, users      # после start: настройки читаются из окружения при импорте
     from proyavka import film      # после start: настройки читаются из окружения при импорте
     fb = h.fb
-    check("бот запущен без токена", fb.BOT_TOKEN == "" and fb.ADMIN == WEB and fb.user(WEB)["tg"] is None)
+    check("бот запущен без токена", config.BOT_TOKEN == "" and users.ADMIN == WEB and users.user(WEB)["tg"] is None)
 
     # мастер установки: filmbot.py --pair другим процессом -> код и QR
     r = subprocess.run([sys.executable, str(Path(fb.__file__)), "--pair"], capture_output=True, text=True, encoding="utf-8",
@@ -83,7 +84,7 @@ if __name__ == "__main__":
     check(f"корзина: {[p['id'] for p in tr_['photos']]}", [p["id"] for p in tr_["photos"]] == [pids[0]])
     check("/api/me видит корзину", call(h, "/api/me", token=tok)["trash"] == 1)
     r = call(h, f"/api/photo/{pids[0]}/restore", {}, tok)
-    check("кадр вернулся из корзины", r.get("ok") and fb.get(pids[0])["hidden"] == 0)
+    check("кадр вернулся из корзины", r.get("ok") and database.get(pids[0])["hidden"] == 0)
     cam = call(h, "/api/camera", token=tok)
     check(f"камера администратора: {cam.get('ftp_user')}@{cam.get('domain')}", cam["ftp_user"] == "camera" and cam["domain"] == "test.sslip.io")
     if cam["cert"]:
@@ -97,20 +98,20 @@ if __name__ == "__main__":
     r = call(h, "/api/pair", {"code": inv["code"], "name": "Android · Chrome"})
     check("код приглашения просит имя", r == {"_status": 200, "need_name": True})
     r = call(h, "/api/pair", {"code": inv["code"], "name": "Android · Chrome", "user_name": "Маша"})
-    bob = fb.q("SELECT * FROM users WHERE name='Маша'")
+    bob = database.q("SELECT * FROM users WHERE name='Маша'")
     check(f"Маша пришла: номер {bob[0]['id'] if bob else '?'}, сразу с устройством",
           r["_status"] == 200 and r.get("device") and bob and bob[0]["id"] == WEB + 1 and bob[0]["tg"] is None)
     bob_id, bob_tok = bob[0]["id"], r["token"]
     check("приглашение одноразовое", call(h, "/api/pair", {"code": inv["code"], "user_name": "Ещё"})["_status"] == 403)
     check("у Маши своя пустая лента", call(h, "/api/photos", token=bob_tok)["total"] == 0)
     mb = call(h, "/api/me", token=bob_tok)
-    check(f"Маша не администратор, лимит {mb['limit'] / 1e9:g} ГБ", not mb["admin"] and mb["limit"] == fb.USER_STORAGE_GB * 1e9)
+    check(f"Маша не администратор, лимит {mb['limit'] / 1e9:g} ГБ", not mb["admin"] and mb["limit"] == users.USER_STORAGE_GB * 1e9)
     check("Маше нельзя список пользователей и приглашения", call(h, "/api/users", token=bob_tok)["_status"] == 403
           and call(h, "/api/invite", {}, bob_tok)["_status"] == 403)
     cb = call(h, "/api/camera", token=bob_tok)
     check(f"камера Маши заведена: {cb.get('ftp_user')}", cb["ftp_user"] == f"u{bob_id}" and harness.CAM and harness.CAM[-1][1] == f"u{bob_id}")
     r = call(h, "/api/camera/config.txt", token=bob_tok)
-    check("config.txt Маши с её токеном", r["_status"] == 200 and fb.user(bob_id)["cam_token"].encode() in r["_body"])
+    check("config.txt Маши с её токеном", r["_status"] == 200 and users.user(bob_id)["cam_token"].encode() in r["_body"])
     old = cb["ftp_pass"]
     cb = call(h, "/api/camera/password", {}, bob_tok)
     check(f"новый пароль FTP Маши: {cb.get('ftp_pass')} (вместо {old})", re.fullmatch(r"[a-km-np-z2-9]{10}", cb["ftp_pass"] or "")
@@ -122,9 +123,9 @@ if __name__ == "__main__":
     us = call(h, "/api/users", token=tok)
     check(f"пользователи: {[u['name'] for u in us['users']]}", [u["name"] for u in us["users"]] == ["Admin x", "Маша"])
     us = call(h, f"/api/user/{bob_id}/limit", {"gb": 10}, tok)
-    check("лимит Маши 10 ГБ", fb.storage_limit(bob_id) == 10)
+    check("лимит Маши 10 ГБ", users.storage_limit(bob_id) == 10)
     us = call(h, f"/api/user/{WEB}/limit", {"gb": 5}, tok)
-    check("свой лимит администратора 5 ГБ — в config.env", fb.storage_limit(WEB) == 5 and "STORAGE_GB=5" in conf.read_text()
+    check("свой лимит администратора 5 ГБ — в config.env", users.storage_limit(WEB) == 5 and "STORAGE_GB=5" in conf.read_text()
           and call(h, "/api/me", token=tok)["limit"] == 5e9)
     check("себя удалить нельзя", call(h, f"/api/user/{WEB}/delete", {}, tok)["_status"] == 404)
 
@@ -140,7 +141,7 @@ if __name__ == "__main__":
     r = call(h, "/api/tg/bot", {"token": "123456:" + "A" * 35}, tok)
     fb.requests.post = real_post
     check(f"бот подключён: @{r.get('bot')}, токен в config.env",
-          r.get("bot") == "proyavka_test_bot" and fb.BOT_TOKEN.startswith("123456:") and "BOT_TOKEN=123456:" in conf.read_text()
+          r.get("bot") == "proyavka_test_bot" and config.BOT_TOKEN.startswith("123456:") and "BOT_TOKEN=123456:" in conf.read_text()
           and "CHAT_ID=900000000000000" in conf.read_text())
     time.sleep(1.5)
     check("кадры по-прежнему не уходят: Telegram ещё не привязан", not sends(t0))
@@ -151,7 +152,7 @@ if __name__ == "__main__":
     check(f"ссылка на бота: {link['url'][:45]}…", link["url"].startswith("https://t.me/proyavka_test_bot?start=link_"))
     t1 = time.time()
     fb.on_stranger({"from": {"id": 555, "first_name": "A"}, "chat": {"id": 555, "type": "private"}, "text": "/start link_" + code})
-    check("Telegram 555 привязан к администратору", fb.user(WEB)["tg"] == 555 and fb.uid_of_tg(555) == WEB)
+    check("Telegram 555 привязан к администратору", users.user(WEB)["tg"] == 555 and fb.uid_of_tg(555) == WEB)
     m = [c for c in sends(t1) if c[2].get("chat_id") == 555]
     check("в бот пришло приветствие", m and "Telegram" in m[0][2]["text"])
     fb.on_stranger({"from": {"id": 556}, "chat": {"id": 556, "type": "private"}, "text": "/start link_" + code})
@@ -171,7 +172,7 @@ if __name__ == "__main__":
     check(f"теперь у приглашения и Telegram-ссылка: {inv['tg_url'][:40]}…", inv["tg_url"].endswith("?start=" + inv["code"].replace("-", "")))
     fb.on_stranger({"from": {"id": 777, "first_name": "Петя"}, "chat": {"id": 777, "type": "private"},
                     "text": "/start " + inv["code"].replace("-", "")})
-    check("Петя пришёл через Telegram: номер = его id, чат = он сам", fb.user(777) and fb.user(777)["tg"] == 777)
+    check("Петя пришёл через Telegram: номер = его id, чат = он сам", users.user(777) and users.user(777)["tg"] == 777)
 
     # отвязать
     me = call(h, "/api/tg/unlink", {}, tok)
@@ -191,6 +192,6 @@ if __name__ == "__main__":
 
     # удалить Машу
     r = call(h, f"/api/user/{bob_id}/delete", {}, tok)
-    check("Маша удалена вместе с устройствами", bob_id not in fb.USERS and not fb.q("SELECT 1 FROM devices WHERE owner=?", (bob_id,)))
+    check("Маша удалена вместе с устройствами", bob_id not in users.USERS and not database.q("SELECT 1 FROM devices WHERE owner=?", (bob_id,)))
     check("её сессия закрыта", call(h, "/api/photos", token=bob_tok)["_status"] == 401)
     harness.done()

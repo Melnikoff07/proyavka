@@ -7,12 +7,13 @@ TD = Path(__file__).resolve().parent / "testdata"
 
 if __name__ == "__main__":
     h = harness.start(port=8101)
+    from proyavka import config, database      # после start: настройки читаются из окружения при импорте
     t0 = time.time()
     h.drop(TD / "a6300_DSC00269.JPG")
     ph = h.wait(lambda: [p for p in h.photos() if p["msg_id"]], timeout=90)[0]
     print(f"кадр #{ph['id']} в чате за {time.time() - t0:.1f} с; плёнка {ph['preset']}, view={bool(ph['view'])}")
     sends = h.calls("sendPhoto")
-    print("sendPhoto:", len(sends), "| рендеров для чата отдельно не было:", not any(f.name.startswith("chat_") for f in h.fb.TMP.iterdir()))
+    print("sendPhoto:", len(sends), "| рендеров для чата отдельно не было:", not any(f.name.startswith("chat_") for f in config.TMP.iterdir()))
     # правка из мини-приложения
     h.auth()
     t1 = time.time()
@@ -20,7 +21,7 @@ if __name__ == "__main__":
     print("ответ правки:", r.get("preset"), "pending:", r.get("pending"))
     h.wait(lambda: h.calls("editMessageMedia", since=t1), timeout=60)
     print(f"сообщение в чате обновлено за {time.time() - t1:.1f} с")
-    p2 = h.fb.get(ph["id"])
+    p2 = database.get(ph["id"])
     print("rev/rendered:", p2["rev"], p2["rendered_rev"])
     # повтор кадра
     h.drop(TD / "a6300_DSC00269.JPG", name="again.JPG")

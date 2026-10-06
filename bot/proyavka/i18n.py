@@ -46,3 +46,6 @@ class speak:
 
     def __exit__(self, *exc):
         _CTX.lang = self.prev
+
+
+APP_NAME = L("Проявка", "Proyavka")

@@ -17,6 +17,7 @@ def chat_writes(h, since):
 
 if __name__ == "__main__":
     h = harness.start(port=8104)
+    from proyavka import database      # после start: настройки читаются из окружения при импорте
     h.auth()
     for f in sorted(TD.glob("*.JPG")):
         h.drop(f)
@@ -76,7 +77,7 @@ if __name__ == "__main__":
     h.post(f"/api/photo/{big[-1]}", {"preset": "cine250"})
     h.wait(lambda: len(h.calls("editMessageMedia", t2)) >= 9, timeout=90)
     order = [c[2]["message_id"] for c in h.calls("editMessageMedia", t2)]
-    pos = order.index(h.fb.get(big[-1])["msg_id"])
+    pos = order.index(database.get(big[-1])["msg_id"])
     check(f"одиночная правка ушла в чат среди первых: место {pos + 1} из {len(order)}", pos <= 2)
     h.wait(lambda: [c for c in h.calls("sendMessage", t2) if "Готово" in str(c[2].get("text"))], timeout=60)
     last_edit = max(c[0] for c in h.calls("editMessageMedia", t2))

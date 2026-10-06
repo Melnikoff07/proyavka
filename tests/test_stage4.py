@@ -44,17 +44,18 @@ def sent(h, since, chat, method="sendMessage"):
 
 if __name__ == "__main__":
     h = harness.start(port=8106, before=old_install)
+    from proyavka import config, database, users      # после start: настройки читаются из окружения при импорте
     from proyavka import i18n      # после start: настройки читаются из окружения при импорте
     fb = h.fb
     # --- миграция
-    old = fb.q("SELECT * FROM photos WHERE name='old.jpg'")[0]
+    old = database.q("SELECT * FROM photos WHERE name='old.jpg'")[0]
     check(f"старые кадры — администратора: owner={old['owner']}", old["owner"] == ADMIN)
-    check(f"администратор в таблице users: {fb.user(ADMIN)['role']}", fb.user(ADMIN)["role"] == "admin")
+    check(f"администратор в таблице users: {users.user(ADMIN)['role']}", users.user(ADMIN)["role"] == "admin")
     st = fb.load_state()
     fb.migrate_state(st)
-    check(f"плёнка по умолчанию перенесена: {fb.user(ADMIN)['default_film']}", fb.user(ADMIN)["default_film"] == "golden200")
+    check(f"плёнка по умолчанию перенесена: {users.user(ADMIN)['default_film']}", users.user(ADMIN)["default_film"] == "golden200")
     check(f"смещение getUpdates не потерялось: {fb.load_state()}", fb.load_state().get("offset") == 5)
-    fb.run("UPDATE photos SET hidden=1 WHERE name='old.jpg'")
+    database.run("UPDATE photos SET hidden=1 WHERE name='old.jpg'")
 
     # --- приглашение
     t0 = time.time()
@@ -67,7 +68,7 @@ if __name__ == "__main__":
     check("/invite у обычного пользователя не работает (он ещё и не пользователь)", len(sent(h, t0, BOB)) == 0)
     t1 = time.time()
     fb.on_stranger({"from": {"id": BOB, "first_name": "Bob", "username": "bob", "language_code": "en"}, "text": f"/start {code}"})
-    check(f"Боб принят, язык en: {fb.user(BOB) and fb.user(BOB)['lang']}", fb.user(BOB) and fb.user(BOB)["lang"] == "en")
+    check(f"Боб принят, язык en: {users.user(BOB) and users.user(BOB)['lang']}", users.user(BOB) and users.user(BOB)["lang"] == "en")
     welcome = sent(h, t1, BOB)
     check(f"приветствие по-английски: {welcome[0]['text'][:40]!r}", welcome and welcome[0]["text"].startswith("Hi!"))
     check("администратору сообщили", any("Bob" in m["text"] for m in sent(h, t1, ADMIN)))
@@ -76,7 +77,7 @@ if __name__ == "__main__":
           cmds and all(c["command"] != "invite" for c in cmds[-1]["commands"]) and cmds[-1]["commands"][0]["description"] == "Frame feed in the chat")
     t2 = time.time()
     fb.on_stranger({"from": {"id": EVE, "first_name": "Eve", "language_code": "ru"}, "text": f"/start {code}"})
-    check("ссылка одноразовая: Ева не прошла", not fb.user(EVE) and "недействительна" in sent(h, t2, EVE)[0]["text"])
+    check("ссылка одноразовая: Ева не прошла", not users.user(EVE) and "недействительна" in sent(h, t2, EVE)[0]["text"])
     fb.on_stranger({"from": {"id": EVE, "first_name": "Eve", "language_code": "ru"}, "text": "привет"})
     fb.on_stranger({"from": {"id": EVE, "first_name": "Eve", "language_code": "ru"}, "text": "ау"})
     check("незнакомцу отвечают один раз", len(sent(h, t2, EVE)) == 2)
@@ -95,7 +96,7 @@ if __name__ == "__main__":
     pa = [p for p in h.photos() if p["owner"] == ADMIN and not p["hidden"]][0]
     pb = [p for p in h.photos() if p["owner"] == BOB][0]
     check(f"файлы Боба в его папке: {Path(pb['src']).parent.parent.name}/{Path(pb['src']).parent.name}",
-          Path(pb["src"]).parent == fb.BASE / "users" / str(BOB) / "originals" and str(fb.BASE / "users" / str(BOB)) in pb["view"])
+          Path(pb["src"]).parent == config.BASE / "users" / str(BOB) / "originals" and str(config.BASE / "users" / str(BOB)) in pb["view"])
     check(f"кадр Боба ушёл в его чат (msg {pb['msg_id']})",
           any(c[2].get("chat_id") == BOB for c in h.calls("sendPhoto") if c[2].get("caption", "").startswith(f"#{pb['id']}")))
     cap = [c[2]["caption"] for c in h.calls("sendPhoto") if c[2].get("chat_id") == BOB][0]
@@ -111,17 +112,17 @@ if __name__ == "__main__":
     check("чужой кадр не правится", h.post(f"/api/photo/{pb['id']}", {"preset": "across100"}).get("_status") == 404)
     check("чужой кадр не удаляется", h.post(f"/api/photo/{pb['id']}/hide", {}).get("_status") == 404)
     r = h.post("/api/batch", {"action": "delete", "ids": [pb["id"]]})
-    check(f"пакет с чужим кадром ничего не делает: {r}", r.get("done") == 0 and not fb.get(pb["id"])["hidden"])
+    check(f"пакет с чужим кадром ничего не делает: {r}", r.get("done") == 0 and not database.get(pb["id"])["hidden"])
     fb.on_callback({"id": "1", "data": f"p:{pb['id']}:across100", "message": {"message_id": pb["msg_id"]}}, ADMIN)
-    check("кнопка под чужим кадром не работает", fb.get(pb["id"])["preset"] != "across100")
+    check("кнопка под чужим кадром не работает", database.get(pb["id"])["preset"] != "across100")
     fb.on_callback({"id": "1", "data": f"p:{pb['id']}:across100", "message": {"message_id": pb["msg_id"]}}, BOB)
-    check("а у владельца работает", fb.get(pb["id"])["preset"] == "across100")
+    check("а у владельца работает", database.get(pb["id"])["preset"] == "across100")
 
     # --- плёнка по умолчанию, язык, место
     with i18n.speak(BOB):
         fb.on_callback({"id": "1", "data": "d:cine250", "message": {"message_id": 1}}, BOB)
-    check(f"у Боба своя плёнка по умолчанию: {fb.user(BOB)['default_film']} / у админа {fb.user(ADMIN)['default_film']}",
-          fb.user(BOB)["default_film"] == "cine250" and fb.user(ADMIN)["default_film"] == "golden200")
+    check(f"у Боба своя плёнка по умолчанию: {users.user(BOB)['default_film']} / у админа {users.user(ADMIN)['default_film']}",
+          users.user(BOB)["default_film"] == "cine250" and users.user(ADMIN)["default_film"] == "golden200")
     t3 = time.time()
     with i18n.speak(BOB):
         fb.on_text("/storage", BOB)
@@ -129,7 +130,7 @@ if __name__ == "__main__":
     check(f"/storage у Боба — его лимит 5 ГБ и без диска сервера: {txt.splitlines()[-1]!r}", "of 5 GB" in txt and "disk" not in txt)
     with i18n.speak(ADMIN):
         fb.on_text("/lang", ADMIN)
-    check("/lang: администратор теперь en", fb.user(ADMIN)["lang"] == "en")
+    check("/lang: администратор теперь en", users.user(ADMIN)["lang"] == "en")
     with i18n.speak(ADMIN):
         fb.on_text("/lang", ADMIN)
 
@@ -138,7 +139,7 @@ if __name__ == "__main__":
     with i18n.speak(BOB):
         fb.on_text("/camera", BOB)
     add = [c for c in harness.CAM if c[0] == "add"]
-    tok = fb.user(BOB)["cam_token"]
+    tok = users.user(BOB)["cam_token"]
     check(f"на сервере заведена камера {add and add[-1][1]}", add and add[-1][1] == f"u{BOB}")
     check("на сервер ушёл только хеш токена", add and hashlib.sha256(tok.encode()).hexdigest() in add[-1][2] and tok not in add[-1][2])
     docs = [c[2] for c in h.calls("sendDocument", t4) if c[2].get("chat_id") == BOB]
@@ -148,7 +149,7 @@ if __name__ == "__main__":
     except TimeoutError:
         pass
     msg = (ftp() or [""])[0]
-    check(f"Бобу — свой FTP-пользователь: {'user: u' + str(BOB) in msg}", f"user: u{BOB}" in msg and fb.user(BOB)["ftp_pass"] in msg)
+    check(f"Бобу — свой FTP-пользователь: {'user: u' + str(BOB) in msg}", f"user: u{BOB}" in msg and users.user(BOB)["ftp_pass"] in msg)
     check(f"и свой config.txt ({[d['_files'] for d in docs]})", any("document" in d.get("_files", []) for d in docs))
     with i18n.speak(BOB):
         fb.on_text("/camera", BOB)
@@ -187,14 +188,14 @@ if __name__ == "__main__":
     scr = sent(h, t6, ADMIN)[-1]
     check(f"/users: {scr['text'].splitlines()}", "Bob" in scr["text"] and str(scr["reply_markup"]).count("ud:") == 1)
     fb.on_callback({"id": "1", "data": f"ul:{BOB}", "message": {"message_id": 7}}, ADMIN)
-    check(f"лимит Боба по кнопке: {fb.storage_limit(BOB)} ГБ", fb.storage_limit(BOB) == 10)
+    check(f"лимит Боба по кнопке: {users.storage_limit(BOB)} ГБ", users.storage_limit(BOB) == 10)
     fb.on_callback({"id": "1", "data": f"ud:{ADMIN}", "message": {"message_id": 7}}, ADMIN)
-    check("себя удалить нельзя", fb.user(ADMIN) is not None)
+    check("себя удалить нельзя", users.user(ADMIN) is not None)
     fb.on_callback({"id": "1", "data": f"udy:{BOB}", "message": {"message_id": 7}}, BOB)
-    check("Боб не может удалять", fb.user(BOB) is not None)
-    bob_dir = fb.BASE / "users" / str(BOB)
+    check("Боб не может удалять", users.user(BOB) is not None)
+    bob_dir = config.BASE / "users" / str(BOB)
     fb.on_callback({"id": "1", "data": f"udy:{BOB}", "message": {"message_id": 7}}, ADMIN)
-    check("Боб удалён", fb.user(BOB) is None and not fb.q("SELECT id FROM photos WHERE owner=?", (BOB,)))
+    check("Боб удалён", users.user(BOB) is None and not database.q("SELECT id FROM photos WHERE owner=?", (BOB,)))
     check(f"его папка стёрта: {bob_dir.exists()}", not bob_dir.exists())
     check(f"камера на сервере убрана: {harness.CAM[-1][:2]}", harness.CAM[-1][:2] == ("del", f"u{BOB}"))
     check(f"«Проявка» Боба больше не открывается: {hb.get('/api/photos?offset=0&limit=5').get('_status')}",

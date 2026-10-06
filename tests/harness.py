@@ -74,13 +74,14 @@ def start(port=8099, lang="ru", workers="2", uid=1, extra_env=None, before=None)
                       REMOTE_DIR=str(Path(base) / "remote") + os.sep)
     os.environ.update(extra_env or {})
     import filmbot as fb
+    from proyavka import config
     fb.real_tg = fb.tg_send
     fb.tg_send = fake_tg          # tg() по-прежнему переводит номер пользователя в его чат
     fb.fetch_from_vps = lambda *a, **k: None
     fb.vps_watch = lambda *a, **k: None
     fb.sweep_vps = lambda *a, **k: None
     # мини-приложение с заглушкой Telegram
-    page = fb.WEBAPP_HTML.read_text(encoding="utf-8")
+    page = config.WEBAPP_HTML.read_text(encoding="utf-8")
     page = page.replace('<script src="https://telegram.org/js/telegram-web-app.js"></script>', FAKE_TG_JS % {"uid": uid})
     # ?browser — как вне Telegram (вход ключом устройства)
     tg_line = "const tg = window.Telegram && window.Telegram.WebApp && window.Telegram.WebApp.initData ? window.Telegram.WebApp : null;"
@@ -88,7 +89,7 @@ def start(port=8099, lang="ru", workers="2", uid=1, extra_env=None, before=None)
     page = page.replace(tg_line, 'const tg = new URLSearchParams(location.search).has("browser") ? null : window.__FAKE_TG__;')
     fake_page = Path(base) / "webapp.html"
     fake_page.write_text(page, encoding="utf-8")
-    fb.WEBAPP_HTML = fake_page
+    config.WEBAPP_HTML = fake_page
     fb.cam_helper = fake_cam_helper
     orig_check = fb.check_init_data
     fb.check_init_data = lambda init: (int(init.split("-", 1)[1]) if str(init).startswith("test-") else orig_check(init))

@@ -33,6 +33,7 @@ def mean_rgb(data):
 
 if __name__ == "__main__":
     h = harness.start(port=8107)
+    from proyavka import database, users      # после start: настройки читаются из окружения при импорте
     from proyavka import film, i18n      # после start: настройки читаются из окружения при импорте
     fb = h.fb
     h.add_user(BOB, "en", "Bob")
@@ -60,8 +61,8 @@ if __name__ == "__main__":
     check("Боб не может поставить чужой LUT", hb.post(f"/api/photo/{pb['id']}", {"preset": key}).get("_status") == 400)
     check("и пачкой тоже", hb.post("/api/batch", {"action": "edit", "ids": [pb["id"]], "changes": {"preset": key}}).get("_status") == 400)
     check("и превью чужого LUT не получить", hb.get(f"/img/preview/{pb['id']}/{key}?st=100").get("_status") == 404)
-    check("в кнопках чата у Боба его нет", key not in str(fb.preset_kb(fb.get(pb["id"]))))
-    check("а у администратора есть", key in str(fb.preset_kb(fb.get(pa["id"]))))
+    check("в кнопках чата у Боба его нет", key not in str(fb.preset_kb(database.get(pb["id"]))))
+    check("а у администратора есть", key in str(fb.preset_kb(database.get(pa["id"]))))
     with i18n.speak(BOB):
         check("и в плёнке по умолчанию у Боба нет", key not in str(fb.default_kb(BOB)))
 
@@ -75,31 +76,31 @@ if __name__ == "__main__":
     t0 = time.time()
     r = h.post(f"/api/photo/{pa['id']}", {"preset": key})
     check(f"администратор ставит свой LUT: {r.get('preset_name')}", r.get("preset") == key and r.get("preset_name") == "My Swap")
-    h.wait(lambda: fb.get(pa["id"])["rendered_rev"] == fb.get(pa["id"])["rev"], timeout=60)
+    h.wait(lambda: database.get(pa["id"])["rendered_rev"] == database.get(pa["id"])["rev"], timeout=60)
     h.wait(lambda: h.calls("editMessageMedia", t0), timeout=20)
     with i18n.speak(ADMIN):
-        cap = fb.caption(fb.get(pa["id"]))
+        cap = fb.caption(database.get(pa["id"]))
     check(f"в чате подпись с названием LUT: {cap.splitlines()[0]!r}", "My Swap" in cap)
-    fb.apply_changes(fb.get(pa["id"]), {"frame": True})
-    h.wait(lambda: fb.get(pa["id"])["rendered_rev"] == fb.get(pa["id"])["rev"], timeout=60)
+    fb.apply_changes(database.get(pa["id"]), {"frame": True})
+    h.wait(lambda: database.get(pa["id"])["rendered_rev"] == database.get(pa["id"])["rev"], timeout=60)
     check("рамка с LUT рисуется", True)
 
     # своя плёнка по умолчанию для новых кадров
     with i18n.speak(ADMIN):
         fb.on_callback({"id": "1", "data": f"d:{key}", "message": {"message_id": 1}}, ADMIN)
-    check("LUT можно сделать плёнкой по умолчанию", fb.user(ADMIN)["default_film"] == key)
+    check("LUT можно сделать плёнкой по умолчанию", users.user(ADMIN)["default_film"] == key)
     with i18n.speak(BOB):
         fb.on_callback({"id": "1", "data": f"d:{key}", "message": {"message_id": 1}}, BOB)
-    check("а Боб чужой — нет", fb.user(BOB)["default_film"] != key)
+    check("а Боб чужой — нет", users.user(BOB)["default_film"] != key)
 
     # удаление
     check("Боб не может удалить чужой LUT", hb.post(f"/api/lut/{key}/delete", {}).get("_status") == 400 and path.exists())
     r = h.post(f"/api/lut/{key}/delete", {})
     check(f"администратор удалил: {r}", r.get("moved") == 1 and not path.exists())
-    ph = fb.get(pa["id"])
+    ph = database.get(pa["id"])
     check(f"кадр перешёл на автоплёнку: {ph['preset']}", ph["preset"] == ph["auto_key"])
-    check("плёнка по умолчанию вернулась на авто", fb.user(ADMIN)["default_film"] == "auto")
-    h.wait(lambda: fb.get(pa["id"])["rendered_rev"] == fb.get(pa["id"])["rev"], timeout=60)
+    check("плёнка по умолчанию вернулась на авто", users.user(ADMIN)["default_film"] == "auto")
+    h.wait(lambda: database.get(pa["id"])["rendered_rev"] == database.get(pa["id"])["rev"], timeout=60)
     check("и перерисован", True)
     for i in range(film.LUT_MAX_COUNT):
         fb.add_lut(BOB, f"l{i}.cube", cube(3))

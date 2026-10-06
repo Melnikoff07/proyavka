@@ -22,6 +22,7 @@ def frame(seed, name):
 
 if __name__ == "__main__":
     h = harness.start(port=8113)
+    from proyavka import config, database      # после start: настройки читаются из окружения при импорте
     fb = h.fb
     h.auth(1)
     for i in range(4):
@@ -31,7 +32,7 @@ if __name__ == "__main__":
 
     # чужой кадр
     h.add_user(2)
-    other = fb.run("INSERT INTO photos(name, owner, hidden, view, taken) VALUES ('x.jpg', 2, 0, ?, '2024-01-01 10:00:00')",
+    other = database.run("INSERT INTO photos(name, owner, hidden, view, taken) VALUES ('x.jpg', 2, 0, ?, '2024-01-01 10:00:00')",
                    (h.photos()[0]["view"],))
 
     check("пустой альбом не создаётся", h.post("/api/albums", {"ids": [other]}).get("_status") == 400)
@@ -39,7 +40,7 @@ if __name__ == "__main__":
     check(f"альбом создан: {a.get('n')} кадра, чужой не попал", a.get("n") == 3 and other not in a["ids"])
     check(f"название очищено: {a.get('title')!r}", a["title"] == "Прогулка b")
     tok = a["url"].rsplit("/", 1)[1]
-    check(f"ключ в ссылке: {len(tok)} символов", len(tok) == 16 and a["url"].startswith(fb.WEBAPP_URL.rstrip("/") + "/a/"))
+    check(f"ключ в ссылке: {len(tok)} символов", len(tok) == 16 and a["url"].startswith(config.WEBAPP_URL.rstrip("/") + "/a/"))
 
     pub = harness.Harness(fb, h.port, h.base)          # без входа
     page = pub.get(f"/a/{tok}", auth=False)
@@ -48,12 +49,12 @@ if __name__ == "__main__":
     check("превью ссылки: og:image", b'og:image' in page and f"/a/{tok}/view/".encode() in page)
     lst = pub.get(f"/a/{tok}/list", auth=False)
     check(f"список: {len(lst.get('photos', []))} кадра по времени", [p["id"] for p in lst["photos"]] == sorted(ids[:3]))
-    check("счётчик открытий", fb.q("SELECT views FROM albums")[0]["views"] == 1)
+    check("счётчик открытий", database.q("SELECT views FROM albums")[0]["views"] == 1)
     t = pub.get(f"/a/{tok}/thumb/{ids[0]}", auth=False)
     check("миниатюра отдаётся", isinstance(t, bytes) and t[:3] == b"\xff\xd8\xff")
     check("кадр не из альбома — 404", pub.get(f"/a/{tok}/view/{ids[3]}", auth=False).get("_status") == 404)
     check("чужой кадр — 404", pub.get(f"/a/{tok}/view/{other}", auth=False).get("_status") == 404)
-    check("«О проекте» в настройках: GitHub и Telegram", h.get("/api/me")["about"] == {"project": fb.PROJECT_URL, "tg": "Sashkere"})
+    check("«О проекте» в настройках: GitHub и Telegram", h.get("/api/me")["about"] == {"project": config.PROJECT_URL, "tg": "Sashkere"})
     check("лента без входа закрыта", pub.get("/api/photos", auth=False).get("_status") == 401)
 
     t0 = time.time()
@@ -62,7 +63,7 @@ if __name__ == "__main__":
     check(f"полный размер: {Image.open(io.BytesIO(full)).size}", Image.open(io.BytesIO(full)).size[0] >= 900)
     pub.get(f"/a/{tok}/full/{ids[0]}", auth=False)
     t2 = time.time()
-    check(f"второй раз из кэша ({t1 - t0:.2f} с → {t2 - t1:.2f} с)", list(fb.PREVIEWS.glob(f"{ids[0]}_full_*.jpg")))
+    check(f"второй раз из кэша ({t1 - t0:.2f} с → {t2 - t1:.2f} с)", list(config.PREVIEWS.glob(f"{ids[0]}_full_*.jpg")))
     z = zipfile.ZipFile(io.BytesIO(pub.get(f"/a/{tok}/zip", auth=False)))
     check(f"архив: {len(z.namelist())} файла", len(z.namelist()) == 3)
 
@@ -73,7 +74,7 @@ if __name__ == "__main__":
     fb.delete_photos([ids[1]])
     check("кадр в корзине из альбома пропал", len(pub.get(f"/a/{tok}/list", auth=False)["photos"]) == 2
           and pub.get(f"/a/{tok}/view/{ids[1]}", auth=False).get("_status") == 404)
-    check("и его полный кадр из кэша стёрт", not list(fb.PREVIEWS.glob(f"{ids[1]}_full_*.jpg")))
+    check("и его полный кадр из кэша стёрт", not list(config.PREVIEWS.glob(f"{ids[1]}_full_*.jpg")))
     e = h.post(f"/api/album/{a['id']}", {"ids": [ids[0], ids[3]], "title": "Новое"})
     check(f"состав изменён: {e.get('n')}", e.get("n") == 2 and e["title"] == "Новое" and e["url"] == a["url"])
     h.add_user(3)
@@ -85,12 +86,12 @@ if __name__ == "__main__":
 
     check("удаление", h.post(f"/api/album/{a['id']}/delete").get("ok"))
     check("после удаления ссылка не работает", pub.get(f"/a/{tok}/list", auth=False).get("_status") == 404)
-    check("строк не осталось", not fb.q("SELECT 1 FROM album_photos"))
+    check("строк не осталось", not database.q("SELECT 1 FROM album_photos"))
 
     # удаление пользователя убирает его альбомы
     a2 = h.post("/api/albums", {"ids": [ids[0]]})
     h.add_user(4)
-    fb.run("UPDATE albums SET owner=4")
+    database.run("UPDATE albums SET owner=4")
     fb.delete_user(4)
-    check("удалили пользователя — его альбомы тоже", not fb.q("SELECT 1 FROM albums") and a2.get("n") == 1)
+    check("удалили пользователя — его альбомы тоже", not database.q("SELECT 1 FROM albums") and a2.get("n") == 1)
     harness.done()

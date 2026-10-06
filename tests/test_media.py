@@ -14,6 +14,7 @@ TD = Path(__file__).resolve().parent / "testdata"
 
 if __name__ == "__main__":
     h = harness.start(port=8118)
+    from proyavka import config, database, users      # после start: настройки читаются из окружения при импорте
     fb = h.fb
     a = h.post("/api/auth", {"initData": "test-1"}, auth=False)
     h.token = a["token"]
@@ -63,11 +64,11 @@ if __name__ == "__main__":
     check("токен другого пользователя чужой кадр не открывает", h.req(f"/img/thumb/{pid}?m={m2}", auth=False).get("_status") == 404
           and h.req(f"/img/full/{pid}?m={m2}", auth=False).get("_status") == 404)
     check("удалённого пользователя токен не работает",
-          (fb.run("DELETE FROM users WHERE id=2"), fb.load_users(), h.req(f"/img/thumb/{pid}?m={m2}", auth=False).get("_status") == 401)[2])
+          (database.run("DELETE FROM users WHERE id=2"), users.load_users(), h.req(f"/img/thumb/{pid}?m={m2}", auth=False).get("_status") == 401)[2])
 
     # опрос обновляет токен; ключ переживает перезапуск
     check("опрос присылает токен для картинок", h.get("/api/updates?since=0").get("media") == media)
-    key = (fb.BASE / "media.key").read_bytes()
+    key = (config.BASE / "media.key").read_bytes()
     fb.MEDIA_KEY = None
-    check("ключ хранится в файле и после перезапуска тот же", fb.media_token(1) == media and (fb.BASE / "media.key").read_bytes() == key)
+    check("ключ хранится в файле и после перезапуска тот же", fb.media_token(1) == media and (config.BASE / "media.key").read_bytes() == key)
     harness.done()

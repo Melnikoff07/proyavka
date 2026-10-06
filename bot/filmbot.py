@@ -27,7 +27,6 @@ import shlex
 import secrets
 import shutil
 import socket
-import sqlite3
 import subprocess
 import sys
 import threading
@@ -43,18 +42,32 @@ from pathlib import Path
 
 import numpy as np
 import requests
-from PIL import Image, ImageDraw, ImageFilter, ImageOps
+from PIL import Image, ImageDraw, ImageOps
 
-from proyavka import i18n
+from proyavka import config
+from proyavka.config import ALBUM_HTML, COMMUNITY_BUNDLED, CONTACT_TG, PROJECT_URL
+from proyavka.i18n import APP_NAME
+from proyavka.util import (
+    disposition, download_name, fsize, html_esc, jpeg, key_hash, plural_ru, qr_png, qr_svg, remove,
+    save_atomic, segno,
+)
+from proyavka.imaging import fingerprint, read_exif
+from proyavka.pwa import CSP, SW_JS, app_icon, manifest
+from proyavka.database import DB_LOCK, EDIT_LOCK, get, init_db, q, run, run_count, upd
+from proyavka.users import (
+    ADMIN, CLEANUP_MINUTES, DAILY_LIMIT, INVITE_DAYS, USERS, load_luts, load_users, set_user,
+    storage_limit, udir, user, user_lang, user_luts, valid_look,
+)
+
 from proyavka.config import (
-    BASE, BOT_TOKEN, CHAT_ID, DB_PATH, EXTS, FAST_WORKERS, HEAVY_WORKERS, INCOMING, LANG, LOCAL,
-    MIN_FREE_GB, ORIG_DAYS, PAGE, POLL, POLL_BACKUP, PREVIEWS, RAW_EXTS, RAW_FILES, RAW_MISSING, REMOTE_DIR,
-    SETTLE, SSH_CMD, STATE_FILE, STORAGE_GB, STRENGTHS, TMP, UPLOAD_MAX, VIEW_EDGE, VPS, WEBAPP_URL,
-    WEB_BASE, WEB_PORT, WORKER_NICE, WORK_EDGE, log, remote,
+    BASE, EXTS, FAST_WORKERS, HEAVY_WORKERS, INCOMING, LANG, LOCAL, MIN_FREE_GB, ORIG_DAYS, PAGE, POLL,
+    POLL_BACKUP, PREVIEWS, RAW_EXTS, RAW_FILES, RAW_MISSING, REMOTE_DIR, SETTLE, SSH_CMD, STATE_FILE,
+    STRENGTHS, TMP, UPLOAD_MAX, VIEW_EDGE, VPS, WEBAPP_URL, WEB_BASE, WEB_PORT, WORKER_NICE, WORK_EDGE,
+    log, remote,
 )
 from proyavka.film import (
-    LUT_MAX_BYTES, LUT_MAX_COUNT, LUT_NAMES, LUT_OWNER, OLD_KEYS, PRESETS, canon, clean_params, clean_text,
-    film, is_lut, look, look_code, look_params, lut_dir, lut_meta, params_json, parse_cube, parse_look_code,
+    LUT_MAX_BYTES, LUT_MAX_COUNT, LUT_NAMES, LUT_OWNER, PRESETS, canon, clean_params, clean_text, film,
+    is_lut, look, look_code, look_params, lut_dir, lut_meta, params_json, parse_cube, parse_look_code,
     pname, preset_lut,
 )
 from proyavka.i18n import (
@@ -67,9 +80,7 @@ from proyavka.imaging import (
 
 
 # ================= настройки и запуск-мелочи =================
-APP_NAME = L("Проявка", "Proyavka")
 
-WEBAPP_HTML = Path(__file__).resolve().parent / "webapp.html"
 RAW_WAIT = 90          # сек: RAW ждёт, не придёт ли JPEG той же съёмки
 _getaddrinfo = socket.getaddrinfo
 
@@ -82,152 +93,12 @@ def _ipv4_first(*args, **kwargs):
 socket.getaddrinfo = _ipv4_first
 
 
-
-
-
-
 # ================= база (потокобезопасно) =================
-DB_LOCK = threading.RLock()      # доступ к sqlite
-EDIT_LOCK = threading.RLock()    # перерисовка кадра + правка сообщения
-db = None                        # открывается в init_db() только в главном процессе: работникам база не нужна
-
-
-def init_db():
-    global db
-    db = sqlite3.connect(DB_PATH, check_same_thread=False, timeout=5)
-    db.row_factory = sqlite3.Row
-    db.execute("PRAGMA journal_mode=WAL")
-    db.execute("PRAGMA synchronous=NORMAL")
-    db.execute("PRAGMA busy_timeout=5000")
-    with DB_LOCK:
-        db.execute("""CREATE TABLE IF NOT EXISTS photos(
-            id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, src TEXT, work TEXT, thumb TEXT,
-            taken TEXT, iso INTEGER, auto_key TEXT, auto_reason TEXT,
-            preset TEXT, strength INTEGER DEFAULT 100,
-            stamp INTEGER DEFAULT 0, frame INTEGER DEFAULT 0, leak INTEGER DEFAULT 0,
-            msg_id INTEGER, file_id TEXT, hidden INTEGER DEFAULT 0, created REAL)""")
-        cols = {r[1] for r in db.execute("PRAGMA table_info(photos)")}
-        if "view" not in cols:
-            db.execute("ALTER TABLE photos ADD COLUMN view TEXT")
-        for col, decl in (("rev", "INTEGER DEFAULT 0"), ("rendered_rev", "INTEGER DEFAULT 0"), ("updated", "REAL DEFAULT 0"),
-                          ("leak_kind", "TEXT DEFAULT 'edge'"), ("leak_seed", "INTEGER DEFAULT 0"), ("fp", "TEXT"),
-                          ("msg_at", "REAL"), ("crop", "TEXT"), ("owner", "INTEGER"),
-                          ("deleted_at", "REAL")):
-            if col not in cols:
-                db.execute(f"ALTER TABLE photos ADD COLUMN {col} {decl}")
-        # несколько пользователей: все кадры прежних версий — администратора (того, кто ставил бота)
-        db.execute("UPDATE photos SET owner=? WHERE owner IS NULL", (CHAT_ID,))
-        db.execute("""CREATE TABLE IF NOT EXISTS users(
-            id INTEGER PRIMARY KEY, role TEXT DEFAULT 'user', name TEXT, lang TEXT, default_film TEXT DEFAULT 'auto',
-            storage_gb REAL, cam_token TEXT, ftp_pass TEXT, created REAL, invited_by INTEGER)""")
-        db.execute("""CREATE TABLE IF NOT EXISTS luts(
-            id INTEGER PRIMARY KEY AUTOINCREMENT, owner INTEGER, name TEXT, size INTEGER, created REAL)""")
-        db.execute("""CREATE TABLE IF NOT EXISTS submissions(
-            id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, by TEXT, params TEXT, h TEXT, created REAL, ip TEXT, status TEXT)""")
-        db.execute("""CREATE TABLE IF NOT EXISTS invites(
-            code TEXT PRIMARY KEY, created REAL, by INTEGER, used_by INTEGER, used_at REAL)""")
-        if "tg" not in {r[1] for r in db.execute("PRAGMA table_info(users)")}:
-            db.execute("ALTER TABLE users ADD COLUMN tg INTEGER")       # чат в Telegram (пусто — без Telegram)
-        db.execute("""CREATE TABLE IF NOT EXISTS pairs(
-            code TEXT PRIMARY KEY, uid INTEGER, exp REAL, kind TEXT)""")
-        db.execute("""CREATE TABLE IF NOT EXISTS push_subs(
-            id INTEGER PRIMARY KEY AUTOINCREMENT, owner INTEGER, device INTEGER, endpoint TEXT UNIQUE,
-            p256dh TEXT, auth TEXT, created REAL)""")
-        db.execute("""CREATE TABLE IF NOT EXISTS devices(
-            id INTEGER PRIMARY KEY AUTOINCREMENT, owner INTEGER, name TEXT, hash TEXT UNIQUE, created REAL, seen REAL)""")
-        db.execute("""CREATE TABLE IF NOT EXISTS albums(
-            id INTEGER PRIMARY KEY AUTOINCREMENT, owner INTEGER, token TEXT UNIQUE, title TEXT,
-            created REAL, updated REAL, views INTEGER DEFAULT 0)""")
-        db.execute("""CREATE TABLE IF NOT EXISTS album_photos(
-            album INTEGER, photo INTEGER, PRIMARY KEY(album, photo))""")
-        db.execute("INSERT OR IGNORE INTO users(id, role, lang, created) VALUES (?, 'admin', ?, ?)", (CHAT_ID, LANG, time.time()))
-        db.execute("UPDATE users SET role = CASE WHEN id=? THEN 'admin' ELSE 'user' END", (CHAT_ID,))
-        db.execute("UPDATE users SET tg=id WHERE tg IS NULL AND id < ?", (WEB_BASE,))   # пришедшие через Telegram
-        db.execute("CREATE INDEX IF NOT EXISTS photos_owner ON photos(owner, hidden, taken)")
-        db.execute("CREATE INDEX IF NOT EXISTS photos_fp ON photos(fp)")
-        # мини-приложение каждые 1–5 секунд спрашивает «что изменилось» и листает ленту — без индексов это полный перебор
-        db.execute("CREATE INDEX IF NOT EXISTS photos_updated ON photos(updated)")
-        db.execute("CREATE INDEX IF NOT EXISTS photos_feed ON photos(hidden, id)")
-        for old, new in OLD_KEYS.items():
-            db.execute("UPDATE photos SET preset=? WHERE preset=?", (new, old))
-            db.execute("UPDATE photos SET auto_key=? WHERE auto_key=?", (new, old))
-        db.commit()
-    load_users()
-    load_luts()
-
-
-def q(sql, args=()):
-    with DB_LOCK:
-        return [dict(r) for r in db.execute(sql, args).fetchall()]
-
-
-def run(sql, args=()):
-    with DB_LOCK:
-        cur = db.execute(sql, args)
-        db.commit()
-        return cur.lastrowid
-
-
-def run_count(sql, args=()):
-    with DB_LOCK:
-        cur = db.execute(sql, args)
-        db.commit()
-        return cur.rowcount
 
 
 # ================= пользователи =================
-# Бот один, пользователей несколько: администратор (тот, кто ставил) приглашает остальных через /invite.
-# У каждого кадра есть владелец; лента, кнопки, «Проявка», экспорт и место на диске — у каждого свои.
-ADMIN = CHAT_ID
-USER_STORAGE_GB = float(os.environ.get("USER_STORAGE_GB", "5"))   # лимит места для приглашённых (меняется в /users)
-DAILY_LIMIT = int(os.environ.get("DAILY_UPLOAD_LIMIT", "300"))     # кадров в сутки у приглашённых; 0 — без лимита
-CLEANUP_MINUTES = float(os.environ.get("CLEANUP_MINUTES", "15"))   # как часто проверять лимиты места
-INVITE_DAYS = 7
-USERS = {}                    # id -> строка таблицы users (кэш, перечитывается при изменениях)
-USERS_LOCK = threading.Lock()
 
 
-def load_users():
-    rows = q("SELECT * FROM users")
-    with USERS_LOCK:
-        USERS.clear()
-        USERS.update({r["id"]: r for r in rows})
-
-
-def user(uid):
-    return USERS.get(uid)
-
-
-def user_lang(uid):
-    u = USERS.get(uid)
-    return (u and u["lang"]) or LANG
-
-
-i18n.user_lang = user_lang          # speak(uid) из proyavka.i18n берёт язык пользователя отсюда
-
-
-def set_user(uid, **kw):
-    cols = ", ".join(f"{k}=?" for k in kw)
-    run(f"UPDATE users SET {cols} WHERE id=?", (*kw.values(), uid))
-    load_users()
-
-
-def load_luts():
-    rows = q("SELECT id, owner, name FROM luts")
-    LUT_NAMES.clear()
-    LUT_OWNER.clear()
-    for r in rows:
-        LUT_NAMES[f"lut{r['id']}"] = r["name"]
-        LUT_OWNER[f"lut{r['id']}"] = r["owner"]
-
-
-def user_luts(uid):
-    return q("SELECT * FROM luts WHERE owner=? ORDER BY id", (uid,))
-
-
-def valid_look(key, owner):
-    """Можно ли этому пользователю ставить такую плёнку: встроенные — всем, свой LUT — только владельцу."""
-    return key == "original" or key in PRESETS or (is_lut(key) and LUT_OWNER.get(key) == owner)
 
 
 def add_lut(owner, name, data):
@@ -287,7 +158,6 @@ SUBMIT_LOCK = threading.Lock()
 COMMUNITY_MAX = 600
 COMMUNITY = {"at": 0.0, "looks": []}
 COMMUNITY_LOCK = threading.Lock()
-COMMUNITY_BUNDLED = Path(__file__).resolve().parent.parent / "community" / "looks.json"
 
 
 def _write_look(owner, key, name, params, author, src, sent=0):
@@ -659,31 +529,6 @@ def community_image(name):
     return sample if name.endswith("-before") and sample.exists() else None
 
 
-def storage_limit(uid):
-    u = USERS.get(uid) or {}
-    if u.get("storage_gb"):
-        return u["storage_gb"]
-    return STORAGE_GB if uid == ADMIN else USER_STORAGE_GB
-
-
-def udir(uid, kind):
-    """Папка пользователя: у администратора — прежние папки в BASE, у остальных — BASE/users/<id>/."""
-    d = (BASE if uid == ADMIN else BASE / "users" / str(uid)) / kind
-    if not d.is_dir():
-        d.mkdir(parents=True, exist_ok=True)
-    return d
-
-
-def get(pid):
-    rows = q("SELECT * FROM photos WHERE id=?", (pid,))
-    return rows[0] if rows else None
-
-
-def upd(pid, **kw):
-    cols = ", ".join(f"{k}=?" for k in kw)
-    run(f"UPDATE photos SET {cols} WHERE id=?", (*kw.values(), pid))
-
-
 # ================= Telegram =================
 # Telegram необязателен: бота может не быть вовсе, а у пользователя может не быть привязанного чата.
 # Все отправки идут через tg(): номер пользователя превращается в его чат; некуда — NoChat (safe() её глотает).
@@ -692,7 +537,7 @@ class NoChat(Exception):
 
 
 def chat_of(uid):
-    if not BOT_TOKEN or uid is None:
+    if not config.BOT_TOKEN or uid is None:
         return None
     u = USERS.get(uid)
     return uid if u is None else u.get("tg")       # незнакомцу отвечаем в его же чат
@@ -708,7 +553,7 @@ def uid_of_tg(tid):
 
 
 def tg(method, files=None, **params):
-    if not BOT_TOKEN:
+    if not config.BOT_TOKEN:
         raise NoChat(method)
     if "chat_id" in params:
         params["chat_id"] = chat_of(params["chat_id"])
@@ -727,7 +572,7 @@ def tg_send(method, files=None, **params):
     data = {k: (json.dumps(v, ensure_ascii=False) if isinstance(v, (dict, list)) else v)
             for k, v in params.items() if v is not None}
     for attempt in range(3):
-        r = requests.post(f"https://api.telegram.org/bot{BOT_TOKEN}/{method}", data=data, files=files, timeout=(10, 120))   # (подключение, ответ)
+        r = requests.post(f"https://api.telegram.org/bot{config.BOT_TOKEN}/{method}", data=data, files=files, timeout=(10, 120))   # (подключение, ответ)
         j = r.json()
         if j.get("ok"):
             return j["result"]
@@ -775,13 +620,6 @@ def safe(method, **kw):
     except Exception as e:
         log.warning("%s", e)
         return None
-
-
-def jpeg(img, q=92):
-    buf = io.BytesIO()
-    img.save(buf, "JPEG", quality=q, subsampling=0)
-    buf.seek(0)
-    return buf
 
 
 def btn(text, data):
@@ -965,25 +803,12 @@ def hide_photo(ph):
 
 
 # ================= задачи в отдельных процессах =================
-# Эти функции выполняются в процессах-работниках: только рендер и файлы, без базы и Telegram.
-def save_atomic(img, path, quality):
-    tmp = f"{path}.{os.getpid()}.{threading.get_ident()}.tmp"   # уникально: несколько процессов могут писать один файл
-    img.save(tmp, "JPEG", quality=quality, subsampling=0 if quality >= 90 else 2)
-    try:
-        os.replace(tmp, path)
-    except PermissionError:          # Windows: файл как раз читает другой процесс — его копия не хуже
-        if not os.path.exists(path):
-            raise
-        os.remove(tmp)
-    return path
 
 
 def job_warm():
     for k in PRESETS:
         preset_lut(k)
     return os.getpid()
-
-
 
 
 def job_prepare(src, work_path, edge):
@@ -1341,11 +1166,6 @@ def _batch_report(b):
     safe("sendMessage", chat_id=b["uid"], text=text, disable_notification=True)
 
 
-def plural_ru(n, one, few, many):
-    a, b = n % 10, n % 100
-    return one if a == 1 and b != 11 else few if 2 <= a <= 4 and not 12 <= b <= 14 else many
-
-
 def export_photo(pid):
     """Экспорт в полный размер — в отдельной очереди, не мешает переключению плёнок."""
     ph = get(pid)
@@ -1556,23 +1376,6 @@ def apply_changes(ph, changes, sync_tg=None, prio=0):
 
 
 # ================= хранилище =================
-def fsize(path):
-    try:
-        return os.path.getsize(path)
-    except OSError:
-        return 0
-
-
-def dir_bytes(*dirs):
-    return sum(fsize(p) for d in dirs for p in d.iterdir() if p.is_file())
-
-
-def remove(path):
-    if path:
-        try:
-            os.remove(path)
-        except OSError:
-            pass
 
 
 def user_usage(uid):
@@ -1856,7 +1659,7 @@ def make_invite(by):
 
 def invite_links(code):
     return {"code": show_code(code), "url": f"{WEBAPP_URL.rstrip('/')}/#pair={code}" if WEBAPP_URL else "",
-            "tg_url": f"https://t.me/{bot_username()}?start={code}" if BOT_TOKEN else ""}
+            "tg_url": f"https://t.me/{bot_username()}?start={code}" if config.BOT_TOKEN else ""}
 
 
 INVITED_BY = {}
@@ -1980,10 +1783,9 @@ LIMITS_GB = [1, 2, 5, 10, 20, 50, 100, 200, 500]
 
 def set_limit(uid, gb):
     """Лимит места. Свой у администратора — это STORAGE_GB в config.env (его же меняет мастер установки)."""
-    global STORAGE_GB
     if uid == ADMIN:
         save_config("STORAGE_GB", f"{gb:g}")
-        STORAGE_GB = gb
+        config.STORAGE_GB = gb
         set_user(uid, storage_gb=None)
     else:
         set_user(uid, storage_gb=gb)
@@ -2052,8 +1854,6 @@ def set_commands(uid):
 
 
 # ================= настройка камеры прямо из чата =================
-PROJECT_URL = os.environ.get("PROJECT_URL", "https://github.com/Melnikoff07/proyavka")
-CONTACT_TG = os.environ.get("CONTACT_TG", "Sashkere").strip().lstrip("@")     # контакт автора: подвал альбомов и «⋯» → «О проекте»; пусто — скрыть
 if not re.fullmatch(r"[A-Za-z0-9_]{4,32}", CONTACT_TG):
     CONTACT_TG = ""
 APP_ROOT = Path(__file__).resolve().parent.parent
@@ -2331,7 +2131,7 @@ def _send_contact(ph):
 
 def download_tg_file(file_id, name, uid):
     info = tg("getFile", file_id=file_id)
-    url = f"https://api.telegram.org/file/bot{BOT_TOKEN}/{info['file_path']}"
+    url = f"https://api.telegram.org/file/bot{config.BOT_TOKEN}/{info['file_path']}"
     name = "".join(c for c in Path(name).name if c.isalnum() or c in "-_.")[:60] or "photo.jpg"
     tmp = TMP / f"tg_{secrets.token_hex(6)}.part"
     with requests.get(url, timeout=(10, 120), stream=True) as r:
@@ -2345,7 +2145,7 @@ def download_tg_bytes(file_id, limit):
     info = tg("getFile", file_id=file_id)
     if (info.get("file_size") or 0) > limit:
         raise ValueError(L("файл слишком большой", "file is too large"))
-    url = f"https://api.telegram.org/file/bot{BOT_TOKEN}/{info['file_path']}"
+    url = f"https://api.telegram.org/file/bot{config.BOT_TOKEN}/{info['file_path']}"
     r = requests.get(url, timeout=(10, 120))
     r.raise_for_status()
     return r.content[:limit + 1]
@@ -2586,31 +2386,6 @@ def _watch_restart(p):
             return
 
 
-def read_exif(im):
-    taken, iso = None, None
-    try:
-        ex = im.getexif()
-        ifd = ex.get_ifd(0x8769)
-        raw = ifd.get(36867) or ex.get(306)
-        if raw:
-            taken = datetime.strptime(str(raw)[:16], "%Y:%m:%d %H:%M").strftime("%Y-%m-%d %H:%M")
-        iso_v = ifd.get(34855)
-        if isinstance(iso_v, (tuple, list)):
-            iso_v = iso_v[0]
-        iso = int(iso_v) if iso_v else None
-    except Exception:
-        pass
-    return taken, iso
-
-
-def fingerprint(path):
-    """Отпечаток кадра: хеш начала файла (там EXIF с точным временем съёмки) + размер."""
-    h = hashlib.sha1()
-    with open(path, "rb") as fh:
-        h.update(fh.read(262144))
-    return f"{h.hexdigest()}:{os.path.getsize(path)}"
-
-
 def find_duplicate(f, fp, owner):
     row = q("SELECT id FROM photos WHERE fp=? AND owner=? LIMIT 1", (fp, owner))
     if row:
@@ -2782,14 +2557,6 @@ def ingest_loop(state):
 
 
 # ================= устройства: «Проявка» в браузере и как приложение =================
-# Вне Telegram устройство входит своим ключом. Привязка — одноразовый код на 10 минут (короткий, чтобы вписать руками,
-# и он же в ссылке и QR): его дают /link в боте или уже привязанное устройство. Браузер меняет код на постоянный ключ;
-# на сервере — только sha256 ключа. Ключ лежит и в localStorage, и в cookie: iPhone при добавлении на экран «Домой»
-# может перенести cookie из Safari, а localStorage — нет. Отозвать — /devices или «Устройства» в «Проявке».
-try:
-    import segno                      # QR-коды; без него — только ссылки
-except ImportError:
-    segno = None
 
 PAIR_TTL = 600                        # коды лежат в таблице pairs: их выдаёт и мастер установки (filmbot.py --pair)
 SESSION_DEV = {}                      # токен сессии -> id устройства, с которого вошли
@@ -2800,10 +2567,6 @@ PAIR_ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"     # без 0/O, 1/I/L — ч
 PAIR_LEN = 8                          # 31^8 ≈ 8·10^11 вариантов на 10 минут при 20 попытках с адреса
 DEV_COOKIE = "proyavka_device"
 ZIP_MAX = 200                         # кадров в одном архиве
-
-
-def key_hash(key):
-    return hashlib.sha256(key.encode()).hexdigest()
 
 
 def new_pair(uid, kind="device"):
@@ -2819,6 +2582,7 @@ def new_pair(uid, kind="device"):
 
 def take_pair(code, kind):
     """Погасить код: пользователь или None. Срабатывает один раз."""
+    from proyavka.database import db
     code = norm_code(code)
     with DB_LOCK:
         row = db.execute("SELECT uid, exp FROM pairs WHERE code=? AND kind=?", (code, kind)).fetchone()
@@ -2838,16 +2602,6 @@ def show_code(code):
 
 def norm_code(code):
     return re.sub(r"[^A-Z0-9]", "", str(code or "").upper())
-
-
-def qr_svg(text):
-    return segno.make(text, error="m").svg_inline(scale=5, border=2, dark="#000", light="#fff") if segno else None
-
-
-def qr_png(text):
-    buf = io.BytesIO()
-    segno.make(text, error="m").save(buf, kind="png", scale=10, border=3)
-    return buf.getvalue()
 
 
 def clean_device_name(name):
@@ -2952,16 +2706,11 @@ def send_link(uid):
         tg("sendMessage", chat_id=uid, text=text, reply_markup=kb, disable_web_page_preview=True, parse_mode="HTML")
 
 
-def html_esc(t):
-    return str(t).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-
-
 BOT_RESET = threading.Event()        # бота подключили или сменили — читать обновления с начала
 
 
 def connect_bot(token):
     """Подключить Telegram-бота из настроек «Проявки»: проверить токен, сохранить в config.env, включить без перезапуска."""
-    global BOT_TOKEN
     token = str(token or "").strip()
     if not re.fullmatch(r"\d+:[\w-]{30,}", token):
         raise ValueError(L("не похоже на токен: цифры, двоеточие, длинная строка", "doesn't look like a token: digits, a colon, a long string"))
@@ -2972,7 +2721,7 @@ def connect_bot(token):
     if not j.get("ok"):
         raise ValueError(L("Telegram не принял токен", "Telegram rejected the token") + f": {j.get('description')}")
     save_config("BOT_TOKEN", token)
-    BOT_TOKEN = token
+    config.BOT_TOKEN = token
     BOT_NAME.clear()
     BOT_NAME["u"] = j["result"]["username"]
     BOT_RESET.set()
@@ -3003,7 +2752,7 @@ def save_config(key, value):
 
 def bot_name_safe():
     try:
-        return bot_username() if BOT_TOKEN else None
+        return bot_username() if config.BOT_TOKEN else None
     except Exception:
         return None
 
@@ -3057,76 +2806,6 @@ def camera_json(uid):
     ext = ".md" if cur_lang() == "en" else ".ru.md"
     return {"domain": domain, "ftp_user": ftp_user, "ftp_pass": pw, "config": bool(conf) or CAMERA_CONFIG.exists(),
             "cert": FTP_ROOT_CERT.exists(), "guide_app": f"{guide}/sony-app{ext}", "guide_ftp": f"{guide}/ftp-cameras{ext}"}
-
-
-def download_name(ph):
-    return f"{Path(ph['name']).stem}_{ph['preset']}.jpg"
-
-
-def disposition(name):
-    ascii_name = re.sub(r"[^A-Za-z0-9._-]", "_", name) or "photo.jpg"
-    return f"attachment; filename=\"{ascii_name}\"; filename*=UTF-8''{quote(name)}"
-
-
-ICONS = {}
-
-
-def app_icon(size):
-    """Значок приложения: светлое пятно с ореолом халяции на чёрном (рисуется один раз)."""
-    if size not in ICONS:
-        s = size * 2
-        c, r = s / 2, s * 0.24
-        glow = Image.new("RGB", (s, s))
-        ImageDraw.Draw(glow).ellipse((c - r * 1.25, c - r * 1.25, c + r * 1.25, c + r * 1.25), fill=(255, 72, 24))
-        im = glow.filter(ImageFilter.GaussianBlur(s * 0.07))
-        ImageDraw.Draw(im).ellipse((c - r, c - r, c + r, c + r), fill=(255, 248, 236))
-        buf = io.BytesIO()
-        im.resize((size, size), Image.LANCZOS).save(buf, "PNG", optimize=True)
-        ICONS[size] = buf.getvalue()
-    return ICONS[size]
-
-
-def manifest():
-    name = L("Проявка", "Proyavka")
-    icons = [{"src": f"/icon-{n}.png", "sizes": f"{n}x{n}", "type": "image/png", "purpose": "any maskable"} for n in (192, 512)]
-    return {"name": name, "short_name": name, "start_url": "/", "scope": "/", "display": "standalone",
-            "background_color": "#000000", "theme_color": "#000000", "icons": icons}
-
-
-# Сервис-воркер нужен, чтобы «Проявку» можно было поставить как приложение. Хранит только саму страницу —
-# на случай, если сеть пропала; кадры и API идут мимо него.
-SW_JS = """const CACHE = "proyavka-shell-v1";
-self.addEventListener("push", (e) => {
-  let d = {};
-  try { d = e.data.json(); } catch (x) {}
-  e.waitUntil(self.registration.showNotification(d.title || "Proyavka", {
-    body: d.body || "", tag: d.tag || "proyavka", renotify: true, icon: "/icon-192.png", badge: "/icon-192.png",
-    data: { url: d.url || "/" } }));
-});
-self.addEventListener("notificationclick", (e) => {
-  e.notification.close();
-  e.waitUntil(self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((cs) => {
-    for (const c of cs) if ("focus" in c) return c.focus();
-    return self.clients.openWindow((e.notification.data && e.notification.data.url) || "/");
-  }));
-});
-self.addEventListener("install", () => self.skipWaiting());
-self.addEventListener("activate", (e) => e.waitUntil(self.clients.claim()));
-self.addEventListener("fetch", (e) => {
-  if (e.request.mode !== "navigate" || new URL(e.request.url).pathname !== "/") return;
-  e.respondWith(fetch(e.request).then((res) => {
-    if (res.ok) { const copy = res.clone(); caches.open(CACHE).then((c) => c.put("/", copy)); }
-    return res;
-  }).catch(() => caches.match("/")));
-});
-"""
-
-# Страница — из одного файла, поэтому скрипт и стили встроенные; зато грузить что-то с чужих адресов и
-# отправлять куда-то, кроме своего сервера, ей нельзя.
-CSP = ("default-src 'self'; script-src 'self' 'unsafe-inline' https://telegram.org; "
-       "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; "
-       "img-src 'self' data: blob:; connect-src 'self'; worker-src 'self'; manifest-src 'self'; "
-       "object-src 'none'; base-uri 'none'; form-action 'none'")
 
 
 # ================= уведомления (Web Push) =================
@@ -3226,10 +2905,6 @@ def _push_flush(uid):
 
 
 # ================= альбомы по ссылке =================
-# Выбранные кадры — одной ссылкой для кого угодно, без входа: смотреть и скачивать (по одному или архивом).
-# В ссылке длинный случайный ключ; удалил альбом — ссылка перестала работать. Кадр, убранный в корзину, из альбома
-# пропадает, новая плёнка видна сразу. Полный размер для чужих рисуется один раз и лежит в кэше превью (сутки).
-ALBUM_HTML = Path(__file__).resolve().parent / "album.html"
 ALBUM_CSP = ("default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline' https://fonts.googleapis.com; "
              "font-src https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self'; "
              "base-uri 'none'; form-action 'none'; frame-ancestors 'none'")
@@ -3281,6 +2956,7 @@ def album_photo_ids(uid, data):
 
 
 def save_album_photos(aid, ids):
+    from proyavka.database import db
     with DB_LOCK:
         db.execute("DELETE FROM album_photos WHERE album=?", (aid,))
         db.executemany("INSERT INTO album_photos(album, photo) VALUES (?,?)", [(aid, i) for i in ids])
@@ -3410,7 +3086,7 @@ def check_init_data(init_data):
     if not got:
         return False
     dcs = "\n".join(f"{k}={v}" for k, v in sorted(pairs.items()))
-    secret = hmac.new(b"WebAppData", BOT_TOKEN.encode(), hashlib.sha256).digest()
+    secret = hmac.new(b"WebAppData", config.BOT_TOKEN.encode(), hashlib.sha256).digest()
     calc = hmac.new(secret, dcs.encode(), hashlib.sha256).hexdigest()
     if not hmac.compare_digest(calc, got):
         return False
@@ -3814,6 +3490,7 @@ class Handler(BaseHTTPRequestHandler):
         return json.loads(self.rfile.read(n) or b"{}")
 
     def do_GET(self):
+        from proyavka.config import WEBAPP_HTML
         u = urlparse(self.path)
         parts = [p for p in u.path.split("/") if p]
         qs = parse_qs(u.query)
@@ -4092,7 +3769,7 @@ class Handler(BaseHTTPRequestHandler):
                 new_ftp_password(uid)
                 return self.js(camera_json(uid))
             if parts == ["api", "tg", "link"]:
-                if not BOT_TOKEN:
+                if not config.BOT_TOKEN:
                     return self.err(400, L("на этом сервере Telegram-бот не подключён", "no Telegram bot on this server"))
                 code = new_pair(uid, "tg")[0]
                 return self.js({"url": f"https://t.me/{bot_username()}?start=link_{code}", "bot": bot_username()})
@@ -4206,7 +3883,7 @@ def main():
     init_db()
     state = load_state()
     migrate_state(state)
-    if BOT_TOKEN:
+    if config.BOT_TOKEN:
         safe("deleteMyCommands")              # команды теперь у каждого свои (язык, /invite у администратора)
         for uid in list(USERS):
             with speak(uid):
@@ -4225,7 +3902,7 @@ def main():
         log.warning("RAW включён, но нет библиотеки rawpy — RAW выключен. Поставить: .venv/bin/pip install rawpy "
                     "(или setup.py --raw=1)")
     log.info("filmbot v6.0 started (%s), пользователей: %d, Telegram: %s", "локально" if LOCAL else VPS, len(USERS),
-             "да" if BOT_TOKEN else "нет — только приложение")
+             "да" if config.BOT_TOKEN else "нет — только приложение")
     last_clean = 0.0
     while True:
         if BOT_RESET.is_set():                # бота подключили из «Проявки»
@@ -4234,7 +3911,7 @@ def main():
             for uid in list(USERS):
                 with speak(uid):
                     set_commands(uid)
-        if BOT_TOKEN:
+        if config.BOT_TOKEN:
             handle_updates(state)   # главный поток занят только кнопками бота
         else:
             time.sleep(1)

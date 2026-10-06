@@ -1,11 +1,11 @@
 """Настройки из переменных окружения (config.env), папки с данными и общие константы."""
-from PIL import Image
-from pathlib import Path
 import importlib.util
 import logging
 import numpy as np
 import os
 import warnings
+from PIL import Image
+from pathlib import Path
 
 # «Бомба» в картинке: крошечный файл, который при разборе раздувается в гигабайты памяти.
 # Больше MAX_MEGAPIXELS — отказ сразу при открытии (у самых больших камер ~100 Мп).
@@ -84,3 +84,21 @@ PAGE = 12
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger("filmbot")
+
+
+WEBAPP_HTML = Path(__file__).resolve().parent.parent / "webapp.html"      # лежит в bot/, рядом с пакетом
+
+
+COMMUNITY_BUNDLED = Path(__file__).resolve().parent.parent.parent / "community" / "looks.json"
+
+
+PROJECT_URL = os.environ.get("PROJECT_URL", "https://github.com/Melnikoff07/proyavka")
+
+
+CONTACT_TG = os.environ.get("CONTACT_TG", "Sashkere").strip().lstrip("@")     # контакт автора: подвал альбомов и «⋯» → «О проекте»; пусто — скрыть
+
+
+# Выбранные кадры — одной ссылкой для кого угодно, без входа: смотреть и скачивать (по одному или архивом).
+# В ссылке длинный случайный ключ; удалил альбом — ссылка перестала работать. Кадр, убранный в корзину, из альбома
+# пропадает, новая плёнка видна сразу. Полный размер для чужих рисуется один раз и лежит в кэше превью (сутки).
+ALBUM_HTML = Path(__file__).resolve().parent.parent / "album.html"

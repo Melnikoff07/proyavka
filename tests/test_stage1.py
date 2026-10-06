@@ -15,6 +15,7 @@ def check(name, ok):
 
 if __name__ == "__main__":
     h = harness.start(port=8102, extra_env={"UPLOAD_MAX_MB": "20"})
+    from proyavka import config      # после start: настройки читаются из окружения при импорте
     h.auth()
     data = (TD / "a6300_DSC00270.JPG").read_bytes()
     t0 = time.time()
@@ -61,6 +62,6 @@ if __name__ == "__main__":
     h.token = old
     r = h.get("/api/photos?offset=0&limit=5")
     check(f"после продления лента открывается: {r.get('total')} кадров", r.get("total") == 3)
-    leftovers = [f.name for f in h.fb.TMP.iterdir() if f.name.startswith("up_")]
+    leftovers = [f.name for f in config.TMP.iterdir() if f.name.startswith("up_")]
     check(f"временных файлов не осталось: {leftovers}", not leftovers)
     harness.done()

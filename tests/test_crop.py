@@ -14,6 +14,7 @@ def check(name, ok):
 
 if __name__ == "__main__":
     h = harness.start(port=8105)
+    from proyavka import config, database      # после start: настройки читаются из окружения при импорте
     h.auth()
     MEDIA = h.post("/api/auth", {"initData": "test-1"}, auth=False)["media"]      # токен для адресов картинок
     h.drop(TD / "a6300_DSC00270.JPG")
@@ -33,8 +34,8 @@ if __name__ == "__main__":
     t0 = time.time()
     r = h.post(f"/api/photo/{pid}", {"crop": sq})
     check(f"кадрирование принято: {r.get('crop')}", r.get("crop") == sq and r.get("pending"))
-    h.wait(lambda: (lambda p: p["rendered_rev"] == p["rev"])(fb.get(pid)), timeout=60)
-    ph = fb.get(pid)
+    h.wait(lambda: (lambda p: p["rendered_rev"] == p["rev"])(database.get(pid)), timeout=60)
+    ph = database.get(pid)
     vw, vh = Image.open(ph["view"]).size
     check(f"«Проявка» квадратная: {vw}×{vh}", abs(vw - vh) <= 2)
     tw, th = Image.open(ph["thumb"]).size
@@ -51,11 +52,11 @@ if __name__ == "__main__":
     check(f"исходник для кадрирования некадрирован: {sw}×{sh}", abs(sw / sh - W0 / H0) < 0.01)
 
     # версия для чата и полный файл
-    chat = fb.TMP / "t_chat.jpg"
+    chat = config.TMP / "t_chat.jpg"
     fb.FAST.submit(fb.job_chat, ph, str(chat)).result()
     cw, ch = Image.open(chat).size
     check(f"версия для чата {cw}×{ch} (кроп ~{H0}px из рабочей копии)", abs(cw - ch) <= 2 and cw >= H0 - 2)
-    full = fb.TMP / "t_full.jpg"
+    full = config.TMP / "t_full.jpg"
     fb.HEAVY.submit(fb.job_full, ph, str(full)).result()
     ow, oh = Image.open(ph["src"]).size
     fw, fh = Image.open(full).size
@@ -64,8 +65,8 @@ if __name__ == "__main__":
     # сильный кроп: 30% кадра — для чата берётся оригинал, не мыло из рабочей копии
     small = [0.35, 0.35, 0.3, 0.3]
     h.post(f"/api/photo/{pid}", {"crop": small})
-    h.wait(lambda: (lambda p: p["rendered_rev"] == p["rev"])(fb.get(pid)), timeout=60)
-    ph = fb.get(pid)
+    h.wait(lambda: (lambda p: p["rendered_rev"] == p["rev"])(database.get(pid)), timeout=60)
+    ph = database.get(pid)
     fb.FAST.submit(fb.job_chat, ph, str(chat)).result()
     cw, ch = Image.open(chat).size
     from_work = round(0.3 * W0)
@@ -77,8 +78,8 @@ if __name__ == "__main__":
     # сброс
     r = h.post(f"/api/photo/{pid}", {"crop": None})
     check(f"сброс кадрирования: {r.get('crop')}", r.get("crop") is None)
-    h.wait(lambda: (lambda p: p["rendered_rev"] == p["rev"])(fb.get(pid)), timeout=60)
-    vw, vh = Image.open(fb.get(pid)["view"]).size
+    h.wait(lambda: (lambda p: p["rendered_rev"] == p["rev"])(database.get(pid)), timeout=60)
+    vw, vh = Image.open(database.get(pid)["view"]).size
     check(f"после сброса снова весь кадр: {vw}×{vh}", abs(vw / vh - W0 / H0) < 0.01)
     r = h.post(f"/api/photo/{pid}", {"crop": [0, 0, 1, 1]})
     check("рамка во весь кадр = без кадрирования", r.get("crop") is None and not r.get("pending"))

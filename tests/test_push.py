@@ -24,6 +24,7 @@ def frame(seed, name):
 
 if __name__ == "__main__":
     h = harness.start(port=8112)
+    from proyavka import config, database      # после start: настройки читаются из окружения при импорте
     fb = h.fb
     h.auth(1)
     check("pywebpush есть", fb.webpush is not None)
@@ -43,7 +44,7 @@ if __name__ == "__main__":
 
     j = h.get("/api/push")
     check(f"ключ сервера: {len(j['key'])} символов", j["supported"] and len(j["key"]) == 87)
-    check("ключ сохранён и тот же после перезагрузки", (fb.BASE / "vapid.pem").exists()
+    check("ключ сохранён и тот же после перезагрузки", (config.BASE / "vapid.pem").exists()
           and (fb._VAPID.clear() or fb.push_key()) == j["key"])
 
     # устройство с подпиской
@@ -55,9 +56,9 @@ if __name__ == "__main__":
     sub = {"endpoint": "https://web.push.apple.com/abc", "keys": {"p256dh": "B" * 87, "auth": "A" * 22}}
     check("кривая подписка не принята", hd.post("/api/push/subscribe", {"endpoint": "http://x", "keys": {}}).get("_status") == 400)
     check("подписка принята", hd.post("/api/push/subscribe", sub).get("ok"))
-    row = fb.q("SELECT * FROM push_subs")
+    row = database.q("SELECT * FROM push_subs")
     check(f"подписка привязана к устройству #{row[0]['device'] if row else '?'}", len(row) == 1 and row[0]["device"] and row[0]["owner"] == 1)
-    check("повторная подписка того же адреса не задваивается", hd.post("/api/push/subscribe", sub).get("ok") and len(fb.q("SELECT * FROM push_subs")) == 1)
+    check("повторная подписка того же адреса не задваивается", hd.post("/api/push/subscribe", sub).get("ok") and len(database.q("SELECT * FROM push_subs")) == 1)
 
     # три кадра подряд, приложение закрыто -> одно уведомление
     fb.LAST_POLL.clear()
@@ -91,8 +92,8 @@ if __name__ == "__main__":
     time.sleep(fb.PUSH_QUIET)
     t2 = time.time()
     pid = h.photos()[0]["id"]
-    fb.apply_changes(fb.get(pid), {"strength": 50})
-    h.wait(lambda: fb.get(pid)["rendered_rev"] == fb.get(pid)["rev"], timeout=60)
+    fb.apply_changes(database.get(pid), {"strength": 50})
+    h.wait(lambda: database.get(pid)["rendered_rev"] == database.get(pid)["rev"], timeout=60)
     time.sleep(fb.PUSH_DELAY + 1)
     check("смена плёнки не уведомляет", not [s for s in SENT if s[0] > t2])
 
@@ -100,16 +101,16 @@ if __name__ == "__main__":
     gone.add(sub["endpoint"])
     h.drop(frame(20, "R0001.JPG"))
     h.wait(lambda: [p for p in h.photos() if p["name"] == "R0001.JPG" and p["view"]], timeout=60)
-    h.wait(lambda: not fb.q("SELECT 1 FROM push_subs"), timeout=fb.PUSH_DELAY + 10)
+    h.wait(lambda: not database.q("SELECT 1 FROM push_subs"), timeout=fb.PUSH_DELAY + 10)
     check("протухшая подписка (410) удалена", True)
 
     # отписка и отключение устройства
     gone.clear()
     hd.post("/api/push/subscribe", sub)
     check("выключить — подписки нет", hd.post("/api/push/unsubscribe", {"endpoint": sub["endpoint"]}).get("ok")
-          and not fb.q("SELECT 1 FROM push_subs"))
+          and not database.q("SELECT 1 FROM push_subs"))
     hd.post("/api/push/subscribe", sub)
-    did = fb.q("SELECT device FROM push_subs")[0]["device"]
+    did = database.q("SELECT device FROM push_subs")[0]["device"]
     fb.drop_device(1, did)
-    check("отключили устройство — его подписка ушла", not fb.q("SELECT 1 FROM push_subs"))
+    check("отключили устройство — его подписка ушла", not database.q("SELECT 1 FROM push_subs"))
     harness.done()

@@ -26,6 +26,7 @@ def mean_color(b):
 
 if __name__ == "__main__":
     h = harness.start(port=8117, extra_env={"COMMUNITY_URL": ""})      # без сети: каталог из репозитория
+    from proyavka import database      # после start: настройки читаются из окружения при импорте
     from proyavka import film      # после start: настройки читаются из окружения при импорте
     fb = h.fb
     h.auth(1)
@@ -75,17 +76,17 @@ if __name__ == "__main__":
     got = h.get(f"/api/look/{key}")
     check("параметры читаются для редактора", got["name"] == "Моя плёнка" and abs(got["params"]["sat"] - 1.6) < 1e-6)
     h.post(f"/api/photo/{pid}", {"preset": key})
-    h.wait(lambda: not fb.get(pid)["rev"] or fb.get(pid)["rev"] == fb.get(pid)["rendered_rev"], timeout=60)
-    v1 = Path(fb.get(pid)["view"]).read_bytes()
+    h.wait(lambda: not database.get(pid)["rev"] or database.get(pid)["rev"] == database.get(pid)["rendered_rev"], timeout=60)
+    v1 = Path(database.get(pid)["view"]).read_bytes()
     img1 = mean_color(v1)
     check(f"кадр проявлен своей плёнкой: теплее нейтрального ({img1.round(0)})", img1[0] - img1[2] > 5)
 
     # --- правка перерисовывает кадры с этой плёнкой ---
-    rev0 = fb.get(pid)["rev"]
+    rev0 = database.get(pid)["rev"]
     e = h.post("/api/look", {"key": key, "name": "Холодная", "params": cold})
     check("правка принята, кадр поставлен на перерисовку", e["name"] == "Холодная" and e["redrawn"] == 1)
-    h.wait(lambda: fb.get(pid)["rev"] > rev0 and fb.get(pid)["rev"] == fb.get(pid)["rendered_rev"], timeout=60)
-    img2 = mean_color(Path(fb.get(pid)["view"]).read_bytes())
+    h.wait(lambda: database.get(pid)["rev"] > rev0 and database.get(pid)["rev"] == database.get(pid)["rendered_rev"], timeout=60)
+    img2 = mean_color(Path(database.get(pid)["view"]).read_bytes())
     check(f"теперь холоднее ({img1[0] - img1[2]:.0f} → {img2[0] - img2[2]:.0f})", img2[0] - img2[2] < img1[0] - img1[2] - 10)
     check("название обновилось в списке", any(x["key"] == key and x["name"] == "Холодная" for x in h.get("/api/presets")["presets"]))
 
@@ -168,7 +169,7 @@ if __name__ == "__main__":
 
     # --- лимит и удаление ---
     d = h.post(f"/api/lut/{key}/delete")
-    check("удаление плёнки: кадр вернулся на автоплёнку", d.get("ok") and fb.get(pid)["preset"] != key)
+    check("удаление плёнки: кадр вернулся на автоплёнку", d.get("ok") and database.get(pid)["preset"] != key)
     check("файлы стёрты", not (film.lut_dir(1) / f"{key}.json").exists())
     check("после удаления её нет в списке", all(x["key"] != key for x in h.get("/api/presets")["presets"]))
     harness.done()
