@@ -59,7 +59,7 @@
   .more[hidden], .add[hidden] { display: none; }
 
   /* загрузка своих фото: полоска внизу */
-  .uploader { position: fixed; left: var(--pad); right: var(--pad); bottom: calc(16px + env(safe-area-inset-bottom, 0px));
+  .uploader { position: fixed; left: var(--pad); right: var(--pad); bottom: calc(max(var(--dock, 0px), env(safe-area-inset-bottom, 0px)) + 16px);
               background: var(--btn-bg); color: var(--btn-text); z-index: 25; padding: 12px 14px 0; }
   .uploader[hidden] { display: none; }
   .up-row { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; padding-bottom: 12px; }
@@ -237,11 +237,13 @@
   .pairform input::placeholder { text-transform: none; letter-spacing: 0; }
   .pastebtn { color: var(--muted); padding: 12px 0 0; }
   .paircode { font-size: 34px; font-weight: 500; letter-spacing: .06em; margin: 2px 0 10px; user-select: all; -webkit-user-select: all; }
+  .al-name { width: 100%; font: inherit; font-size: 16px; color: var(--text); background: var(--tile); border: 0; padding: 0 12px; height: 44px; }
+  .al-acts { padding: 16px 0 0; }
   .vleft { display: flex; gap: 12px; align-items: baseline; }
   .vback { padding: 0 6px 0 0; }
   .vback[hidden] { display: none; }
 
-  .toast { position: fixed; left: var(--pad); right: var(--pad); bottom: calc(16px + env(safe-area-inset-bottom, 0px));
+  .toast { position: fixed; left: var(--pad); right: var(--pad); bottom: calc(max(var(--dock, 0px), env(safe-area-inset-bottom, 0px)) + 16px);
            background: var(--btn-bg); color: var(--btn-text); padding: 12px 14px; z-index: 20;
            opacity: 0; pointer-events: none; transition: opacity .15s linear; }
   .toast.show { opacity: 1; }
@@ -307,6 +309,7 @@
     <button id="sFilm" data-i18n="Film">Плёнка</button>
     <button id="sLeak" data-i18n="Leak">Засвет</button>
     <button id="sFiles" data-i18n="Files">Файлы</button>
+    <button id="sAlbum">Альбом</button>
     <button id="sDelete" class="danger" data-i18n="Delete">Удалить</button>
   </div>
 </div>
@@ -315,6 +318,10 @@
   <div class="strip" id="shStrip" role="listbox"></div>
   <div class="line" id="shStrLine"><span class="cap muted label" data-i18n="Strength">Сила</span><div class="opts cap" id="shStrength" role="group"></div></div>
   <div class="actions"><button class="btn" id="shApply" disabled></button></div>
+</div>
+<div class="sheet" id="albumSheet" hidden role="dialog" aria-labelledby="alTitle">
+  <div class="sheet-head cap"><span id="alTitle"></span><button id="alClose" data-i18n="Close">Закрыть</button></div>
+  <div class="pair" id="alBody"></div>
 </div>
 <section class="settings" id="settings" hidden aria-label="Настройки" data-i18n-aria="Settings">
   <div class="vbar cap"><span class="vleft"><button class="vback" id="stBack" aria-label="Назад" data-i18n-aria="Back">←</button><span data-i18n="Settings">Настройки</span></span><span></span><span></span></div>
@@ -339,6 +346,11 @@
     <p class="muted st-p" id="stUsedNote"></p>
     <button class="st-link cap" id="stTrashBtn"></button>
     <div class="grid st-grid" id="stTrash" hidden></div>
+  </div>
+  <div class="st-sec">
+    <div class="st-h cap muted" data-i18n="Albums by link">Альбомы по ссылке</div>
+    <div id="stAlbums"></div>
+    <p class="muted st-p" data-i18n="Select frames in the feed (long press, or Select day) → Album. Anyone with the link can view and download them, no sign-in needed.">Выбери кадры в ленте (долгое нажатие или «Выбрать день») → «Альбом». По ссылке их можно смотреть и скачивать без входа.</p>
   </div>
   <div class="st-sec">
     <div class="st-h cap muted" data-i18n="Devices">Устройства</div>
@@ -607,6 +619,7 @@ function enterSelect() {
 function exitSelect() {
   closeSheet();
   selecting = false;
+  albumEdit = null;
   selected.clear();
   document.body.classList.remove("selecting");
   $("selbar").hidden = true;
@@ -632,14 +645,27 @@ function selectDay(k) {
 }
 function updateSelUI() {
   const n = selected.size;
-  $("selCount").textContent = n ? T(`Выбрано: ${n}`, `Selected: ${n}`) : T("Нажимай на кадры", "Tap frames to select");
+  $("selCount").textContent = albumEdit ? T(`Альбом «${albumEdit.title || "без названия"}»: ${n}`, `Album "${albumEdit.title || "untitled"}": ${n}`)
+    : n ? T(`Выбрано: ${n}`, `Selected: ${n}`) : T("Нажимай на кадры", "Tap frames to select");
   document.querySelectorAll(".sel-actions button").forEach((b) => { b.disabled = !n; });
+  for (const id of ["sFilm", "sLeak", "sFiles", "sDelete"]) $(id).hidden = !!albumEdit;
+  $("sAlbum").textContent = albumEdit ? T("Сохранить альбом", "Save album") : T("Альбом", "Album");
   for (const [k, g] of Object.entries(groups)) {
     const ids = dayIds(k);
     g.btn.textContent = ids.length && ids.every((id) => selected.has(id)) ? T("Снять день", "Unselect day") : T("Выбрать день", "Select day");
   }
 }
 function selIds() { return photos.filter((p) => selected.has(p.id)).map((p) => p.id); }
+
+/* полоска загрузки и подсказки поднимаются над открытой нижней панелью, а не ложатся на неё */
+if ("ResizeObserver" in window) {
+  const docks = ["selbar", "sheet", "albumSheet"].map((id) => $(id));
+  const ro = new ResizeObserver(() => {
+    const h = Math.max(0, ...docks.map((el) => (el.hidden ? 0 : el.offsetHeight)));
+    document.documentElement.style.setProperty("--dock", h + "px");
+  });
+  docks.forEach((el) => ro.observe(el));
+}
 
 $("selCancel").onclick = exitSelect;
 $("vBack").onclick = () => onBack();
@@ -679,7 +705,7 @@ $("sDelete").onclick = () => {
 
 /* вне Telegram нет его кнопки «назад»: открытые слои кладём в историю, системный «назад» их закрывает */
 let histPushed = false, histIgnore = false;
-function layerOpen() { return cur >= 0 || selecting || !$("sheet").hidden || !$("settings").hidden || !!crop; }
+function layerOpen() { return cur >= 0 || selecting || !$("sheet").hidden || !$("albumSheet").hidden || !$("settings").hidden || !!crop; }
 function syncHistory() {
   if (tg) return;
   const open = layerOpen();
@@ -695,6 +721,7 @@ addEventListener("popstate", () => {
 });
 
 function onBack() {
+  if (!$("albumSheet").hidden) return closeAlbumSheet();
   if (!$("settings").hidden) return closeSettings();
   if (crop) exitCrop();
   else if (cur >= 0) closeViewer();
@@ -1191,6 +1218,7 @@ async function openSettings() {
   await renderMe();
   applyTheme();
   renderPush();
+  renderAlbums();
   renderDevices();
   if (me && me.admin) renderUsers();
 }
@@ -1455,6 +1483,115 @@ $("dvNew").onclick = async () => {
   } catch (e) { toast(e.message); }
 };
 $("dvLink").onfocus = () => $("dvLink").select();
+
+/* ---------- альбомы по ссылке: выбранные кадры для кого угодно, без входа ---------- */
+let albumEdit = null;        // { id, title } — меняем состав альбома в режиме выбора
+const framesN = (n) => T(`${n} ${plural(n, "кадр", "кадра", "кадров")}`, `${n} frame${n === 1 ? "" : "s"}`);
+function openExternal(u) { if (tg && tg.openLink) tg.openLink(u); else window.open(u, "_blank", "noopener"); }
+function albumDefaultTitle(ids) {
+  const set = new Set(ids);
+  const days = [...new Set(photos.filter((p) => set.has(p.id)).map(dayKey))].filter(Boolean).sort();
+  const t = (k) => { const [, m, d] = k.split("-").map(Number); return dm(d, m); };
+  if (!days.length) return "";
+  return days.length === 1 ? t(days[0]) : `${t(days[0])} — ${t(days[days.length - 1])}`;
+}
+function openAlbumSheet(title, html) {
+  $("alTitle").textContent = title;
+  $("alBody").innerHTML = html;
+  $("selbar").hidden = true;
+  $("albumSheet").hidden = false;
+  syncHistory();
+}
+function closeAlbumSheet() {
+  if ($("albumSheet").hidden) return;
+  $("albumSheet").hidden = true;
+  if (selecting) $("selbar").hidden = false;
+  syncHistory();
+}
+$("alClose").onclick = closeAlbumSheet;
+
+$("sAlbum").onclick = async () => {
+  const ids = [...selected];        // при правке альбома тут и кадры, до которых лента ещё не долистана
+  if (!ids.length) return;
+  if (albumEdit) {
+    try {
+      const a = await api(`/api/album/${albumEdit.id}`, { ids });
+      exitSelect();
+      toast(T(`Альбом сохранён: ${framesN(a.n)}`, `Album saved: ${framesN(a.n)}`));
+      haptic("success");
+    } catch (e) { toast(e.message); }
+    return;
+  }
+  openAlbumSheet(T("Альбом по ссылке", "Album link"),
+    `<input class="al-name" id="alName" maxlength="80" placeholder="${esc(T("Название", "Title"))}" value="${esc(albumDefaultTitle(ids))}">` +
+    `<p class="muted" style="margin:10px 0 0">${T("Кто получит ссылку, увидит эти кадры и сможет скачать — без входа и без Telegram. Удалишь альбом — ссылка перестанет работать.",
+                                                 "Anyone with the link sees these frames and can download them — no sign-in, no Telegram. Delete the album and the link stops working.")}</p>` +
+    `<div class="actions al-acts"><button class="btn" id="alCreate">${T(`Создать ссылку · ${ids.length}`, `Create link · ${ids.length}`)}</button></div>`);
+  $("alCreate").onclick = async () => {
+    $("alCreate").disabled = true;
+    try {
+      const a = await api("/api/albums", { ids, title: $("alName").value.trim() });
+      exitSelect();
+      showAlbumLink(a);
+      haptic("success");
+    } catch (e) { toast(e.message); $("alCreate").disabled = false; }
+  };
+};
+
+function showAlbumLink(a) {
+  openAlbumSheet(a.title || T("Альбом", "Album"),
+    `<input class="linkbox" id="alUrl" readonly value="${esc(a.url)}">` +
+    `<p class="muted" style="margin:10px 0 0">${framesN(a.n)}${a.views ? T(` · открывали ${a.views} раз`, ` · opened ${a.views} times`) : ""}</p>` +
+    `<div class="actions al-acts"><button class="btn" id="alShare">${T("Отправить ссылку", "Share link")}</button>` +
+    `<button class="link cap" id="alCopy">${T("Копировать", "Copy")}</button><button class="link cap" id="alOpen">${T("Открыть", "Open")}</button></div>` +
+    `<button class="link cap" id="alRename">${T("Переименовать", "Rename")}</button>`);
+  $("alUrl").onfocus = () => $("alUrl").select();
+  $("alCopy").onclick = () => copyText(a.url, T("Ссылка скопирована", "Link copied"));
+  $("alOpen").onclick = () => openExternal(a.url);
+  $("alShare").onclick = async () => {
+    if (tg && tg.openTelegramLink) return tg.openTelegramLink(`https://t.me/share/url?url=${encodeURIComponent(a.url)}&text=${encodeURIComponent(a.title || "")}`);
+    if (navigator.share) { try { await navigator.share({ title: a.title || T("Альбом", "Album"), url: a.url }); } catch (e) {} return; }
+    copyText(a.url, T("Ссылка скопирована", "Link copied"));
+  };
+  $("alRename").onclick = async () => {
+    const t = prompt(T("Название альбома", "Album title"), a.title || "");
+    if (t === null) return;
+    try { showAlbumLink(await api(`/api/album/${a.id}`, { title: t.trim() })); if (!$("settings").hidden) renderAlbums(); }
+    catch (e) { toast(e.message); }
+  };
+}
+
+async function renderAlbums() {
+  let j;
+  try { j = await api("/api/albums"); } catch (e) { return toast(e.message); }
+  $("stAlbums").replaceChildren(...j.albums.map((a) => {
+    const row = document.createElement("div");
+    row.className = "st-user";
+    row.innerHTML = `<div class="dn"><span></span><span class="cap muted"></span></div>` +
+      `<button class="cap" data-act="link">${T("Ссылка", "Link")}</button><button class="cap" data-act="edit">${T("Кадры", "Frames")}</button>` +
+      `<button class="cap" data-act="del">${T("Удалить", "Delete")}</button>`;
+    row.querySelector(".dn span").textContent = a.title || T("Без названия", "Untitled");
+    row.querySelector(".dn .cap").textContent = `${framesN(a.n)} · ${when(a.created)}` + (a.views ? T(` · открывали ${a.views}`, ` · opened ${a.views}×`) : "");
+    row.querySelector('[data-act="link"]').onclick = () => showAlbumLink(a);
+    row.querySelector('[data-act="edit"]').onclick = () => editAlbum(a);
+    row.querySelector('[data-act="del"]').onclick = () => ask(T(`Удалить альбом «${a.title || "без названия"}»? Ссылка перестанет работать, кадры останутся в ленте.`,
+                                                               `Delete the album "${a.title || "untitled"}"? The link stops working; the frames stay in your feed.`),
+      async (ok) => { if (ok) try { await api(`/api/album/${a.id}/delete`, {}); renderAlbums(); toast(T("Альбом удалён", "Album deleted")); } catch (e) { toast(e.message); } });
+    return row;
+  }));
+}
+
+/* состав альбома меняется прямо в ленте: отмечены его кадры, «Выбрать день» и касания добавляют и убирают */
+function editAlbum(a) {
+  $("settings").hidden = true;            // без шага в истории: слой выбора займёт место настроек
+  document.body.style.overflow = "";
+  if (selecting) exitSelect();
+  albumEdit = { id: a.id, title: a.title };
+  a.ids.forEach((id) => selected.add(id));
+  enterSelect();
+  document.querySelectorAll(".cell").forEach((el) => el.classList.toggle("sel", selected.has(Number(el.dataset.id))));
+  toast(T("Отметь, что добавить или убрать, и нажми «Сохранить альбом»", "Tap frames to add or remove, then Save album"));
+}
 $("dvInstall").onclick = async () => {
   if (!installPrompt) return;
   installPrompt.prompt();

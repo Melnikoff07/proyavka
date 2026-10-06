@@ -908,6 +908,11 @@ def init_db():
             p256dh TEXT, auth TEXT, created REAL)""")
         db.execute("""CREATE TABLE IF NOT EXISTS devices(
             id INTEGER PRIMARY KEY AUTOINCREMENT, owner INTEGER, name TEXT, hash TEXT UNIQUE, created REAL, seen REAL)""")
+        db.execute("""CREATE TABLE IF NOT EXISTS albums(
+            id INTEGER PRIMARY KEY AUTOINCREMENT, owner INTEGER, token TEXT UNIQUE, title TEXT,
+            created REAL, updated REAL, views INTEGER DEFAULT 0)""")
+        db.execute("""CREATE TABLE IF NOT EXISTS album_photos(
+            album INTEGER, photo INTEGER, PRIMARY KEY(album, photo))""")
         db.execute("INSERT OR IGNORE INTO users(id, role, lang, created) VALUES (?, 'admin', ?, ?)", (CHAT_ID, LANG, time.time()))
         db.execute("UPDATE users SET role = CASE WHEN id=? THEN 'admin' ELSE 'user' END", (CHAT_ID,))
         db.execute("UPDATE users SET tg=id WHERE tg IS NULL AND id < ?", (WEB_BASE,))   # пришедшие через Telegram
@@ -2010,6 +2015,10 @@ def cleanup():
     min_free = MIN_FREE_GB * 1e9
     free = [shutil.disk_usage(BASE).free]
     if free[0] < min_free:
+        for f in PREVIEWS.glob("*_full_*.jpg"):     # кэш полных кадров для альбомов — его не жалко
+            free[0] += fsize(f)
+            remove(f)
+    if free[0] < min_free:
         for ph in q("SELECT * FROM photos WHERE hidden=1 AND (src IS NOT NULL OR work IS NOT NULL "
                     "OR view IS NOT NULL OR thumb IS NOT NULL) ORDER BY deleted_at, id"):
             if free[0] >= min_free:
@@ -2404,6 +2413,8 @@ def delete_user(uid):
     run("DELETE FROM devices WHERE owner=?", (uid,))
     run("DELETE FROM pairs WHERE uid=?", (uid,))
     run("DELETE FROM push_subs WHERE owner=?", (uid,))
+    run("DELETE FROM album_photos WHERE album IN (SELECT id FROM albums WHERE owner=?)", (uid,))
+    run("DELETE FROM albums WHERE owner=?", (uid,))
     with speak(uid):
         bye = L("Доступ к боту закрыт.", "Your access to the bot was removed.")
     run("DELETE FROM users WHERE id=?", (uid,))
@@ -3496,7 +3507,7 @@ self.addEventListener("notificationclick", (e) => {
 self.addEventListener("install", () => self.skipWaiting());
 self.addEventListener("activate", (e) => e.waitUntil(self.clients.claim()));
 self.addEventListener("fetch", (e) => {
-  if (e.request.mode !== "navigate") return;
+  if (e.request.mode !== "navigate" || new URL(e.request.url).pathname !== "/") return;
   e.respondWith(fetch(e.request).then((res) => {
     if (res.ok) { const copy = res.clone(); caches.open(CACHE).then((c) => c.put("/", copy)); }
     return res;
@@ -3606,6 +3617,135 @@ def _push_flush(uid):
         except Exception as e:
             log.warning("push to %d: %s", uid, e)
     log.info("уведомление «%s» для %d: отправлено на %d из %d устройств", body, uid, sent, len(subs))
+
+
+# ================= альбомы по ссылке =================
+# Выбранные кадры — одной ссылкой для кого угодно, без входа: смотреть и скачивать (по одному или архивом).
+# В ссылке длинный случайный ключ; удалил альбом — ссылка перестала работать. Кадр, убранный в корзину, из альбома
+# пропадает, новая плёнка видна сразу. Полный размер для чужих рисуется один раз и лежит в кэше превью (сутки).
+ALBUM_HTML = Path(__file__).resolve().parent / "album.html"
+ALBUM_CSP = ("default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline' https://fonts.googleapis.com; "
+             "font-src https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self'; "
+             "base-uri 'none'; form-action 'none'; frame-ancestors 'none'")
+ALBUM_ZIPS = set()                    # альбомы, чей архив сейчас собирается: по одному за раз
+FULL_LOCKS = collections.defaultdict(threading.Lock)
+ZIP_POOL = ThreadPoolExecutor(max_workers=2, thread_name_prefix="zip")
+
+
+def album_url(tok):
+    return f"{WEBAPP_URL.rstrip('/')}/a/{tok}"
+
+
+def clean_title(t):
+    return re.sub(r"[\x00-\x1f<>]", "", str(t or "")).strip()[:80]
+
+
+def album_rows(a, pid=None):
+    """Кадры альбома, которые можно показать: не в корзине, уже проявленные, по времени съёмки."""
+    one = " AND p.id=?" if pid is not None else ""
+    return q("SELECT p.* FROM album_photos ap JOIN photos p ON p.id=ap.photo WHERE ap.album=? AND p.owner=? "
+             f"AND p.hidden=0 AND p.view IS NOT NULL{one} ORDER BY p.taken, p.id",
+             (a["id"], a["owner"], *(() if pid is None else (pid,))))
+
+
+def album_json(a):
+    rows = album_rows(a)
+    ids = [r["photo"] for r in q("SELECT ap.photo FROM album_photos ap JOIN photos p ON p.id=ap.photo "
+                                 "WHERE ap.album=? AND p.hidden=0", (a["id"],))]
+    return {"id": a["id"], "title": a["title"] or "", "url": album_url(a["token"]), "n": len(rows), "ids": ids,
+            "cover": rows[0]["id"] if rows else None, "created": a["created"], "views": a["views"] or 0}
+
+
+def user_albums(uid):
+    return [album_json(a) for a in q("SELECT * FROM albums WHERE owner=? ORDER BY created DESC", (uid,))]
+
+
+def my_album(uid, aid):
+    rows = q("SELECT * FROM albums WHERE id=? AND owner=?", (aid, uid))
+    if not rows:
+        raise ValueError(L("нет такого альбома", "no such album"))
+    return rows[0]
+
+
+def album_photo_ids(uid, data):
+    ids = batch_ids(data, uid)
+    if not ids:
+        raise ValueError(L("в альбоме нет ни одного кадра", "the album has no frames"))
+    return ids
+
+
+def save_album_photos(aid, ids):
+    with DB_LOCK:
+        db.execute("DELETE FROM album_photos WHERE album=?", (aid,))
+        db.executemany("INSERT INTO album_photos(album, photo) VALUES (?,?)", [(aid, i) for i in ids])
+        db.commit()
+
+
+def make_album(uid, data):
+    if not WEBAPP_URL:
+        raise RuntimeError(L("«Проявка» не настроена: пустой WEBAPP_URL", "Proyavka is not set up: WEBAPP_URL is empty"))
+    ids = album_photo_ids(uid, data)
+    now = time.time()
+    aid = run("INSERT INTO albums(owner, token, title, created, updated) VALUES (?,?,?,?,?)",
+              (uid, secrets.token_urlsafe(12), clean_title(data.get("title")), now, now))
+    save_album_photos(aid, ids)
+    log.info("альбом #%d от %d: %d кадров", aid, uid, len(ids))
+    return album_json(my_album(uid, aid))
+
+
+def edit_album(uid, aid, data):
+    a = my_album(uid, aid)
+    if "title" in data:
+        run("UPDATE albums SET title=? WHERE id=?", (clean_title(data["title"]), aid))
+    if "ids" in data:
+        save_album_photos(aid, album_photo_ids(uid, data))
+    run("UPDATE albums SET updated=? WHERE id=?", (time.time(), aid))
+    return album_json(my_album(uid, a["id"]))
+
+
+def delete_album(uid, aid):
+    n = run_count("DELETE FROM albums WHERE id=? AND owner=?", (aid, uid))
+    if n:
+        run("DELETE FROM album_photos WHERE album=?", (aid,))
+    return n
+
+
+def album_by_token(tok):
+    if not re.fullmatch(r"[A-Za-z0-9_-]{16}", tok or ""):
+        return None
+    rows = q("SELECT * FROM albums WHERE token=?", (tok,))
+    return rows[0] if rows and rows[0]["owner"] in USERS else None
+
+
+def album_public(a):
+    rows = album_rows(a)
+    return {"title": a["title"] or "", "zip_max": ZIP_MAX,
+            "photos": [{"id": r["id"], "taken": r["taken"], "v": int(os.path.getmtime(r["view"])) if has(r["view"]) else 0,
+                        "name": download_name(r)} for r in rows]}
+
+
+def album_page(a):
+    """Страница альбома: заголовок и картинка для превью ссылки в мессенджерах вписываются сервером."""
+    page = ALBUM_HTML.read_text(encoding="utf-8")
+    rows = album_rows(a) if a else []
+    title = (a["title"] or L("Альбом", "Album")) if a else L("Альбом не найден", "Album not found")
+    image = f"{album_url(a['token'])}/view/{rows[0]['id']}" if rows and WEBAPP_URL else ""
+    meta = (f'<meta property="og:title" content="{html_esc(title)}">\n'
+            f'<meta property="og:description" content="{html_esc(L("Проявка", "Proyavka"))} · {len(rows)}">\n'
+            + (f'<meta property="og:image" content="{html_esc(image)}">\n' if image else ""))
+    return (page.replace("<!--META-->", meta).replace("{{TITLE}}", html_esc(title))
+                .replace("{{PROJECT}}", html_esc(PROJECT_URL)))
+
+
+def full_file(ph):
+    """Кадр в полном размере: рисуется один раз на каждую правку и лежит в кэше превью (чистится через сутки)."""
+    path = PREVIEWS / f"{ph['id']}_full_{ph['rev'] or 0}.jpg"
+    with FULL_LOCKS[ph["id"]]:
+        if path.exists():
+            os.utime(path)
+        else:
+            HEAVY.submit(job_full, ph, str(path)).result(timeout=300)
+    return path
 
 
 # ================= Mini App: веб-сервер =================
@@ -3879,11 +4019,12 @@ class Handler(BaseHTTPRequestHandler):
             return self.err(404, L("нет файла", "no file"))
         return self.send(200, body, "image/jpeg", "private, no-store", {"Content-Disposition": disposition(download_name(ph))})
 
-    def send_zip(self, rows):
-        """Несколько кадров одним архивом. Пишется на ходу: кадр проявился — сразу ушёл, nginx не ждёт весь архив."""
+    def send_zip(self, rows, name=None, cached=False):
+        """Несколько кадров одним архивом. Пишется на ходу: кадр проявился — сразу ушёл, nginx не ждёт весь архив.
+        cached — для альбомов: полные кадры берутся из кэша (и остаются в нём для следующих скачиваний)."""
         self.send_response(200)
         self.send_header("Content-Type", "application/zip")
-        self.send_header("Content-Disposition", disposition(f"proyavka_{datetime.now():%Y-%m-%d_%H%M}.zip"))
+        self.send_header("Content-Disposition", disposition(name or f"proyavka_{datetime.now():%Y-%m-%d_%H%M}.zip"))
         self.send_header("Cache-Control", "no-store")
         self.common_headers()
         self.send_header("Connection", "close")
@@ -3893,6 +4034,8 @@ class Handler(BaseHTTPRequestHandler):
         def start(ph):
             if not (has(ph["work"]) or has(ph["src"])):
                 return ph, None, None
+            if cached:
+                return ph, None, ZIP_POOL.submit(full_file, ph)
             out = TMP / f"zip_{ph['id']}_{secrets.token_hex(4)}.jpg"
             return ph, out, HEAVY.submit(job_full, ph, str(out))
 
@@ -3904,9 +4047,8 @@ class Handler(BaseHTTPRequestHandler):
                         jobs.append(start(todo.pop(0)))
                     ph, out, fut = jobs.pop(0)
                     try:
-                        if fut:
-                            fut.result(timeout=300)
-                        src = out if fut else (ph["view"] if has(ph["view"]) else None)
+                        got = fut.result(timeout=300) if fut else None
+                        src = (out or got) if fut else (ph["view"] if has(ph["view"]) else None)
                         if not src:
                             continue
                         name = download_name(ph)
@@ -3919,8 +4061,54 @@ class Handler(BaseHTTPRequestHandler):
                             remove(str(out))
         finally:
             for ph, out, fut in jobs:              # браузер оборвал скачивание — убрать недоделанное
-                if fut:
+                if fut and out:
                     fut.add_done_callback(lambda f, o=out: remove(str(o)))
+
+    def album_get(self, rest):
+        """/a/<ключ>[/list|thumb/<id>|view/<id>|full/<id>|zip] — без входа, только кадры этого альбома."""
+        a = album_by_token(rest[0]) if rest else None
+        html = "text/html; charset=utf-8"
+        hdr = {"Content-Security-Policy": ALBUM_CSP, "X-Robots-Tag": "noindex"}
+        if not a:
+            time.sleep(0.3)                     # ключ на 96 бит не подобрать, но и спешить незачем
+            if len(rest) == 1:
+                return self.send(404, album_page(None), html, headers=hdr)
+            return self.err(404, L("альбом не найден", "album not found"))
+        _CTX.lang = user_lang(a["owner"])
+        if len(rest) == 1:
+            run("UPDATE albums SET views=views+1 WHERE id=?", (a["id"],))
+            return self.send(200, album_page(a), html, headers=hdr)
+        if rest[1:] == ["list"]:
+            return self.js(album_public(a))
+        if rest[1:] == ["zip"]:
+            rows = album_rows(a)[:ZIP_MAX]
+            if not rows:
+                return self.err(404, L("кадры не найдены", "frames not found"))
+            if a["id"] in ALBUM_ZIPS:
+                return self.err(429, L("архив уже собирается — попробуй через минуту", "the archive is being built — try again in a minute"))
+            ALBUM_ZIPS.add(a["id"])
+            try:
+                name = re.sub(r"[\\/:*?\"<>|]", "_", a["title"] or "") or "proyavka"
+                return self.send_zip(rows, f"{name}.zip", cached=True)
+            finally:
+                ALBUM_ZIPS.discard(a["id"])
+        if len(rest) == 3 and rest[1] in ("thumb", "view", "full") and rest[2].isdigit():
+            rows = album_rows(a, int(rest[2]))
+            if not rows:
+                return self.err(404, L("кадр не найден", "frame not found"))
+            ph = rows[0]
+            if rest[1] != "full":
+                if not has(ph[rest[1]]):
+                    return self.err(404, L("нет файла", "no file"))
+                with open(ph[rest[1]], "rb") as f:
+                    return self.send(200, f.read(), "image/jpeg", "public, max-age=86400")
+            if has(ph["work"]) or has(ph["src"]):
+                path = full_file(ph)
+            else:                                # исходник удалён ради места — отдаём то, что осталось
+                path = Path(ph["view"])
+            return self.send(200, path.read_bytes(), "image/jpeg", "no-store",
+                             {"Content-Disposition": disposition(download_name(ph))})
+        return self.err(404, L("не найдено", "not found"))
 
     def js(self, obj, code=200):
         self.send(code, json.dumps(obj, ensure_ascii=False))
@@ -3985,6 +4173,8 @@ class Handler(BaseHTTPRequestHandler):
             if parts in (["icon-192.png"], ["icon-512.png"], ["apple-touch-icon.png"]):
                 size = 180 if parts[0].startswith("apple") else int(parts[0][5:8])
                 return self.send(200, app_icon(size), "image/png", "max-age=86400")
+            if parts[0] == "a":
+                return self.album_get(parts[1:])
             uid = self.authed(qs)
             if not uid:
                 return self.err(401, L("нужна авторизация через Telegram", "Telegram authorization required"))
@@ -3997,6 +4187,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self.js({"presets": items, "strengths": STRENGTHS, "leaks": leaks})
             if parts == ["api", "me"]:
                 return self.js(me_json(uid))
+            if parts == ["api", "albums"]:
+                return self.js({"albums": user_albums(uid)})
             if parts == ["api", "trash"]:
                 rows = q("SELECT * FROM photos WHERE owner=? AND hidden=1 AND work IS NOT NULL "
                          "ORDER BY deleted_at DESC, id DESC LIMIT 300", (uid,))
@@ -4143,6 +4335,13 @@ class Handler(BaseHTTPRequestHandler):
                 return self.js(batch_action(data, uid))
             if parts == ["api", "me"]:
                 return self.js(set_me(uid, data))
+            if parts == ["api", "albums"]:
+                return self.js(make_album(uid, data))
+            if len(parts) in (3, 4) and parts[:2] == ["api", "album"] and parts[2].isdigit():
+                if len(parts) == 4 and parts[3] == "delete":
+                    return self.js({"ok": bool(delete_album(uid, int(parts[2])))})
+                if len(parts) == 3:
+                    return self.js(edit_album(uid, int(parts[2]), data))
             if len(parts) == 4 and parts[:2] == ["api", "photo"] and parts[3] == "restore":
                 ph = self.mine(parts[2], uid)
                 if not ph or not ph["hidden"]:

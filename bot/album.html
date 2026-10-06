@@ -1,0 +1,286 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex">
+<meta name="referrer" content="no-referrer">
+<title>{{TITLE}}</title>
+<!--META-->
+<meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#000000" media="(prefers-color-scheme: dark)">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #ffffff; --tile: #f2f1ef; --text: #000000; --muted: #8b8b8b; --rule: #e4e4e4;
+    --btn-bg: #000000; --btn-text: #ffffff;
+    --font: "Inter Tight", -apple-system, "SF Pro Text", "Helvetica Neue", Roboto, Arial, sans-serif;
+    --pad: 16px;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #000000; --tile: #141414; --text: #ffffff; --muted: #7a7a7a; --rule: #262626; --btn-bg: #ffffff; --btn-text: #000000; }
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin: 0; background: var(--bg); color: var(--text); font: 400 14px/1.4 var(--font); font-feature-settings: "tnum" 1; }
+  body { padding-bottom: calc(28px + env(safe-area-inset-bottom, 0px)); -webkit-font-smoothing: antialiased; }
+  button { font: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer; text-transform: inherit; letter-spacing: inherit; }
+  button:focus-visible { outline: 1px solid var(--text); outline-offset: 3px; }
+  button:disabled { opacity: .4; cursor: default; }
+  img { display: block; }
+  a { color: inherit; }
+  .cap { font-size: 11px; line-height: 1.2; font-weight: 500; letter-spacing: .04em; text-transform: uppercase; }
+  .muted { color: var(--muted); }
+
+  .hero { padding: calc(22px + env(safe-area-inset-top, 0px)) var(--pad) 26px; max-width: 1400px; margin: 0 auto; }
+  .hero h1 { margin: 10px 0 0; font-size: 44px; line-height: .98; font-weight: 500; letter-spacing: -.035em; overflow-wrap: anywhere; }
+  .hero .sub { margin-top: 12px; color: var(--muted); font-size: 13px; }
+  .actions { display: flex; align-items: center; gap: 18px; margin-top: 20px; }
+  .btn { height: 44px; padding: 0 22px; background: var(--btn-bg); color: var(--btn-text); font-weight: 500; }
+  .note { margin: 10px 0 0; color: var(--muted); font-size: 13px; max-width: 44ch; }
+
+  main { max-width: 1400px; margin: 0 auto; }
+  .day { padding: 0 var(--pad) 28px; }
+  .day-head { display: flex; justify-content: space-between; border-top: 1px solid var(--rule); padding: 10px 0 14px; }
+  .grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 10px; row-gap: 18px; }
+  @media (min-width: 600px) { .grid { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+  @media (min-width: 900px) { .grid { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+  .cell { display: block; width: 100%; text-align: left; }
+  .tile { aspect-ratio: 1; background: var(--tile); display: flex; align-items: center; justify-content: center; }
+  .tile img { width: 84%; height: 84%; object-fit: contain; }
+  .cell-cap { display: flex; gap: 8px; margin-top: 7px; }
+
+  .state { padding: 40px var(--pad); border-top: 1px solid var(--rule); margin: 0 var(--pad); }
+  .state strong { display: block; font-size: 20px; font-weight: 500; letter-spacing: -.02em; margin-bottom: 6px; }
+  .state p { margin: 0; color: var(--muted); max-width: 40ch; }
+  footer { max-width: 1400px; margin: 0 auto; padding: 8px var(--pad) 0; }
+  footer a { color: var(--muted); text-underline-offset: 3px; }
+
+  /* просмотр кадра */
+  .viewer { position: fixed; inset: 0; z-index: 10; background: var(--bg); display: flex; flex-direction: column;
+            padding-top: env(safe-area-inset-top, 0px); padding-bottom: env(safe-area-inset-bottom, 0px); }
+  .viewer[hidden] { display: none; }
+  .vbar { display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; padding: 12px var(--pad); }
+  .vbar > :last-child { justify-self: end; }
+  .stage { position: relative; flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center;
+           padding: 0 var(--pad); touch-action: pan-y pinch-zoom; }
+  .stage img { max-width: 100%; max-height: 100%; object-fit: contain; }
+  .nav { position: absolute; top: 0; bottom: 0; width: 30%; }
+  .nav.prev { left: 0; } .nav.next { right: 0; }
+  .vfoot { display: flex; justify-content: space-between; align-items: center; gap: 18px; padding: 14px var(--pad); }
+  .vfoot .btn { flex: 0 0 auto; }
+  .vfoot span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .toast { position: fixed; left: var(--pad); right: var(--pad); bottom: calc(16px + env(safe-area-inset-bottom, 0px));
+           background: var(--btn-bg); color: var(--btn-text); padding: 12px 14px; z-index: 20;
+           opacity: 0; pointer-events: none; transition: opacity .15s linear; }
+  .toast.show { opacity: 1; }
+  @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+</head>
+<body>
+<header class="hero">
+  <div class="cap muted" id="brand">Proyavka</div>
+  <h1 id="title">{{TITLE}}</h1>
+  <p class="sub" id="sub"></p>
+  <div class="actions" id="topActions" hidden><button class="btn" id="bAll"></button></div>
+  <p class="note" id="allNote" hidden></p>
+</header>
+<main id="feed"></main>
+<footer class="cap"><a href="{{PROJECT}}" target="_blank" rel="noopener" id="made"></a></footer>
+
+<section class="viewer" id="viewer" hidden>
+  <div class="vbar cap"><span class="muted" id="vtime"></span><span id="vpos"></span><button id="vClose"></button></div>
+  <div class="stage" id="stage"><img id="vimg" alt=""><button class="nav prev" id="vPrev" aria-label="Previous"></button><button class="nav next" id="vNext" aria-label="Next"></button></div>
+  <div class="vfoot cap"><span class="muted" id="vname"></span><button class="btn" id="vSave"></button></div>
+</section>
+<div class="toast cap" id="toast" role="status"></div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const RU = /^(ru|uk|be|kk)\b/i.test(navigator.language || "");
+const T = (ru, en) => (RU ? ru : en);
+const ios = /iPhone|iPad|iPod/.test(navigator.userAgent) || (/Macintosh/.test(navigator.userAgent) && navigator.maxTouchPoints > 1);
+const phone = matchMedia("(pointer: coarse)").matches;
+const base = location.pathname.replace(/\/+$/, "");
+const MONTHS = {
+  en: ["January","February","March","April","May","June","July","August","September","October","November","December"],
+  ru: ["января","февраля","марта","апреля","мая","июня","июля","августа","сентября","октября","ноября","декабря"] };
+const pad2 = (n) => String(n).padStart(2, "0");
+function plural(n, one, few, many) {
+  const a = n % 10, b = n % 100;
+  if (a === 1 && b !== 11) return one;
+  if (a >= 2 && a <= 4 && (b < 12 || b > 14)) return few;
+  return many;
+}
+const frames = (n) => T(`${n} ${plural(n, "кадр", "кадра", "кадров")}`, `${n} frame${n === 1 ? "" : "s"}`);
+function dayTitle(key) {
+  const [y, m, d] = key.split("-").map(Number);
+  if (!y) return "";
+  const s = RU ? `${d} ${MONTHS.ru[m - 1]}` : `${MONTHS.en[m - 1]} ${d}`;
+  return new Date().getFullYear() === y ? s : `${s} ${y}`;
+}
+function toast(text) {
+  const t = $("toast"); t.textContent = text; t.classList.add("show");
+  clearTimeout(toast.h); toast.h = setTimeout(() => t.classList.remove("show"), 2600);
+}
+function download(href) {
+  const a = document.createElement("a");
+  a.href = href; a.download = ""; a.rel = "noopener";
+  document.body.appendChild(a); a.click(); a.remove();
+}
+
+document.documentElement.lang = RU ? "ru" : "en";
+$("brand").textContent = T("Проявка", "Proyavka");
+$("made").textContent = T("Проявлено в «Проявке» — плёнка для цифровой камеры", "Developed with Proyavka — film look for a digital camera");
+$("vClose").textContent = T("Закрыть", "Close");
+$("vPrev").setAttribute("aria-label", T("Предыдущий", "Previous"));
+$("vNext").setAttribute("aria-label", T("Следующий", "Next"));
+
+let photos = [], cur = -1, zipMax = 200;
+
+function empty(head, text) {
+  $("feed").innerHTML = `<div class="state"><strong></strong><p></p></div>`;
+  $("feed").querySelector("strong").textContent = head;
+  $("feed").querySelector("p").textContent = text;
+}
+
+async function load() {
+  let j;
+  try {
+    const r = await fetch(`${base}/list`, { cache: "no-store" });
+    if (r.status === 404) {
+      $("title").textContent = T("Альбом не найден", "Album not found");
+      return empty(T("Ссылка не работает", "This link doesn't work"), T("Альбом удалили, или в ссылке опечатка.", "The album was deleted, or the link has a typo."));
+    }
+    j = await r.json();
+  } catch (e) { return empty(T("Нет связи", "Network error"), T("Обнови страницу.", "Reload the page.")); }
+  photos = j.photos;
+  zipMax = j.zip_max || zipMax;
+  $("title").textContent = j.title || T("Альбом", "Album");
+  document.title = j.title || T("Альбом", "Album");
+  if (!photos.length) return empty(T("Пока пусто", "Nothing here yet"), T("В альбоме нет кадров.", "The album has no frames."));
+  const days = [...new Set(photos.map((p) => (p.taken || "").slice(0, 10)))];
+  const span = days.length === 1 ? dayTitle(days[0]) : `${dayTitle(days[0])} — ${dayTitle(days[days.length - 1])}`;
+  $("sub").textContent = [frames(photos.length), span].filter(Boolean).join(" · ");
+  $("bAll").textContent = photos.length === 1 ? T("Скачать", "Download") : T("Скачать всё", "Download all");
+  $("topActions").hidden = false;
+  render(days);
+}
+
+function render(days) {
+  const frag = document.createDocumentFragment();
+  for (const k of days) {
+    const sec = document.createElement("section");
+    sec.className = "day";
+    const list = photos.filter((p) => (p.taken || "").slice(0, 10) === k);
+    sec.innerHTML = `<div class="day-head cap"><span></span><span class="muted">${pad2(list.length)}</span></div><div class="grid"></div>`;
+    sec.querySelector(".day-head span").textContent = days.length > 1 || k ? dayTitle(k) : "";
+    const grid = sec.querySelector(".grid");
+    for (const p of list) {
+      const b = document.createElement("button");
+      b.className = "cell";
+      b.innerHTML = `<div class="tile"><img loading="lazy" decoding="async" alt=""></div><div class="cell-cap cap muted"></div>`;
+      b.querySelector("img").src = `${base}/thumb/${p.id}?v=${p.v}`;
+      b.querySelector(".cell-cap").textContent = (p.taken || "").slice(11, 16);
+      b.setAttribute("aria-label", T(`Кадр ${photos.indexOf(p) + 1}`, `Frame ${photos.indexOf(p) + 1}`));
+      b.onclick = () => openViewer(photos.indexOf(p));
+      grid.appendChild(b);
+    }
+    frag.appendChild(sec);
+  }
+  $("feed").replaceChildren(frag);
+}
+
+/* ---------- скачать всё: на компьютере архивом, на телефоне — по одному файлу ---------- */
+$("bAll").onclick = () => {
+  if (photos.length === 1) return saveOne(photos[0], $("bAll"));
+  if (phone && !ios) {
+    photos.forEach((p, i) => setTimeout(() => download(`${base}/full/${p.id}`), i * 900));
+    toast(T("Файлы готовятся и скачаются сами", "The files are being prepared and will download"));
+  } else {
+    download(`${base}/zip`);
+    toast(T("Собираю архив, скачается сам — это может занять минуту", "Building the archive, it will download — this can take a minute"));
+  }
+  $("allNote").hidden = photos.length <= zipMax;
+  $("allNote").textContent = T(`В архив попадут первые ${zipMax} кадров — остальные скачай по одному.`, `The archive holds the first ${zipMax} frames — download the rest one by one.`);
+};
+
+/* ---------- один кадр: на iPhone — «Поделиться» → «Сохранить изображение» (так он попадёт в «Фото») ---------- */
+const ready = {};            // id -> File, уже скачан (на iPhone «Поделиться» нужно новое нажатие, если готовили долго)
+async function saveOne(p, btn) {
+  const canShare = ios && navigator.canShare && navigator.canShare({ files: [new File([""], "x.jpg", { type: "image/jpeg" })] });
+  if (!canShare) { download(`${base}/full/${p.id}`); toast(T("Готовлю файл, скачается сам", "Preparing the file, it will download")); return; }
+  if (ready[p.id]) {
+    try { await navigator.share({ files: [ready[p.id]] }); } catch (e) {}
+    return;
+  }
+  const label = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = T("Готовлю…", "Preparing…");
+  try {
+    const r = await fetch(`${base}/full/${p.id}`);
+    if (!r.ok) throw new Error();
+    ready[p.id] = new File([await r.blob()], p.name, { type: "image/jpeg" });
+  } catch (e) { toast(T("Не получилось, попробуй ещё раз", "That didn't work, try again")); }
+  btn.disabled = false;
+  btn.textContent = label;
+  if (!ready[p.id]) return;
+  try { await navigator.share({ files: [ready[p.id]] }); }
+  catch (e) { if (e.name !== "AbortError") { btn.textContent = T("Сохранить — готово", "Save — ready"); } }
+}
+
+/* ---------- просмотр ---------- */
+function openViewer(i) {
+  cur = i;
+  show();
+  $("viewer").hidden = false;
+  document.body.style.overflow = "hidden";
+  if (!history.state || !history.state.v) history.pushState({ v: 1 }, "");
+}
+function closeViewer() {
+  cur = -1;
+  $("viewer").hidden = true;
+  $("vimg").removeAttribute("src");
+  document.body.style.overflow = "";
+}
+function show() {
+  const p = photos[cur];
+  $("vimg").src = `${base}/view/${p.id}?v=${p.v}`;
+  $("vpos").textContent = `${cur + 1} / ${photos.length}`;
+  $("vtime").textContent = [dayTitle((p.taken || "").slice(0, 10)), (p.taken || "").slice(11, 16)].filter(Boolean).join(", ");
+  $("vname").textContent = p.name;
+  $("vSave").textContent = ios ? T("Сохранить", "Save") : T("Скачать", "Download");
+  $("vPrev").hidden = cur === 0;
+  $("vNext").hidden = cur === photos.length - 1;
+  const next = photos[cur + 1];
+  if (next) new Image().src = `${base}/view/${next.id}?v=${next.v}`;
+}
+function step(d) {
+  const i = cur + d;
+  if (i < 0 || i >= photos.length) return;
+  cur = i;
+  show();
+}
+$("vClose").onclick = () => history.back();
+$("vPrev").onclick = () => step(-1);
+$("vNext").onclick = () => step(1);
+$("vSave").onclick = () => saveOne(photos[cur], $("vSave"));
+addEventListener("popstate", () => { if (cur >= 0) closeViewer(); });
+addEventListener("keydown", (e) => {
+  if (cur < 0) return;
+  if (e.key === "ArrowLeft") step(-1);
+  else if (e.key === "ArrowRight") step(1);
+  else if (e.key === "Escape") history.back();
+});
+let sx = 0, sy = 0;
+$("stage").addEventListener("touchstart", (e) => { if (e.touches.length === 1) { sx = e.touches[0].clientX; sy = e.touches[0].clientY; } }, { passive: true });
+$("stage").addEventListener("touchend", (e) => {
+  const t = e.changedTouches[0], dx = t.clientX - sx, dy = t.clientY - sy;
+  if (e.touches.length === 0 && Math.abs(dx) > 50 && Math.abs(dx) > Math.abs(dy) * 1.5) step(dx < 0 ? 1 : -1);
+}, { passive: true });
+
+load();
+</script>
+</body>
+</html>
