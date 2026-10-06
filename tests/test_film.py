@@ -50,19 +50,22 @@ def lut_apply(p, rgb):
 
 
 if __name__ == "__main__":
-    # --- старые плёнки не изменились ---
-    ref = np.load(HERE / "film_ref.npz")
+    # --- движок по-прежнему воспроизводит старые плёнки (v1) точь-в-точь ---
+    ref = np.load(HERE / "film_ref_v1.npz")
+    v1 = json.loads((HERE.parent / "bot" / "films_v1.json").read_text(encoding="utf-8"))["films"]
     scene = synth.scene(7, 1500, 1000)
     sample = Image.open(HERE.parent / "community" / "sample.jpg").convert("RGB")
     worst_lut, worst_img = 0.0, 0
     for key in ("street_neg", "night800", "vivid50", "across100", "expired"):
-        t = np.asarray(fb.preset_lut(key).table, dtype=np.float32)[::97]
+        params = fb.clean_params(v1[key]["params"])
+        t = np.asarray(fb._bake(params).table, dtype=np.float32)[::97]
         worst_lut = max(worst_lut, float(np.abs(t - ref[f"{key}_lut"]).max()))
         for name, img in (("scene", scene), ("sample", sample)):
-            r = np.asarray(fb.film(img.copy(), key, 100, 3).resize((96, 64), Image.BOX), dtype=np.int16)
+            r = np.asarray(fb.film(img.copy(), "custom", 100, 3, params).resize((96, 64), Image.BOX), dtype=np.int16)
             worst_img = max(worst_img, int(np.abs(r - ref[f"{key}_{name}"].astype(np.int16)).max()))
-    check(f"таблицы цвета встроенных плёнок прежние (расхождение {worst_lut:.6f})", worst_lut < 1e-5)
-    check(f"готовые кадры встроенных плёнок прежние (расхождение {worst_img} из 255)", worst_img <= 6)    # запас на версии Pillow
+    check(f"таблицы цвета старых плёнок воспроизводятся (расхождение {worst_lut:.6f})", worst_lut < 1e-5)
+    check(f"готовые кадры старых плёнок воспроизводятся (расхождение {worst_img} из 255)", worst_img <= 6)    # запас на версии Pillow
+    check("снимок старых плёнок полный: 12 штук", len(v1) == 12 and set(v1) == set(fb.PRESETS))
 
     # --- цветовые полосы ---
     rng = np.random.default_rng(1)
