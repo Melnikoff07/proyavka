@@ -1,0 +1,9 @@
+numpy
+pillow
+pillow-heif
+requests
+segno
+pywebpush
+rawpy
+tifffile
+pyflakes

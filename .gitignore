@@ -16,3 +16,6 @@ proyavka-data/
 camera-app/.tools/
 camera-app/build/
 *.apk
+
+# тестовые кадры создаются tests/synth.py
+tests/testdata/
