@@ -24,8 +24,7 @@ def jpeg(seed, size=(1200, 800)):
 
 if __name__ == "__main__":
     h = harness.start(port=8108, extra_env={"DAILY_UPLOAD_LIMIT": "3", "MAX_MEGAPIXELS": "50"})
-    from proyavka import users      # после start: настройки читаются из окружения при импорте
-    from proyavka import i18n      # после start: настройки читаются из окружения при импорте
+    from proyavka import i18n, storage, users      # после start: настройки читаются из окружения при импорте
     fb = h.fb
     h.add_user(BOB, "ru", "Bob")
     h.auth(ADMIN)
@@ -62,17 +61,17 @@ if __name__ == "__main__":
 
     # лимит места — сразу после приёма
     h.wait(lambda: all(p["rendered_rev"] == p["rev"] for p in h.photos()), timeout=60)
-    used = sum(fb.user_usage(ADMIN).values())
+    used = sum(storage.user_usage(ADMIN).values())
     users.set_user(ADMIN, storage_gb=used * 0.6 / 1e9)
     h.req("/api/upload?name=a9.jpg", raw=jpeg(99), ctype="image/jpeg")
     h.wait(lambda: len([p for p in h.photos() if p["owner"] == ADMIN]) == 5, timeout=60)
     time.sleep(1)
-    after = sum(fb.user_usage(ADMIN).values())
+    after = sum(storage.user_usage(ADMIN).values())
     check(f"лимит места соблюдён сразу: {after / 1e6:.1f} МБ из {users.storage_limit(ADMIN) * 1e3:.1f}", after <= users.storage_limit(ADMIN) * 1e9)
     newest = max(h.photos(), key=lambda p: p["id"])
     check("новый кадр цел, срезаны старые оригиналы", newest["work"] and os.path.exists(newest["work"]))
     with i18n.speak(ADMIN):
-        txt = fb.storage_text(ADMIN)
+        txt = storage.storage_text(ADMIN)
     check(f"/storage в мегабайтах: {txt.splitlines()[-2]!r}", "МБ" in txt.splitlines()[-2])
 
     # название LUT с HTML — только текст

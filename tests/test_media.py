@@ -14,13 +14,13 @@ TD = Path(__file__).resolve().parent / "testdata"
 
 if __name__ == "__main__":
     h = harness.start(port=8118)
-    from proyavka import config, database, users      # после start: настройки читаются из окружения при импорте
+    from proyavka import config, database, sessions, users      # после start: настройки читаются из окружения при импорте
     fb = h.fb
     a = h.post("/api/auth", {"initData": "test-1"}, auth=False)
     h.token = a["token"]
     media = a["media"]
     check(f"вход выдаёт токен для картинок: {media.split('.')[0]}.…", media.startswith("1.") and media != a["token"])
-    check("токен для картинок — не сессия", media not in fb.SESSIONS)
+    check("токен для картинок — не сессия", media not in sessions.SESSIONS)
     h.drop(TD / "a6300_DSC00266.JPG")
     h.wait(lambda: [p for p in h.photos() if p["view"]], timeout=120)
     pid = h.photos()[0]["id"]
@@ -46,16 +46,16 @@ if __name__ == "__main__":
 
     # подделка и срок
     uid, exp, sig = media.split(".")
-    bad = {"подпись испорчена": f"{uid}.{exp}.{sig[:-2]}AA", "чужой пользователь": f"2.{exp}.{sig}", "срок продлён": f"{uid}.{int(exp) + 86400}.{sig}",
+    bad = {"подпись испорчена": f"{uid}.{exp}.{sig[:-1]}{'B' if sig[-1] != 'B' else 'C'}", "чужой пользователь": f"2.{exp}.{sig}", "срок продлён": f"{uid}.{int(exp) + 86400}.{sig}",
            "мусор": "abc", "пусто": ""}
     for why, tok in bad.items():
         r = h.req(f"/img/thumb/{pid}?m={tok}", auth=False)
         check(f"{why}: 401", isinstance(r, dict) and r.get("_status") == 401)
     old_exp = int(time.time()) - 10
-    expired = f"{uid}.{old_exp}.{fb._media_sig(int(uid), old_exp)}"
+    expired = f"{uid}.{old_exp}.{sessions._media_sig(int(uid), old_exp)}"
     check("просроченный токен: 401", h.req(f"/img/thumb/{pid}?m={expired}", auth=False).get("_status") == 401)
     check(f"срок 1–2 суток ({(int(exp) - time.time()) / 3600:.0f} ч)", 24 * 3600 - 5 <= int(exp) - time.time() <= 48 * 3600 + 5)
-    check("в течение дня токен тот же (кэш браузера)", fb.media_token(1) == media)
+    check("в течение дня токен тот же (кэш браузера)", sessions.media_token(1) == media)
 
     # чужой кадр
     h.add_user(2)
@@ -69,6 +69,6 @@ if __name__ == "__main__":
     # опрос обновляет токен; ключ переживает перезапуск
     check("опрос присылает токен для картинок", h.get("/api/updates?since=0").get("media") == media)
     key = (config.BASE / "media.key").read_bytes()
-    fb.MEDIA_KEY = None
-    check("ключ хранится в файле и после перезапуска тот же", fb.media_token(1) == media and (config.BASE / "media.key").read_bytes() == key)
+    sessions.MEDIA_KEY = None
+    check("ключ хранится в файле и после перезапуска тот же", sessions.media_token(1) == media and (config.BASE / "media.key").read_bytes() == key)
     harness.done()

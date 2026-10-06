@@ -33,8 +33,7 @@ def mean_rgb(data):
 
 if __name__ == "__main__":
     h = harness.start(port=8107)
-    from proyavka import database, users      # после start: настройки читаются из окружения при импорте
-    from proyavka import film, i18n      # после start: настройки читаются из окружения при импорте
+    from proyavka import database, film, i18n, scheduler, telegram, users      # после start: настройки читаются из окружения при импорте
     fb = h.fb
     h.add_user(BOB, "en", "Bob")
     h.auth(ADMIN)
@@ -61,8 +60,8 @@ if __name__ == "__main__":
     check("Боб не может поставить чужой LUT", hb.post(f"/api/photo/{pb['id']}", {"preset": key}).get("_status") == 400)
     check("и пачкой тоже", hb.post("/api/batch", {"action": "edit", "ids": [pb["id"]], "changes": {"preset": key}}).get("_status") == 400)
     check("и превью чужого LUT не получить", hb.get(f"/img/preview/{pb['id']}/{key}?st=100").get("_status") == 404)
-    check("в кнопках чата у Боба его нет", key not in str(fb.preset_kb(database.get(pb["id"]))))
-    check("а у администратора есть", key in str(fb.preset_kb(database.get(pa["id"]))))
+    check("в кнопках чата у Боба его нет", key not in str(telegram.preset_kb(database.get(pb["id"]))))
+    check("а у администратора есть", key in str(telegram.preset_kb(database.get(pa["id"]))))
     with i18n.speak(BOB):
         check("и в плёнке по умолчанию у Боба нет", key not in str(fb.default_kb(BOB)))
 
@@ -79,9 +78,9 @@ if __name__ == "__main__":
     h.wait(lambda: database.get(pa["id"])["rendered_rev"] == database.get(pa["id"])["rev"], timeout=60)
     h.wait(lambda: h.calls("editMessageMedia", t0), timeout=20)
     with i18n.speak(ADMIN):
-        cap = fb.caption(database.get(pa["id"]))
+        cap = telegram.caption(database.get(pa["id"]))
     check(f"в чате подпись с названием LUT: {cap.splitlines()[0]!r}", "My Swap" in cap)
-    fb.apply_changes(database.get(pa["id"]), {"frame": True})
+    scheduler.apply_changes(database.get(pa["id"]), {"frame": True})
     h.wait(lambda: database.get(pa["id"])["rendered_rev"] == database.get(pa["id"])["rev"], timeout=60)
     check("рамка с LUT рисуется", True)
 

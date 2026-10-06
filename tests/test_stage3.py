@@ -17,7 +17,7 @@ def chat_writes(h, since):
 
 if __name__ == "__main__":
     h = harness.start(port=8104)
-    from proyavka import database      # после start: настройки читаются из окружения при импорте
+    from proyavka import database, scheduler, telegram      # после start: настройки читаются из окружения при импорте
     h.auth()
     for f in sorted(TD.glob("*.JPG")):
         h.drop(f)
@@ -92,7 +92,7 @@ if __name__ == "__main__":
     h.wait(lambda: [c for c in h.calls("sendMessage", t3) if "Готово" in str(c[2].get("text"))], timeout=60)
     summ = [c for c in h.calls("sendMessage", t3) if "Готово" in str(c[2].get("text"))]
     check(f"итог после удаления в пакете: {summ[0][2]['text']!r}", "2 кадра" in summ[0][2]["text"])
-    check("учёт пакетов пуст", not h.fb.BATCHES and not h.fb.BATCH_OF)
+    check("учёт пакетов пуст", not scheduler.BATCHES and not scheduler.BATCH_OF)
 
     # 429: Telegram просит подождать — повтор с тем же файлом
     import io
@@ -122,5 +122,5 @@ if __name__ == "__main__":
         fb.requests.post = orig
     check(f"429: подождал {time.time() - t4:.1f} с и повторил с тем же файлом",
           res == {"message_id": 1} and calls == [b"JPEGDATA", b"JPEGDATA"] and time.time() - t4 >= 0.9)
-    check("после 429 фоновые правки придержаны", fb._PACE.get(1, 0) > time.monotonic() - 0.2)
+    check("после 429 фоновые правки придержаны", telegram._PACE.get(1, 0) > time.monotonic() - 0.2)
     harness.done()

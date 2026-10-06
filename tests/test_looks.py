@@ -26,8 +26,7 @@ def mean_color(b):
 
 if __name__ == "__main__":
     h = harness.start(port=8117, extra_env={"COMMUNITY_URL": ""})      # без сети: каталог из репозитория
-    from proyavka import database      # после start: настройки читаются из окружения при импорте
-    from proyavka import film      # после start: настройки читаются из окружения при импорте
+    from proyavka import database, film      # после start: настройки читаются из окружения при импорте
     fb = h.fb
     h.auth(1)
     for i in range(2):

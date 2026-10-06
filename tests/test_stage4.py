@@ -44,8 +44,7 @@ def sent(h, since, chat, method="sendMessage"):
 
 if __name__ == "__main__":
     h = harness.start(port=8106, before=old_install)
-    from proyavka import config, database, users      # после start: настройки читаются из окружения при импорте
-    from proyavka import i18n      # после start: настройки читаются из окружения при импорте
+    from proyavka import config, database, i18n, scheduler, users      # после start: настройки читаются из окружения при импорте
     fb = h.fb
     # --- миграция
     old = database.q("SELECT * FROM photos WHERE name='old.jpg'")[0]
@@ -171,7 +170,7 @@ if __name__ == "__main__":
         h.wait(lambda: len([p for p in h.photos() if p["owner"] == ADMIN and not p["hidden"] and p["rendered_rev"] == p["rev"] and p["msg_id"]]) == 9, timeout=90)
     except TimeoutError:
         print([(p["id"], p["owner"], p["hidden"], p["rev"], p["rendered_rev"], bool(p["work"])) for p in h.photos()])
-        print("очередь", fb.RQ_PENDING, fb.RQ_QUEUED, "в работе", fb.VIEW_INFLIGHT, fb.VIEW_DIRTY)
+        print("очередь", scheduler.RQ_PENDING, scheduler.RQ_QUEUED, "в работе", scheduler.VIEW_INFLIGHT, scheduler.VIEW_DIRTY)
         raise
     time.sleep(1)
     adm_ids = [p["id"] for p in h.photos() if p["owner"] == ADMIN and not p["hidden"]]

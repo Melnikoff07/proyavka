@@ -14,7 +14,7 @@ def check(name, ok):
 
 if __name__ == "__main__":
     h = harness.start(port=8103)
-    from proyavka import config, database, users      # после start: настройки читаются из окружения при импорте
+    from proyavka import config, database, storage, users      # после start: настройки читаются из окружения при импорте
     h.auth()
     files = sorted(TD.glob("*.JPG"))
     for f in files:
@@ -81,14 +81,14 @@ if __name__ == "__main__":
     # нехватка места: корзина чистится первой
     h.post("/api/batch", {"action": "delete", "ids": [a["id"]]})
     ph_a = database.get(a["id"])
-    total = sum(h.fb.user_usage(1).values())
+    total = sum(storage.user_usage(1).values())
     binned = [p for p in h.photos() if p["hidden"] and p["work"]]
     trash = sum(os.path.getsize(f) for p in binned for f in (p["src"], p["work"], p["view"], p["thumb"]) if f and os.path.exists(f))
     first = min(binned, key=lambda p: p["deleted_at"])
     print(f"     в корзине {[p['id'] for p in binned]}, раньше всех удалён #{first['id']}")
     users.set_user(1, storage_gb=(total - trash + 1000) / 1e9)   # не хватает ровно на всю корзину
     live_before = [p for p in h.photos() if not p["hidden"] and p["src"]]
-    h.fb.cleanup()
+    storage.cleanup()
     live_after = [p for p in h.photos() if not p["hidden"] and p["src"]]
     check(f"оригиналы живых кадров не тронуты: {len(live_after)} из {len(live_before)}", len(live_after) == len(live_before) > 0)
     ph_a = database.get(a["id"])

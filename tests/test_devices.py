@@ -55,7 +55,7 @@ def code_of(link):
 
 if __name__ == "__main__":
     h = harness.start(port=8110)
-    from proyavka import config, database      # после start: настройки читаются из окружения при импорте
+    from proyavka import config, database, sessions      # после start: настройки читаются из окружения при импорте
     fb = h.fb
     h.add_user(BOB, "en", "Bob")
     h.auth(ADMIN)
@@ -180,17 +180,17 @@ if __name__ == "__main__":
     database.run("UPDATE pairs SET exp=? WHERE code=?", (time.time() - 1, code_of(link)))
     check("просроченный код не работает", post(h, "/api/pair", {"code": code_of(link)})["_status"] == 403)
     t = time.time()
-    codes = [post(h, "/api/pair", {"code": f"guess{i:020d}"}, ip="10.0.0.9")["_status"] for i in range(fb.FAIL_MAX + 1)]
-    check(f"подбор: {fb.FAIL_MAX} неудач за {time.time() - t:.0f} с, потом 429", codes[:-1] == [403] * fb.FAIL_MAX and codes[-1] == 429)
+    codes = [post(h, "/api/pair", {"code": f"guess{i:020d}"}, ip="10.0.0.9")["_status"] for i in range(sessions.FAIL_MAX + 1)]
+    check(f"подбор: {sessions.FAIL_MAX} неудач за {time.time() - t:.0f} с, потом 429", codes[:-1] == [403] * sessions.FAIL_MAX and codes[-1] == 429)
     good = fb.make_pair(ADMIN)
     check("с того же адреса даже верный код ждёт", post(h, "/api/pair", {"code": code_of(good)}, ip="10.0.0.9")["_status"] == 429)
     check("с другого адреса — работает", post(h, "/api/pair", {"code": code_of(good)}, ip="10.0.0.10")["_status"] == 200)
 
     # подбор с множества адресов: общий предел
-    fb.FAIL_MAX_ALL = len(fb.AUTH_FAILS["*"]) + 3
+    sessions.FAIL_MAX_ALL = len(sessions.AUTH_FAILS["*"]) + 3
     st = [post(h, "/api/pair", {"code": "AAAAAAAA"}, ip=f"10.1.0.{i}")["_status"] for i in range(5)]
     check(f"общий предел неудач со всех адресов: {st}", st == [403, 403, 403, 429, 429])
-    fb.FAIL_MAX_ALL = 10 ** 6
+    sessions.FAIL_MAX_ALL = 10 ** 6
 
     # удаление пользователя убирает и его устройства
     fb.delete_user(BOB)

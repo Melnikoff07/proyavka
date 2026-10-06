@@ -14,7 +14,7 @@ def check(name, ok):
 
 if __name__ == "__main__":
     h = harness.start(port=8105)
-    from proyavka import config, database      # после start: настройки читаются из окружения при импорте
+    from proyavka import config, database, jobs, pools      # после start: настройки читаются из окружения при импорте
     h.auth()
     MEDIA = h.post("/api/auth", {"initData": "test-1"}, auth=False)["media"]      # токен для адресов картинок
     h.drop(TD / "a6300_DSC00270.JPG")
@@ -53,11 +53,11 @@ if __name__ == "__main__":
 
     # версия для чата и полный файл
     chat = config.TMP / "t_chat.jpg"
-    fb.FAST.submit(fb.job_chat, ph, str(chat)).result()
+    pools.FAST.submit(jobs.job_chat, ph, str(chat)).result()
     cw, ch = Image.open(chat).size
     check(f"версия для чата {cw}×{ch} (кроп ~{H0}px из рабочей копии)", abs(cw - ch) <= 2 and cw >= H0 - 2)
     full = config.TMP / "t_full.jpg"
-    fb.HEAVY.submit(fb.job_full, ph, str(full)).result()
+    pools.HEAVY.submit(jobs.job_full, ph, str(full)).result()
     ow, oh = Image.open(ph["src"]).size
     fw, fh = Image.open(full).size
     check(f"полный файл {fw}×{fh} из оригинала {ow}×{oh}", abs(fw - fh) <= 2 and fw >= min(ow, oh) - 4)
@@ -67,12 +67,12 @@ if __name__ == "__main__":
     h.post(f"/api/photo/{pid}", {"crop": small})
     h.wait(lambda: (lambda p: p["rendered_rev"] == p["rev"])(database.get(pid)), timeout=60)
     ph = database.get(pid)
-    fb.FAST.submit(fb.job_chat, ph, str(chat)).result()
+    pools.FAST.submit(jobs.job_chat, ph, str(chat)).result()
     cw, ch = Image.open(chat).size
     from_work = round(0.3 * W0)
     check(f"сильный кроп: в чат {cw}×{ch} вместо {from_work}px из рабочей копии", max(cw, ch) > from_work * 1.5)
     t1 = time.time()
-    fb.FAST.submit(fb.job_chat, ph, str(chat)).result()
+    pools.FAST.submit(jobs.job_chat, ph, str(chat)).result()
     print(f"     (время версии для чата при сильном кропе: {time.time() - t1:.2f} с)")
 
     # сброс

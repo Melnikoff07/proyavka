@@ -42,8 +42,7 @@ if __name__ == "__main__":
     conf = Path(tempfile.mkdtemp()) / "config.env"
     conf.write_text("LANGUAGE=ru\nCHAT_ID=900000000000000\n", encoding="utf-8")
     h = harness.start(port=8111, uid=WEB, extra_env={"BOT_TOKEN": "", "CONFIG_FILE": str(conf), "DOMAIN": "test.sslip.io"})
-    from proyavka import config, database, users      # после start: настройки читаются из окружения при импорте
-    from proyavka import film      # после start: настройки читаются из окружения при импорте
+    from proyavka import config, database, film, telegram, users      # после start: настройки читаются из окружения при импорте
     fb = h.fb
     check("бот запущен без токена", config.BOT_TOKEN == "" and users.ADMIN == WEB and users.user(WEB)["tg"] is None)
 
@@ -152,11 +151,11 @@ if __name__ == "__main__":
     check(f"ссылка на бота: {link['url'][:45]}…", link["url"].startswith("https://t.me/proyavka_test_bot?start=link_"))
     t1 = time.time()
     fb.on_stranger({"from": {"id": 555, "first_name": "A"}, "chat": {"id": 555, "type": "private"}, "text": "/start link_" + code})
-    check("Telegram 555 привязан к администратору", users.user(WEB)["tg"] == 555 and fb.uid_of_tg(555) == WEB)
+    check("Telegram 555 привязан к администратору", users.user(WEB)["tg"] == 555 and telegram.uid_of_tg(555) == WEB)
     m = [c for c in sends(t1) if c[2].get("chat_id") == 555]
     check("в бот пришло приветствие", m and "Telegram" in m[0][2]["text"])
     fb.on_stranger({"from": {"id": 556}, "chat": {"id": 556, "type": "private"}, "text": "/start link_" + code})
-    check("та же ссылка второй раз не работает", fb.uid_of_tg(556) is None)
+    check("та же ссылка второй раз не работает", telegram.uid_of_tg(556) is None)
     t2 = time.time()
     h.drop(TD / "a6300_DSC00270.JPG", name="NEW0001.JPG")
     h.wait(lambda: [c for c in sends(t2) if c[1] == "sendPhoto" and c[2].get("chat_id") == 555], timeout=120)
@@ -176,7 +175,7 @@ if __name__ == "__main__":
 
     # отвязать
     me = call(h, "/api/tg/unlink", {}, tok)
-    check("отвязал Telegram", me["telegram"]["linked"] is False and fb.uid_of_tg(555) is None)
+    check("отвязал Telegram", me["telegram"]["linked"] is False and telegram.uid_of_tg(555) is None)
     t3 = time.time()
     import numpy as np
     from PIL import Image

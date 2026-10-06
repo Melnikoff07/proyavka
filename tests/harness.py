@@ -74,9 +74,9 @@ def start(port=8099, lang="ru", workers="2", uid=1, extra_env=None, before=None)
                       REMOTE_DIR=str(Path(base) / "remote") + os.sep)
     os.environ.update(extra_env or {})
     import filmbot as fb
-    from proyavka import config
-    fb.real_tg = fb.tg_send
-    fb.tg_send = fake_tg          # tg() по-прежнему переводит номер пользователя в его чат
+    from proyavka import config, sessions, telegram
+    fb.real_tg = telegram.tg_send
+    telegram.tg_send = fake_tg          # tg() по-прежнему переводит номер пользователя в его чат
     fb.fetch_from_vps = lambda *a, **k: None
     fb.vps_watch = lambda *a, **k: None
     fb.sweep_vps = lambda *a, **k: None
@@ -91,8 +91,8 @@ def start(port=8099, lang="ru", workers="2", uid=1, extra_env=None, before=None)
     fake_page.write_text(page, encoding="utf-8")
     config.WEBAPP_HTML = fake_page
     fb.cam_helper = fake_cam_helper
-    orig_check = fb.check_init_data
-    fb.check_init_data = lambda init: (int(init.split("-", 1)[1]) if str(init).startswith("test-") else orig_check(init))
+    orig_check = sessions.check_init_data
+    sessions.check_init_data = lambda init: (int(init.split("-", 1)[1]) if str(init).startswith("test-") else orig_check(init))
     if hasattr(fb, "harness_start"):
         fb.harness_start()
     else:

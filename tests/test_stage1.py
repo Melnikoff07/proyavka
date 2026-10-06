@@ -15,7 +15,7 @@ def check(name, ok):
 
 if __name__ == "__main__":
     h = harness.start(port=8102, extra_env={"UPLOAD_MAX_MB": "20"})
-    from proyavka import config      # после start: настройки читаются из окружения при импорте
+    from proyavka import config, sessions      # после start: настройки читаются из окружения при импорте
     h.auth()
     data = (TD / "a6300_DSC00270.JPG").read_bytes()
     t0 = time.time()
@@ -56,7 +56,7 @@ if __name__ == "__main__":
     check(f"в ленте один кадр из двух копий (всего {len(h.photos())})", len(h.photos()) == 3)
     check("очередь отпечатков пуста", not h.fb.PENDING_FP)
     old = h.auth()
-    h.fb.SESSIONS[old] = (time.time() - 1, 1)     # сессия истекла
+    sessions.SESSIONS[old] = (time.time() - 1, 1)     # сессия истекла
     r = h.post("/api/auth", {"initData": "test-1", "token": old}, auth=False)
     check("повторный вход продлил тот же токен", r.get("token") == old)
     h.token = old

@@ -11,12 +11,9 @@ i18n — языки) и этот файл — пока всё остальное
 Mini App: лента-контактный лист по дням, просмотр со свайпами и живыми превью плёнок.
 Хранилище чистится само: старые оригиналы и рабочие копии удаляются по лимитам.
 """
-import base64
 import collections
 import hashlib
-import hmac
 import io
-import itertools
 import json
 import math
 import os
@@ -32,51 +29,64 @@ import sys
 import threading
 import time
 import zipfile
-from concurrent.futures import FIRST_COMPLETED, ProcessPoolExecutor, ThreadPoolExecutor
-from concurrent.futures import wait as futures_wait
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from http.cookies import SimpleCookie
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from urllib.parse import parse_qs, parse_qsl, quote, urlparse
+from urllib.parse import parse_qs, quote, urlparse
 from pathlib import Path
 
 import numpy as np
 import requests
-from PIL import Image, ImageDraw, ImageOps
+from PIL import Image
+
+from proyavka.jobs import (
+    BASE_EDGES, base_path, job_base, job_contact, job_full, job_prepare, job_preview, job_sample,
+    job_source, job_try,
+)
+from proyavka.pools import NET, init_pools
+from proyavka.telegram import (
+    KB_FEED, KB_FILM, KB_HELP, KB_TODAY, btn, download_tg_bytes, download_tg_file, kb_is, leak_kb,
+    main_kb, menu, preset_kb, safe, send_new, tg, uid_of_tg,
+)
+from proyavka.sessions import (
+    DEV_COOKIE, SESSIONS, SESSION_DEV, SESSION_TTL, media_token, media_uid, note_fail, too_many_fails,
+)
+from proyavka.push import LAST_POLL, push_key, push_subscribe
+from proyavka.scheduler import (
+    EXPORTING, apply_changes, batch_step, batch_track, dispatcher, export_photo, jobs_in_work,
+    schedule_view, tg_worker,
+)
+from proyavka.storage import cleanup, enforce_limit, storage_text, user_usage
+from proyavka.photos import delete_photos, hide_photo, restore_photo
 
 from proyavka import config
 from proyavka.config import ALBUM_HTML, COMMUNITY_BUNDLED, CONTACT_TG, PROJECT_URL
 from proyavka.i18n import APP_NAME
 from proyavka.util import (
-    disposition, download_name, fsize, html_esc, jpeg, key_hash, plural_ru, qr_png, qr_svg, remove,
-    save_atomic, segno,
+    disposition, download_name, html_esc, jpeg, key_hash, plural_ru, qr_png, qr_svg, remove, segno,
 )
 from proyavka.imaging import fingerprint, read_exif
 from proyavka.pwa import CSP, SW_JS, app_icon, manifest
-from proyavka.database import DB_LOCK, EDIT_LOCK, get, init_db, q, run, run_count, upd
+from proyavka.database import DB_LOCK, get, init_db, q, run, run_count, upd
 from proyavka.users import (
     ADMIN, CLEANUP_MINUTES, DAILY_LIMIT, INVITE_DAYS, USERS, load_luts, load_users, set_user,
     storage_limit, udir, user, user_lang, user_luts, valid_look,
 )
 
 from proyavka.config import (
-    BASE, EXTS, FAST_WORKERS, HEAVY_WORKERS, INCOMING, LANG, LOCAL, MIN_FREE_GB, ORIG_DAYS, PAGE, POLL,
-    POLL_BACKUP, PREVIEWS, RAW_EXTS, RAW_FILES, RAW_MISSING, REMOTE_DIR, SETTLE, SSH_CMD, STATE_FILE,
-    STRENGTHS, TMP, UPLOAD_MAX, VIEW_EDGE, VPS, WEBAPP_URL, WEB_BASE, WEB_PORT, WORKER_NICE, WORK_EDGE,
-    log, remote,
+    BASE, EXTS, INCOMING, LANG, LOCAL, ORIG_DAYS, PAGE, POLL, POLL_BACKUP, PREVIEWS, RAW_EXTS,
+    RAW_FILES, RAW_MISSING, REMOTE_DIR, SETTLE, SSH_CMD, STATE_FILE, STRENGTHS, TMP, UPLOAD_MAX, VPS,
+    WEBAPP_URL, WEB_BASE, WEB_PORT, WORK_EDGE, log, remote,
 )
 from proyavka.film import (
-    LUT_MAX_BYTES, LUT_MAX_COUNT, LUT_NAMES, LUT_OWNER, PRESETS, canon, clean_params, clean_text, film,
-    is_lut, look, look_code, look_params, lut_dir, lut_meta, params_json, parse_cube, parse_look_code,
-    pname, preset_lut,
+    LUT_MAX_BYTES, LUT_MAX_COUNT, LUT_NAMES, LUT_OWNER, PRESETS, canon, clean_params, clean_text,
+    is_lut, look_code, look_params, lut_dir, lut_meta, params_json, parse_cube, parse_look_code, pname,
 )
 from proyavka.i18n import (
     L, cur_lang, speak, tr, _CTX,
 )
-from proyavka.imaging import (
-    LEAKS, auto_pick, auto_reason, contact_sheet, crop_img, crop_tag, font, gallery_image, has, is_raw,
-    leak_seed, light_leak, open_raw, parse_crop, raw_exif, render,
-)
+from proyavka.imaging import LEAKS, auto_reason, crop_tag, gallery_image, has, is_raw, parse_crop
 
 
 # ================= настройки и запуск-мелочи =================
@@ -97,8 +107,6 @@ socket.getaddrinfo = _ipv4_first
 
 
 # ================= пользователи =================
-
-
 
 
 def add_lut(owner, name, data):
@@ -412,6 +420,7 @@ def hub_pending():
 
 
 def pending_preview(sid):
+    from proyavka.pools import FAST
     rows = q("SELECT * FROM submissions WHERE id=? AND status='new'", (sid,))
     if not rows:
         return None
@@ -423,6 +432,7 @@ def pending_preview(sid):
 
 def hub_decide(sid, data):
     """Одобрить заявку (плёнка попадает в каталог вместе с превью на образце) или отклонить."""
+    from proyavka.pools import FAST
     rows = q("SELECT * FROM submissions WHERE id=? AND status='new'", (sid,))
     if not rows:
         raise ValueError(L("заявка уже обработана", "this submission was already handled"))
@@ -456,6 +466,7 @@ def hub_decide(sid, data):
 
 def try_look(uid, data):
     """Живой просмотр редактора: кадр пользователя с плёнкой из ползунков (картинка, ничего не сохраняется)."""
+    from proyavka.pools import FAST
     try:
         ph = get(int(data.get("id")))
         strength = int(data.get("strength") or 100)
@@ -473,6 +484,7 @@ def try_look(uid, data):
 
 def community_preview(ph, cid, edge=420):
     """Плёнка каталога на кадре пользователя; файл-кэш на сутки."""
+    from proyavka.pools import FAST
     for e in community_catalog():
         if e["id"] == cid:
             path = PREVIEWS / f"{ph['id']}_cm{e['h']}_100{'' if edge == 420 else '_' + str(edge)}.jpg"
@@ -484,6 +496,7 @@ def community_preview(ph, cid, edge=420):
 
 def original_file(ph, edge):
     """Кадр без плёнки того же размера, что и готовый, — для ползунка «до/после»."""
+    from proyavka.pools import FAST
     path = base_path(ph, edge)
     if not path.exists():
         FAST.submit(job_base, dict(ph), edge).result(timeout=120)
@@ -530,952 +543,15 @@ def community_image(name):
 
 
 # ================= Telegram =================
-# Telegram необязателен: бота может не быть вовсе, а у пользователя может не быть привязанного чата.
-# Все отправки идут через tg(): номер пользователя превращается в его чат; некуда — NoChat (safe() её глотает).
-class NoChat(Exception):
-    pass
-
-
-def chat_of(uid):
-    if not config.BOT_TOKEN or uid is None:
-        return None
-    u = USERS.get(uid)
-    return uid if u is None else u.get("tg")       # незнакомцу отвечаем в его же чат
-
-
-def uid_of_tg(tid):
-    if not tid:
-        return None
-    for uid, u in list(USERS.items()):
-        if u.get("tg") == tid:
-            return uid
-    return None
-
-
-def tg(method, files=None, **params):
-    if not config.BOT_TOKEN:
-        raise NoChat(method)
-    if "chat_id" in params:
-        params["chat_id"] = chat_of(params["chat_id"])
-        if params["chat_id"] is None:
-            raise NoChat(method)
-    sc = params.get("scope")
-    if isinstance(sc, dict) and "chat_id" in sc:
-        c = chat_of(sc["chat_id"])
-        if c is None:
-            raise NoChat(method)
-        params["scope"] = dict(sc, chat_id=c)
-    return tg_send(method, files, **params)
-
-
-def tg_send(method, files=None, **params):
-    data = {k: (json.dumps(v, ensure_ascii=False) if isinstance(v, (dict, list)) else v)
-            for k, v in params.items() if v is not None}
-    for attempt in range(3):
-        r = requests.post(f"https://api.telegram.org/bot{config.BOT_TOKEN}/{method}", data=data, files=files, timeout=(10, 120))   # (подключение, ответ)
-        j = r.json()
-        if j.get("ok"):
-            return j["result"]
-        wait = (j.get("parameters") or {}).get("retry_after")
-        if r.status_code != 429 or not wait or attempt == 2:
-            break
-        log.warning("%s: Telegram просит подождать %s с", method, wait)   # слишком часто пишем в чат
-        _pace_hold(params.get("chat_id"), float(wait))
-        time.sleep(min(float(wait), 60))
-        for v in (files or {}).values():          # файлы отправляются заново с начала
-            f = v[1] if isinstance(v, tuple) else v
-            if hasattr(f, "seek"):
-                f.seek(0)
-    raise RuntimeError(f"{method}: {j.get('description')}")
-
-
-# Фоновые правки чата (пакеты, удаление, новые кадры) — не чаще раза в CHAT_PACE секунд на чат:
-# Telegram ограничивает бота примерно одним сообщением в секунду на чат, при превышении отвечает 429.
-# Ответы на нажатия кнопок идут без ожидания, но сдвигают время следующей фоновой правки.
-CHAT_PACE = float(os.environ.get("CHAT_PACE_SECONDS", "1"))
-_PACE = {}                    # чат -> когда можно следующую фоновую правку (time.monotonic)
-_PACE_LOCK = threading.Lock()
-
-
-def pace(chat_id):
-    """Дождаться своей очереди на фоновую правку чата."""
-    with _PACE_LOCK:
-        now = time.monotonic()
-        at = max(now, _PACE.get(chat_id, 0.0))
-        _PACE[chat_id] = at + CHAT_PACE
-    if at > now:
-        time.sleep(at - now)
-
-
-def _pace_hold(chat_id, seconds):
-    with _PACE_LOCK:
-        _PACE[chat_id] = max(_PACE.get(chat_id, 0.0), time.monotonic() + seconds)
-
-
-def safe(method, **kw):
-    try:
-        return tg(method, **kw)
-    except NoChat:
-        return None
-    except Exception as e:
-        log.warning("%s", e)
-        return None
-
-
-def btn(text, data):
-    return {"text": text, "callback_data": data}
-
-
-def caption(ph):
-    meta = []
-    if ph["taken"]:
-        meta.append(datetime.strptime(ph["taken"], "%Y-%m-%d %H:%M").strftime("%d.%m %H:%M"))
-    if ph["iso"]:
-        meta.append(f"ISO {ph['iso']}")
-    if ph["auto_reason"]:
-        meta.append(L("авто", "auto") + f": {auto_reason(ph)} → {pname(ph['auto_key'])}")
-    leak = " · " + L("засвет", "leak") + f": {tr(LEAKS.get(ph.get('leak_kind') or 'edge', ('',))[0])}" if ph["leak"] else ""
-    return f"#{ph['id']} · {pname(ph['preset'], ph['owner'])} · {ph['strength']}%{leak}\n" + " · ".join(meta)
-
-
-def main_kb(ph):
-    pid = ph["id"]
-    if not has(ph["work"]):
-        return {"inline_keyboard": [[btn(L("🗄 В архиве", "🗄 Archived"), "x"), btn(L("🗑 Удалить", "🗑 Delete"), f"del:{pid}")]]}
-    on = lambda f: "✅ " if ph[f] else ""
-    return {"inline_keyboard": [
-        [btn(f"🎞 {pname(ph['preset'], ph['owner'])} ▾", f"m:{pid}"), btn(L("🔍 Сравнить", "🔍 Compare"), f"c:{pid}")],
-        [btn("➖", f"s:{pid}:-"), btn(L("Сила", "Strength") + f" {ph['strength']}%", "x"), btn("➕", f"s:{pid}:+")],
-        [btn(on("stamp") + L("📅 Дата", "📅 Date"), f"t:{pid}:stamp"), btn(on("frame") + L("🖼 Рамка", "🖼 Frame"), f"t:{pid}:frame"),
-         btn(on("leak") + L("✨ Засвет ▾", "✨ Leak ▾"), f"lm:{pid}")],
-        [btn(L("⬇️ Файл", "⬇️ File"), f"f:{pid}"), btn(L("🗑 Удалить", "🗑 Delete"), f"del:{pid}")],
-    ]}
-
-
-def preset_kb(ph, prefix="p"):
-    pid = ph["id"]
-    keys = list(PRESETS) + [f"lut{r['id']}" for r in user_luts(ph["owner"])]
-    rows = []
-    for i in range(0, len(keys), 3):
-        rows.append([btn(("• " if ph["preset"] == k else "") + pname(k), f"{prefix}:{pid}:{k}")
-                     for k in keys[i:i + 3]])
-    if prefix == "p":
-        rows.append([btn(L("↩️ Оригинал", "↩️ Original"), f"p:{pid}:original"),
-                     btn(L("🤖 Авто", "🤖 Auto") + f" ({pname(ph['auto_key'])})", f"p:{pid}:{ph['auto_key']}")])
-        rows.append([btn(L("← Назад", "← Back"), f"b:{pid}")])
-    else:
-        rows.append([btn(L("✖️ Закрыть", "✖️ Close"), "cx")])
-    return {"inline_keyboard": rows}
-
-
-def leak_kb(ph):
-    pid = ph["id"]
-    cur = (ph.get("leak_kind") or "edge") if ph["leak"] else ""
-    keys = list(LEAKS)
-    rows = [[btn(("• " if cur == k else "") + tr(LEAKS[k][0]), f"l:{pid}:{k}") for k in keys[i:i + 3]]
-            for i in range(0, len(keys), 3)]
-    rows.append([btn(("• " if not cur else "") + L("Без засвета", "No leak"), f"l:{pid}:"), btn(L("↻ Сдвинуть", "↻ Shift"), f"ls:{pid}")])
-    rows.append([btn(L("← Назад", "← Back"), f"b:{pid}")])
-    return {"inline_keyboard": rows}
-
-
-KB_FEED, KB_TODAY = L("📚 Лента", "📚 Feed"), L("📅 Сегодня", "📅 Today")
-KB_FILM, KB_HELP = L("🎞 Плёнка по умолчанию", "🎞 Default film"), L("❓ Помощь", "❓ Help")
-
-
-def menu():
-    return {"keyboard": [[{"text": tr(KB_FEED)}, {"text": tr(KB_TODAY)}],
-                         [{"text": tr(KB_FILM)}, {"text": tr(KB_HELP)}]],
-            "resize_keyboard": True, "is_persistent": True}
-
-
-def kb_is(t, kb):
-    return t in (kb.ru.lower(), kb.en.lower())
-
-
-def touch(pid):
-    upd(pid, updated=time.time())
-
-
-def send_new(ph):
-    """Прислать кадр новым сообщением (из ленты в чате), по кешу Telegram."""
-    if not ph["file_id"]:
-        tg("sendMessage", chat_id=ph["owner"], text=L(f"Кадр #{ph['id']} ещё проявляется.", f"Frame #{ph['id']} is still developing."))
-        return
-    with EDIT_LOCK:
-        res = tg("sendPhoto", chat_id=ph["owner"], photo=ph["file_id"], caption=caption(ph), reply_markup=main_kb(ph))
-        upd(ph["id"], msg_id=res["message_id"], msg_at=time.time(), file_id=res["photo"][-1]["file_id"])
-
-
-MSG_DELETE_WINDOW = 47 * 3600     # Telegram даёт боту удалить сообщение только в первые 48 часов
-
-
-def delete_photos(ids):
-    """Убрать кадры из ленты и из чата в корзину. Файлы остаются на диске: кадр можно вернуть через /trash,
-    пока не понадобится место, — при нехватке места корзина чистится первой (cleanup).
-    Отпечаток (fp) тоже остаётся, поэтому повторная выгрузка того же кадра его не вернёт."""
-    now = time.time()
-    gone = []
-    for pid in ids:
-        ph = get(pid)
-        if not ph or ph["hidden"]:
-            continue
-        # rev+1 — рисование, которое уже идёт, не отправит кадр в чат (_view_done это проверяет)
-        run("UPDATE photos SET hidden=1, deleted_at=?, file_id=NULL, rev=rev+1, updated=? WHERE id=?", (now, now, pid))
-        for p in PREVIEWS.glob(f"{pid}_*.jpg"):      # превью — кэш, их не жалко
-            remove(str(p))
-        gone.append(ph)
-    if gone:
-        NET.submit(_delete_messages, gone)
-    return len(gone)
-
-
-def restore_photo(ph):
-    """Вернуть кадр из корзины в ленту и в чат."""
-    if not has(ph["work"]):
-        raise RuntimeError(L("файлы кадра уже удалены, чтобы освободить место", "the frame's files were already deleted to free space"))
-    run("UPDATE photos SET hidden=0, deleted_at=NULL, rev=rev+1, updated=? WHERE id=?", (time.time(), ph["id"]))
-    schedule_view(ph["id"], prio=0, uid=ph["owner"])     # нарисуется и сам придёт в чат
-
-
-def purge_files(ph):
-    """Стереть файлы кадра из корзины окончательно (строка с отпечатком остаётся)."""
-    size = 0
-    for k in ("src", "work", "view", "thumb"):
-        if ph[k]:
-            size += fsize(ph[k])
-            remove(ph[k])
-    run("UPDATE photos SET src=NULL, work=NULL, view=NULL, thumb=NULL WHERE id=?", (ph["id"],))
-    log.info("cleanup: #%d из корзины удалён (%.1f MB)", ph["id"], size / 1e6)
-    return size
-
-
-def _delete_messages(phs):
-    by_owner = {}
-    for ph in phs:
-        if ph["msg_id"]:
-            by_owner.setdefault(ph["owner"], []).append(ph)
-    for chat, items in by_owner.items():
-        with speak(chat):
-            _delete_chat_messages(chat, items)
-
-
-def _delete_chat_messages(chat, phs):
-    fresh, old = [], []
-    for ph in phs:
-        sent = ph.get("msg_at") or ph["created"] or 0
-        (fresh if time.time() - sent < MSG_DELETE_WINDOW else old).append(ph["msg_id"])
-    for i in range(0, len(fresh), 100):
-        chunk = fresh[i:i + 100]
-        pace(chat)
-        if not safe("deleteMessages", chat_id=chat, message_ids=chunk):
-            for mid in list(chunk):              # на всякий случай по одному
-                if not safe("deleteMessage", chat_id=chat, message_id=mid):
-                    old.append(mid)
-                    chunk.remove(mid)
-        marks = ",".join("?" * len(chunk))       # сообщения больше нет — при возврате из корзины придёт новое
-        if chunk:
-            run(f"UPDATE photos SET msg_id=NULL WHERE owner=? AND msg_id IN ({marks})", (chat, *chunk))
-    for mid in old:                              # старше 48 часов: удалить нельзя — меняем фото на заглушку
-        pace(chat)
-        with open(deleted_placeholder(), "rb") as f:
-            if not safe("editMessageMedia", files={"f": ("deleted.jpg", f)}, chat_id=chat, message_id=mid,
-                        media={"type": "photo", "media": "attach://f", "caption": L("Удалено", "Deleted")},
-                        reply_markup={"inline_keyboard": []}):
-                safe("editMessageReplyMarkup", chat_id=chat, message_id=mid, reply_markup={"inline_keyboard": []})
-
-
-def deleted_placeholder():
-    path = BASE / f"deleted_{cur_lang()}.jpg"
-    if not path.exists():
-        img = Image.new("RGB", (640, 400), (24, 24, 24))
-        d = ImageDraw.Draw(img)
-        f = font(40)
-        txt = L("удалено", "deleted")
-        x0, y0, x1, y1 = d.textbbox((0, 0), txt, font=f)
-        d.text(((640 - (x1 - x0)) // 2, (400 - (y1 - y0)) // 2 - y0), txt, fill=(140, 140, 140), font=f)
-        save_atomic(img, str(path), 85)
-    return path
-
-
-def hide_photo(ph):
-    delete_photos([ph["id"]])
 
 
 # ================= задачи в отдельных процессах =================
 
 
-def job_warm():
-    for k in PRESETS:
-        preset_lut(k)
-    return os.getpid()
-
-
-def job_prepare(src, work_path, edge):
-    if is_raw(src):
-        taken, iso = raw_exif(src)
-        im = open_raw(src, edge)
-        im.thumbnail((edge, edge), Image.LANCZOS)
-        taken = taken or datetime.now().strftime("%Y-%m-%d %H:%M")
-        auto_key, reason = auto_pick(im, iso, int(taken[11:13]))
-        save_atomic(im, work_path, 95)
-        return taken, iso, auto_key, reason
-    im = Image.open(src)
-    taken, iso = read_exif(im)
-    im.draft("RGB", (edge, edge))           # JPEG сразу декодируется в уменьшенном виде — в разы быстрее
-    im = ImageOps.exif_transpose(im).convert("RGB")
-    im.thumbnail((edge, edge), Image.LANCZOS)
-    taken = taken or datetime.now().strftime("%Y-%m-%d %H:%M")
-    auto_key, reason = auto_pick(im, iso, int(taken[11:13]))
-    save_atomic(im, work_path, 95)
-    return taken, iso, auto_key, reason
-
-
-def job_view(ph, view_path, thumb_path, chat_path=None):
-    """Один рендер на правку: версия для чата (WORK_EDGE), из неё уменьшаются «Проявка» и миниатюра.
-    Раньше чат и «Проявка» рисовались по отдельности — это лишние ~300 мс процессора на каждую правку.
-    Без chat_path (догрузка старых кадров) рисуется только версия для «Проявки»."""
-    if chat_path:
-        img = render(ph)
-        save_atomic(img, chat_path, 92)
-        img.thumbnail((VIEW_EDGE, VIEW_EDGE), Image.LANCZOS)
-    else:
-        img = render(ph, mode="view")
-    save_atomic(img, view_path, 88)
-    img.thumbnail((500, 500))
-    save_atomic(img, thumb_path, 85)
-    return view_path, thumb_path
-
-
-def job_chat(ph, path):
-    return save_atomic(render(ph), path, 92)
-
-
-def job_full(ph, path):
-    return save_atomic(render(ph, full=True), path, 95)
-
-
-BASE_EDGES = (420, 1000, 1600)     # 420 — полоска плёнок и редактор, 1000 — просмотр плёнки сообщества, 1600 — «до/после» в кадре
-
-
-def base_path(ph, edge=420):
-    return PREVIEWS / f"{ph['id']}_base{'' if edge == 420 else edge}{crop_tag(ph.get('crop'))}.jpg"
-
-
-def preview_base(ph, edge=420):
-    """Уменьшенный кадр без плёнки — основа превью; кадрированное сперва вырезается, потом уменьшается."""
-    path = base_path(ph, edge)
-    if not path.exists():
-        b = Image.open(ph["work"])
-        if ph.get("crop"):
-            b = crop_img(b, ph["crop"])
-        else:
-            b.draft("RGB", (edge, edge))
-        b = b.convert("RGB")
-        b.thumbnail((edge, edge), Image.LANCZOS)
-        save_atomic(b, str(path), 92)
-    return Image.open(path).convert("RGB")
-
-
-def job_base(ph, edge):
-    preview_base(ph, edge)
-    return str(base_path(ph, edge))
-
-
-def job_preview(ph, key, strength, path, leak=""):
-    base = preview_base(ph)
-    out = look(base, ph, key, strength, ph["id"])
-    if leak:
-        out = light_leak(out, leak, leak_seed(ph))
-    return save_atomic(out, path, 84)
-
-
-def job_sample(params, path, edge=900):
-    """Плёнка на общем образце каталога (превью заявки и одобренной плёнки)."""
-    im = Image.open(COMMUNITY_BUNDLED.parent / "sample.jpg").convert("RGB")
-    im.thumbnail((edge, edge), Image.LANCZOS)
-    img = film(im, "custom", 100, 1, params)
-    return save_atomic(img, path, 80)
-
-
-def job_try(ph, params, strength, path=None, edge=420):
-    """Кадр с плёнкой, которой ещё нет в базе: живой просмотр в редакторе и превью плёнок сообщества.
-    Без path — JPEG байтами (редактор не засоряет диск), с path — файлом-кэшем."""
-    out = film(preview_base(ph, edge), "custom", strength, ph["id"], params)
-    if path:
-        return save_atomic(out, path, 84)
-    buf = io.BytesIO()
-    out.save(buf, "JPEG", quality=84)
-    return buf.getvalue()
-
-
-def job_source(work, path):
-    """Некадрированный кадр без плёнки — для экрана кадрирования."""
-    b = Image.open(work)
-    b.draft("RGB", (VIEW_EDGE, VIEW_EDGE))
-    b = b.convert("RGB")
-    b.thumbnail((VIEW_EDGE, VIEW_EDGE), Image.LANCZOS)
-    return save_atomic(b, path, 85)
-
-
-def job_contact(ph, path):
-    return save_atomic(contact_sheet(ph), path, 88)
-
-
 # ================= планировщик =================
-FAST = HEAVY = None
-NET = ThreadPoolExecutor(max_workers=2, thread_name_prefix="net")   # загрузки в Telegram
-EVENTS = queue.Queue()
-JOB_LOCK = threading.Lock()
-VIEW_INFLIGHT, VIEW_DIRTY = set(), set()
-EXPORTING = {}
-
-
-def _worker_init(nice):
-    try:
-        os.nice(nice)
-    except (OSError, AttributeError):   # AttributeError — Windows, где нет nice (запуск для разработки)
-        pass
-
-
-def init_pools():
-    global FAST, HEAVY
-    import multiprocessing as mp
-    ctx = mp.get_context("spawn")
-    FAST = ProcessPoolExecutor(max_workers=FAST_WORKERS, mp_context=ctx,
-                               initializer=_worker_init, initargs=(WORKER_NICE,))
-    HEAVY = ProcessPoolExecutor(max_workers=HEAVY_WORKERS, mp_context=ctx, max_tasks_per_child=8,
-                                initializer=_worker_init, initargs=(WORKER_NICE + 5,))
-    warm = [FAST.submit(job_warm) for _ in range(FAST_WORKERS)] + [HEAVY.submit(job_warm)]
-    for f in warm:
-        f.result()
-    log.info("render pools ready: fast=%d heavy=%d", FAST_WORKERS, HEAVY_WORKERS)
-
-
-def dispatcher():
-    """Результаты из процессов обрабатываем в одном потоке — без гонок."""
-    while True:
-        fn, args = EVENTS.get()
-        try:
-            fn(*args)
-        except Exception:
-            log.exception("dispatcher")
-
-
-def jobs_in_work(uid):
-    """Сколько кадров этого пользователя сейчас рисуется или ждёт очереди."""
-    with JOB_LOCK:
-        pids = set(VIEW_INFLIGHT) | set(RQ_QUEUED) | set(EXPORTING)
-    if not pids:
-        return 0
-    pids = list(pids)[:900]
-    marks = ",".join("?" * len(pids))
-    rows = q(f"SELECT id FROM photos WHERE owner=? AND id IN ({marks})", (uid, *pids))
-    mine = {r["id"] for r in rows}
-    with JOB_LOCK:
-        return sum(1 for p in mine if p in VIEW_INFLIGHT or p in RQ_QUEUED) + sum(EXPORTING.get(p, 0) for p in mine)
-
-
-# Очередь отрисовки. Сразу в процессы отдаётся не больше задач, чем они успевают (VIEW_SLOTS): иначе сотня кадров
-# из пакетной правки встала бы в очередь пула, и превью плёнок в «Проявке» ждали бы их все.
-# Срочность: 0 — правка одного кадра (человек ждёт), 1 — пакетная правка и новые кадры, 2 — фоновая догрузка.
-# Внутри одной срочности пользователи обслуживаются по кругу, чтобы один большой пакет не задерживал остальных.
-VIEW_SLOTS = max(1, FAST_WORKERS - 1) if FAST_WORKERS > 2 else FAST_WORKERS
-RQ_PENDING = {0: {}, 1: {}, 2: {}}    # срочность -> {пользователь: deque[pid]} (порядок ключей = очередь по кругу)
-RQ_QUEUED = {}                        # pid -> (срочность, нужен ли чат)
-VIEW_CHAT = {}                        # pid в работе -> нужна ли версия для чата
-VIEW_PRIO = {}                        # pid в работе -> срочность (с ней же правка уйдёт в чат)
-
-
-def schedule_view(pid, prio=0, chat=True, uid=None):
-    """Перерисовать кадр. Если уже рисуется — дорисуем последнее состояние следом."""
-    if uid is None:                      # очередь по кругу между владельцами кадров
-        r = q("SELECT owner FROM photos WHERE id=?", (pid,))
-        uid = r[0]["owner"] if r else 0
-    with JOB_LOCK:
-        if pid in VIEW_INFLIGHT:
-            VIEW_DIRTY.add(pid)
-            VIEW_CHAT[pid] = VIEW_CHAT.get(pid, False) or chat
-            VIEW_PRIO[pid] = min(VIEW_PRIO.get(pid, prio), prio)
-            return
-        if pid in RQ_QUEUED:
-            old_prio, old_chat = RQ_QUEUED[pid]
-            RQ_QUEUED[pid] = (min(prio, old_prio), old_chat or chat)
-            if prio < old_prio:                  # стал срочнее — переносим в нужную очередь
-                for dq in RQ_PENDING[old_prio].values():
-                    if pid in dq:
-                        dq.remove(pid)
-                RQ_PENDING[prio].setdefault(uid, collections.deque()).append(pid)
-        else:
-            RQ_QUEUED[pid] = (prio, chat)
-            RQ_PENDING[prio].setdefault(uid, collections.deque()).append(pid)
-    _pump()
-
-
-def _pump():
-    """Раздать задачи из очереди, пока есть свободные места в процессах."""
-    while True:
-        with JOB_LOCK:
-            if len(VIEW_INFLIGHT) >= VIEW_SLOTS:
-                return
-            pick = None
-            for prio in (0, 1, 2):
-                users = RQ_PENDING[prio]
-                while users and pick is None:
-                    uid = next(iter(users))
-                    dq = users.pop(uid)
-                    if dq:
-                        pid = dq.popleft()
-                        if dq:
-                            users[uid] = dq      # в конец круга
-                        if pid in RQ_QUEUED:
-                            pick = (pid, RQ_QUEUED.pop(pid)[1], prio)
-                if pick:
-                    break
-            if pick is None:
-                return
-            VIEW_INFLIGHT.add(pick[0])
-            VIEW_CHAT[pick[0]] = pick[1]
-            VIEW_PRIO[pick[0]] = pick[2]
-        _submit_view(pick[0])
-
-
-def queue_size():
-    with JOB_LOCK:
-        return len(RQ_QUEUED)
-
-
-def _release(pid):
-    with JOB_LOCK:
-        VIEW_INFLIGHT.discard(pid)
-        VIEW_DIRTY.discard(pid)
-        VIEW_CHAT.pop(pid, None)
-        VIEW_PRIO.pop(pid, None)
-    batch_step(pid, "gone")
-
-
-def _submit_view(pid):
-    ph = get(pid)
-    if not ph or ph["hidden"] or not has(ph["work"]):
-        _release(pid)
-        _pump()
-        return
-    rev = ph["rev"]
-    with JOB_LOCK:
-        chat = VIEW_CHAT.get(pid, True) and bool(ph["msg_id"] or not ph["file_id"])
-    chat_path = str(TMP / f"chat_{pid}_{rev}.jpg") if chat else None
-    fut = FAST.submit(job_view, ph, str(udir(ph["owner"], "views") / f"{pid}.jpg"),
-                      str(udir(ph["owner"], "thumbs") / f"{pid}.jpg"), chat_path)
-    fut.add_done_callback(lambda f: EVENTS.put((_view_done, (pid, rev, chat, f))))
-
-
-def _view_done(pid, rev, chat, fut):
-    err = fut.exception()
-    result = "fail"
-    if err:
-        log.warning("view #%d: %s", pid, err)
-    else:
-        view, thumb = fut.result()
-        cur = get(pid)
-        if not cur or cur["hidden"]:            # кадр убрали в корзину, пока он рисовался — в чат не слать
-            remove(str(TMP / f"chat_{pid}_{rev}.jpg"))
-            result = "gone"
-        elif cur["rev"] == rev:
-            upd(pid, view=view, thumb=thumb, rendered_rev=rev, updated=time.time())
-            result = "ok"
-            if not cur.get("view") and (cur.get("created") or 0) > time.time() - 600:
-                push_soon(cur["owner"])          # новый кадр проявился впервые (не дорисовка старых)
-            if chat:
-                with JOB_LOCK:
-                    prio = VIEW_PRIO.get(pid, 1)
-                queue_tg_update(pid, urgent=prio == 0)
-    with JOB_LOCK:
-        again = pid in VIEW_DIRTY
-        VIEW_DIRTY.discard(pid)
-        if not again:
-            VIEW_INFLIGHT.discard(pid)
-            VIEW_CHAT.pop(pid, None)
-            VIEW_PRIO.pop(pid, None)
-    if again:
-        _submit_view(pid)
-    else:
-        batch_step(pid, result)
-        _pump()
-
-
-# Пакетная правка из «Проявки»: кадры встают в общую очередь со срочностью 1, а когда проявится последний,
-# в чат уходит одно итоговое сообщение. Сами фото в чате обновляются фоном, не чаще раза в секунду.
-BATCHES = {}      # номер пакета -> {"left": set(pid), "ok", "fail", "total", "text"}
-BATCH_OF = {}     # pid -> номер пакета, в котором он ещё не проявлен
-_BATCH_SEQ = itertools.count(1)
-
-
-def batch_track(pids, text, uid):
-    finished = []
-    with JOB_LOCK:
-        bid = next(_BATCH_SEQ)
-        BATCHES[bid] = {"left": set(pids), "pids": list(pids), "ok": 0, "fail": 0, "total": len(pids), "text": text,
-                        "uid": uid, "lang": cur_lang()}
-        for pid in pids:
-            old = BATCH_OF.get(pid)
-            if old in BATCHES:                   # кадр перешёл в новый пакет — в старом считаем его готовым
-                b = BATCHES[old]
-                b["left"].discard(pid)
-                b["ok"] += 1
-                if not b["left"]:
-                    finished.append(BATCHES.pop(old))
-            BATCH_OF[pid] = bid
-    for b in finished:
-        NET.submit(_batch_report, b)
-    return bid
-
-
-def batch_step(pid, result):
-    """Кадр из пакета дорисован (ok), не получился (fail) или удалён (gone)."""
-    with JOB_LOCK:
-        bid = BATCH_OF.pop(pid, None)
-        b = BATCHES.get(bid)
-        if not b:
-            return
-        b["left"].discard(pid)
-        b["ok" if result == "ok" else "fail"] += result != "gone"
-        if result == "gone":
-            b["total"] -= 1
-        if b["left"]:
-            return
-        BATCHES.pop(bid)
-    NET.submit(_batch_report, b)
-
-
-def _batch_report(b):
-    if b["total"] <= 0:
-        return
-    t = time.time()
-    while time.time() - t < 900:                 # итог — после того, как сами фото в чате обновились
-        with TG_COND:
-            if not TG_BUSY.intersection(b["pids"]):
-                break
-        time.sleep(0.5)
-    n = b["ok"]
-    _CTX.lang = b["lang"]
-    text = L(f"Готово: {n} {plural_ru(n, 'кадр', 'кадра', 'кадров')} → {b['text']}",
-             f"Done: {n} frame{'' if n == 1 else 's'} → {b['text']}")
-    if b["fail"]:
-        text += L(f"\nНе получилось: {b['fail']}", f"\nFailed: {b['fail']}")
-    pace(b["uid"])
-    safe("sendMessage", chat_id=b["uid"], text=text, disable_notification=True)
-
-
-def export_photo(pid):
-    """Экспорт в полный размер — в отдельной очереди, не мешает переключению плёнок."""
-    ph = get(pid)
-    if not ph or ph["hidden"]:
-        raise RuntimeError(L("кадр не найден", "frame not found"))
-    if not has(ph["work"]) and not has(ph["src"]):
-        raise RuntimeError(L("кадр в архиве: исходник удалён для экономии места", "frame is archived: the original was deleted to save space"))
-    with JOB_LOCK:
-        EXPORTING[pid] = EXPORTING.get(pid, 0) + 1
-    touch(pid)
-    out = TMP / f"full_{pid}_{int(time.time() * 1000)}.jpg"
-    fut = HEAVY.submit(job_full, ph, str(out))
-    fut.add_done_callback(lambda f: NET.submit(_export_done, pid, ph, out, f))
-
-
-def _export_done(pid, ph, out, fut):
-    with speak(ph["owner"]):
-        _export_send(pid, ph, out, fut)
-
-
-def _export_send(pid, ph, out, fut):
-    chat = ph["owner"]
-    try:
-        err = fut.exception()
-        if err:
-            safe("sendMessage", chat_id=chat, text=L(f"Не смог экспортировать #{pid}: {err}", f"Could not export #{pid}: {err}"))
-            return
-        note = None if has(ph["src"]) else L("Оригинал уже удалён для экономии места, это версия для чата.",
-                                         "The original was deleted to save space; this is the chat version.")
-        cur = get(pid) or ph
-        if cur["hidden"]:                       # удалили, пока готовился файл
-            return
-        with open(out, "rb") as f:
-            tg("sendDocument", files={"document": (f"{Path(ph['name']).stem}_{ph['preset']}.jpg", f)},
-               chat_id=chat, reply_to_message_id=cur["msg_id"], caption=note)
-    except Exception as e:
-        log.exception("export upload #%d", pid)
-        safe("sendMessage", chat_id=chat, text=L(f"Не смог отправить файл #{pid}: {e}", f"Could not send file #{pid}: {e}"))
-    finally:
-        remove(str(out))
-        with JOB_LOCK:
-            EXPORTING[pid] = EXPORTING.get(pid, 1) - 1
-            if EXPORTING[pid] <= 0:
-                EXPORTING.pop(pid, None)
-        touch(pid)
-
-
-TG_PENDING = set()
-TG_URGENT = set()      # правки одного кадра — в чат вперёд пакетных
-TG_BUSY = set()        # кадры, которые ещё не дошли до чата (в очереди, рисуются или заливаются)
-TG_COND = threading.Condition()
-
-
-def queue_tg_update(pid, urgent=False):
-    r = q("SELECT owner FROM photos WHERE id=?", (pid,))
-    if not r or chat_of(r[0]["owner"]) is None:
-        return                   # у владельца нет Telegram — кадр живёт только в «Проявке»
-    with TG_COND:
-        TG_PENDING.add(pid)
-        TG_BUSY.add(pid)
-        if urgent:
-            TG_URGENT.add(pid)
-        TG_COND.notify()
-
-
-def _tg_order(pid):
-    return (pid not in TG_URGENT, pid)
-
-
-def _tg_settled(pid):
-    with TG_COND:
-        if pid not in TG_PENDING:
-            TG_BUSY.discard(pid)
-
-
-TG_RENDER_AHEAD = 2   # сколько кадров для чата рисуем заранее, пока заливается текущий
-
-
-def _tg_upload(pid, rev, path):
-    ph = get(pid)
-    if not ph or ph["hidden"] or ph["rev"] != rev:
-        return   # кадр убрали или снова поменяли — свежий вариант уже в очереди
-    chat = ph["owner"]
-    pace(chat)
-    with speak(chat), EDIT_LOCK, open(path, "rb") as f:
-        res = None
-        if ph["msg_id"]:
-            media = {"type": "photo", "media": "attach://f", "caption": caption(ph)}
-            try:
-                res = tg("editMessageMedia", files={"f": ("p.jpg", f)}, chat_id=chat,
-                         message_id=ph["msg_id"], media=media, reply_markup=main_kb(ph))
-            except Exception as e:
-                if "not modified" in str(e):
-                    return
-                log.warning("edit #%d failed (%s), sending new", pid, e)
-                f.seek(0)
-        if res is None:
-            res = tg("sendPhoto", files={"photo": ("p.jpg", f)}, chat_id=chat,
-                     caption=caption(ph), reply_markup=main_kb(ph))
-            upd(pid, msg_id=res["message_id"], msg_at=time.time())
-        upd(pid, file_id=res["photo"][-1]["file_id"])
-
-
-def older_unsent(pid):
-    """Есть ли более ранний новый кадр, ещё не отправленный в чат (не старше 2 минут, чтобы сбойный не держал очередь)."""
-    return q("SELECT COUNT(*) AS n FROM photos WHERE id < ? AND msg_id IS NULL AND hidden=0 "
-             "AND work IS NOT NULL AND created > ? AND owner=(SELECT owner FROM photos WHERE id=?)",
-             (pid, time.time() - 120, pid))[0]["n"] > 0
-
-
-def tg_worker():
-    """Конвейер: следующие кадры рисуются, пока текущий заливается. Новые кадры уходят в чат по порядку."""
-    inflight = {}   # pid -> (rev, future, path)
-    ready = {}      # pid -> (rev, path): нарисован, ждёт отправки
-    while True:
-        start_now = []
-        with TG_COND:
-            if not TG_PENDING and not inflight:
-                TG_COND.wait(timeout=0.5 if ready else None)   # ждём, не крутясь вхолостую
-            for pid in sorted(TG_PENDING, key=_tg_order):
-                if len(inflight) + len(start_now) >= TG_RENDER_AHEAD:
-                    break
-                if pid in inflight or pid in ready:
-                    continue
-                TG_PENDING.discard(pid)
-                start_now.append(pid)
-        for pid in start_now:
-            ph = get(pid)
-            if not ph or ph["hidden"] or not has(ph["work"]):
-                _tg_settled(pid)
-                continue
-            path = TMP / f"chat_{pid}_{ph['rev']}.jpg"
-            if path.exists():                  # обычно уже нарисован вместе с версией для «Проявки»
-                ready[pid] = (ph["rev"], path)
-                continue
-            inflight[pid] = (ph["rev"], FAST.submit(job_chat, ph, str(path)), path)
-        if inflight:
-            done, _ = futures_wait([v[1] for v in inflight.values()], timeout=0.5, return_when=FIRST_COMPLETED)
-            for pid, (rev, fut, path) in list(inflight.items()):
-                if fut in done:
-                    inflight.pop(pid)
-                    if fut.exception():
-                        log.warning("chat render #%d: %s", pid, fut.exception())
-                        remove(str(path))
-                        _tg_settled(pid)
-                    else:
-                        ready[pid] = (rev, path)
-        for pid in sorted(ready, key=_tg_order):
-            ph = get(pid)
-            if ph and not ph["msg_id"] and older_unsent(pid):
-                continue   # новый кадр не обгоняет более ранний, который ещё проявляется
-            rev, path = ready.pop(pid)
-            with TG_COND:
-                TG_URGENT.discard(pid)
-            try:
-                _tg_upload(pid, rev, path)
-            except Exception:
-                log.exception("tg upload #%d", pid)
-            finally:
-                remove(str(path))
-                _tg_settled(pid)
-
-
-def apply_changes(ph, changes, sync_tg=None, prio=0):
-    """Поставить изменения в очередь и сразу вернуть состояние. Рисуется фоном.
-    prio: 0 — правка одного кадра, 1 — пакетная (уступает одиночным)."""
-    fields = {}
-    cur = get(ph["id"])
-    if "preset" in changes:
-        k = canon(changes["preset"])
-        if k == "auto" and cur:                 # пакетом: каждому кадру его собственный автовыбор
-            k = cur["auto_key"] or "original"
-        if not valid_look(k, (cur or ph)["owner"]):
-            raise ValueError(L("неизвестная плёнка", "unknown film"))
-        fields["preset"] = k
-    if "strength" in changes:
-        s = int(changes["strength"])
-        if s not in STRENGTHS:
-            raise ValueError(L("неверная сила", "invalid strength"))
-        fields["strength"] = s
-    for f in ("stamp", "frame"):
-        if f in changes:
-            fields[f] = 1 if changes[f] else 0
-    if not cur or not has(cur["work"]):
-        raise RuntimeError(L("кадр в архиве: исходник удалён для экономии места", "frame is archived: the original was deleted to save space"))
-    if "leak" in changes:
-        v = changes["leak"]
-        if v in (None, "", False, 0):
-            fields["leak"] = 0
-        elif v is True or v == 1:
-            fields["leak"] = 1
-        elif v in LEAKS:
-            fields["leak"], fields["leak_kind"] = 1, v
-        else:
-            raise ValueError(L("неизвестный засвет", "unknown light leak"))
-    if "crop" in changes:
-        fields["crop"] = parse_crop(changes["crop"])
-    if changes.get("leak_shift"):
-        fields["leak_seed"] = int(cur.get("leak_seed") or 0) + 1
-        fields.setdefault("leak", 1)
-    fields = {k: v for k, v in fields.items() if cur.get(k) != v}   # уже так — не перерисовывать
-    if not fields:
-        return cur
-    cols = ", ".join(f"{k}=?" for k in fields)
-    run(f"UPDATE photos SET {cols}, rev=rev+1, updated=? WHERE id=?", (*fields.values(), time.time(), ph["id"]))
-    schedule_view(ph["id"], prio=prio)
-    return get(ph["id"])
 
 
 # ================= хранилище =================
-
-
-def user_usage(uid):
-    """Сколько места занимают кадры пользователя: оригиналы, рабочие копии, картинки для просмотра."""
-    use = {"src": 0, "work": 0, "pics": 0}
-    for r in q("SELECT src, work, view, thumb FROM photos WHERE owner=?", (uid,)):
-        use["src"] += fsize(r["src"]) if r["src"] else 0
-        use["work"] += fsize(r["work"]) if r["work"] else 0
-        use["pics"] += (fsize(r["view"]) if r["view"] else 0) + (fsize(r["thumb"]) if r["thumb"] else 0)
-    return use
-
-
-def _free_space(rows_sql, args, need):
-    """Удалять оригиналы, потом рабочие копии, от самых старых, пока need() не скажет «хватит»."""
-    for field in ("src", "work"):
-        for r in q(rows_sql.format(f=field), args):
-            if not need():
-                return
-            size = fsize(r["p"])
-            remove(r["p"])
-            upd(r["id"], **{field: None}, updated=time.time())
-            yield size
-            log.info("cleanup: #%d %s removed (%.1f MB)", r["id"], field, size / 1e6)
-
-
-def cleanup():
-    now = time.time()
-    for p in PREVIEWS.iterdir():
-        if p.is_file() and now - p.stat().st_mtime > 86400:
-            remove(p)
-    for p in TMP.iterdir():                 # версии для чата, которые устарели, пока ждали отправки
-        if p.is_file() and now - p.stat().st_mtime > 3600:
-            remove(p)
-    # 1) старые оригиналы (они есть на карте камеры)
-    for r in q("SELECT id, src FROM photos WHERE src IS NOT NULL AND created < ?", (now - ORIG_DAYS * 86400,)):
-        remove(r["src"])
-        upd(r["id"], src=None)
-    # 2) лимит каждого пользователя
-    for uid in list(USERS):
-        enforce_limit(uid)
-    # 3) свободное место на диске — общее, от самых старых кадров всех пользователей
-    min_free = MIN_FREE_GB * 1e9
-    free = [shutil.disk_usage(BASE).free]
-    if free[0] < min_free:
-        for f in PREVIEWS.glob("*_full_*.jpg"):     # кэш полных кадров для альбомов — его не жалко
-            free[0] += fsize(f)
-            remove(f)
-    if free[0] < min_free:
-        for ph in q("SELECT * FROM photos WHERE hidden=1 AND (src IS NOT NULL OR work IS NOT NULL "
-                    "OR view IS NOT NULL OR thumb IS NOT NULL) ORDER BY deleted_at, id"):
-            if free[0] >= min_free:
-                return
-            free[0] += purge_files(ph)
-        for size in _free_space("SELECT id, {f} AS p FROM photos WHERE {f} IS NOT NULL ORDER BY id", (),
-                                lambda: free[0] < min_free):
-            free[0] += size
-
-
-def enforce_limit(uid):
-    """Лимит места пользователя: сначала корзина, потом старые оригиналы, потом рабочие копии."""
-    use = user_usage(uid)
-    total = [sum(use.values())]
-    limit = storage_limit(uid) * 1e9
-    if total[0] <= limit:
-        return
-    for ph in q("SELECT * FROM photos WHERE owner=? AND hidden=1 AND (src IS NOT NULL OR work IS NOT NULL "
-                "OR view IS NOT NULL OR thumb IS NOT NULL) ORDER BY deleted_at, id", (uid,)):
-        if total[0] <= limit:                # сначала корзина: самое давно удалённое
-            break
-        total[0] -= purge_files(ph)
-    if total[0] <= limit:
-        return
-    for size in _free_space("SELECT id, {f} AS p FROM photos WHERE owner=? AND {f} IS NOT NULL ORDER BY id",
-                            (uid,), lambda: total[0] > limit):
-        total[0] -= size
-    for p in sorted(udir(uid, "originals").glob("failed_*"), key=lambda x: x.stat().st_mtime):
-        if total[0] <= limit:
-            break
-        total[0] -= fsize(p)
-        remove(p)
-
-
-def storage_text(uid):
-    n = q("SELECT COUNT(*) AS n, SUM(src IS NOT NULL) AS o, SUM(work IS NOT NULL) AS w FROM photos "
-          "WHERE hidden=0 AND owner=?", (uid,))[0]
-    use = user_usage(uid)
-    gb = lambda b: (f"{b / 1e9:.1f} " + L("ГБ", "GB")) if b >= 1e9 or storage_limit(uid) >= 1 else (f"{b / 1e6:.0f} " + L("МБ", "MB"))
-    lim = (f"{storage_limit(uid):g} " + L("ГБ", "GB")) if storage_limit(uid) >= 1 else (f"{storage_limit(uid) * 1000:.0f} " + L("МБ", "MB"))
-    text = L(f"Кадров в ленте: {n['n'] or 0}\n"
-             f"С оригиналом: {n['o'] or 0}, можно менять плёнку: {n['w'] or 0}\n"
-             f"Оригиналы: {gb(use['src'])}, рабочие копии: {gb(use['work'])}, превью: {gb(use['pics'])}\n"
-             f"Занято {gb(sum(use.values()))} из {lim}, оригиналы живут {ORIG_DAYS:g} дн.",
-             f"Frames in feed: {n['n'] or 0}\n"
-             f"With original: {n['o'] or 0}, film can be changed: {n['w'] or 0}\n"
-             f"Originals: {gb(use['src'])}, working copies: {gb(use['work'])}, previews: {gb(use['pics'])}\n"
-             f"Used {gb(sum(use.values()))} of {lim}, originals kept {ORIG_DAYS:g} days")
-    if uid == ADMIN:
-        du = shutil.disk_usage(BASE)
-        text += L(f"\nСвободно на диске: {gb(du.free)} из {gb(du.total)}", f"\nFree disk space: {gb(du.free)} of {gb(du.total)}")
-    return text
 
 
 # ================= экраны бота =================
@@ -2116,6 +1192,7 @@ def send_contact(ph):
 
 
 def _send_contact(ph):
+    from proyavka.pools import FAST
     path = TMP / f"contact_{ph['id']}.jpg"
     try:
         FAST.submit(job_contact, ph, str(path)).result(timeout=300)
@@ -2127,28 +1204,6 @@ def _send_contact(ph):
         safe("sendMessage", chat_id=ph["owner"], text=L("Не смог собрать лист", "Could not build the sheet") + f": {e}")
     finally:
         remove(str(path))
-
-
-def download_tg_file(file_id, name, uid):
-    info = tg("getFile", file_id=file_id)
-    url = f"https://api.telegram.org/file/bot{config.BOT_TOKEN}/{info['file_path']}"
-    name = "".join(c for c in Path(name).name if c.isalnum() or c in "-_.")[:60] or "photo.jpg"
-    tmp = TMP / f"tg_{secrets.token_hex(6)}.part"
-    with requests.get(url, timeout=(10, 120), stream=True) as r:
-        r.raise_for_status()
-        with open(tmp, "wb") as f:
-            shutil.copyfileobj(r.raw, f)
-    os.replace(tmp, udir(uid, "incoming") / name)
-
-
-def download_tg_bytes(file_id, limit):
-    info = tg("getFile", file_id=file_id)
-    if (info.get("file_size") or 0) > limit:
-        raise ValueError(L("файл слишком большой", "file is too large"))
-    url = f"https://api.telegram.org/file/bot{config.BOT_TOKEN}/{info['file_path']}"
-    r = requests.get(url, timeout=(10, 120))
-    r.raise_for_status()
-    return r.content[:limit + 1]
 
 
 def luts_screen(uid):
@@ -2412,6 +1467,7 @@ def ingest(f, owner):
 
 
 def _ingest(f, owner, fp):
+    from proyavka.pools import FAST
     t0 = time.time()
     dup = find_duplicate(f, fp, owner)
     if dup:
@@ -2559,13 +1615,8 @@ def ingest_loop(state):
 # ================= устройства: «Проявка» в браузере и как приложение =================
 
 PAIR_TTL = 600                        # коды лежат в таблице pairs: их выдаёт и мастер установки (filmbot.py --pair)
-SESSION_DEV = {}                      # токен сессии -> id устройства, с которого вошли
-AUTH_FAILS = {}                       # ip -> времена неудачных попыток войти кодом или ключом
-FAIL_WINDOW, FAIL_MAX = 600, 20
-FAIL_MAX_ALL = 500                    # неудачных кодов со всех адресов за окно — дальше привязка ждёт
 PAIR_ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"     # без 0/O, 1/I/L — чтобы не путать, вписывая руками
 PAIR_LEN = 8                          # 31^8 ≈ 8·10^11 вариантов на 10 минут при 20 попытках с адреса
-DEV_COOKIE = "proyavka_device"
 ZIP_MAX = 200                         # кадров в одном архиве
 
 
@@ -2649,23 +1700,6 @@ def drop_device(uid, did):
         SESSION_DEV.pop(tok, None)
         SESSIONS.pop(tok, None)
     return n
-
-
-def too_many_fails(ip, everyone=False):
-    now = time.time()
-    for k in [ip] + (["*"] if everyone else []):
-        if k:
-            AUTH_FAILS[k] = [t for t in AUTH_FAILS.get(k, []) if now - t < FAIL_WINDOW]
-    if everyone and len(AUTH_FAILS.get("*", [])) >= FAIL_MAX_ALL:     # подбор с множества адресов сразу
-        return True
-    return bool(ip) and len(AUTH_FAILS.get(ip, [])) >= FAIL_MAX
-
-
-def note_fail(ip):
-    AUTH_FAILS.setdefault("*", []).append(time.time())
-    if ip:
-        AUTH_FAILS.setdefault(ip, []).append(time.time())
-    time.sleep(0.5)          # подбирать 128-битный код и так безнадёжно, а так ещё и медленно
 
 
 def devices_screen(uid):
@@ -2809,99 +1843,6 @@ def camera_json(uid):
 
 
 # ================= уведомления (Web Push) =================
-# «Проявлено 3 новых кадра» на телефон и компьютер, когда «Проявка» закрыта. Подписка — у каждого устройства своя
-# (включается и выключается в настройках). Кадры, проявленные подряд, — одним уведомлением. Если приложение открыто
-# (оно спрашивает сервер каждые 1–5 с), не уведомляем: кадр и так виден. Библиотека pywebpush необязательна.
-try:
-    from cryptography.hazmat.primitives import serialization
-    from py_vapid import Vapid02
-    from pywebpush import WebPushException, webpush
-except ImportError:
-    webpush = None
-
-PUSH_DELAY = 20            # сек: собрать кадры, пришедшие подряд
-PUSH_QUIET = 30            # сек: приложение спрашивало сервер недавно — оно открыто
-LAST_POLL = {}             # устройство -> когда его приложение последний раз спрашивало сервер (открыто ли)
-PUSH_PENDING = {}          # пользователь -> сколько новых кадров ждут уведомления
-PUSH_LOCK = threading.Lock()
-_VAPID = {}
-
-
-def vapid():
-    """Ключ сервера для Web Push: создаётся один раз и лежит рядом с базой."""
-    with PUSH_LOCK:
-        if "v" not in _VAPID:
-            path = BASE / "vapid.pem"
-            if path.exists():
-                v = Vapid02.from_file(str(path))
-            else:
-                v = Vapid02()
-                v.generate_keys()
-                v.save_key(str(path))
-                os.chmod(path, 0o600)
-            raw = v.public_key.public_bytes(serialization.Encoding.X962, serialization.PublicFormat.UncompressedPoint)
-            _VAPID["v"], _VAPID["pub"] = v, base64.urlsafe_b64encode(raw).rstrip(b"=").decode()
-    return _VAPID["v"]
-
-
-def push_key():
-    vapid()
-    return _VAPID["pub"]
-
-
-def push_subscribe(uid, did, sub):
-    endpoint = str(sub.get("endpoint") or "")
-    keys = sub.get("keys") or {}
-    if not endpoint.startswith("https://") or len(endpoint) > 2000 or not keys.get("p256dh") or not keys.get("auth"):
-        raise ValueError(L("неверная подписка", "invalid subscription"))
-    run("DELETE FROM push_subs WHERE endpoint=?", (endpoint,))
-    run("INSERT INTO push_subs(owner, device, endpoint, p256dh, auth, created) VALUES (?,?,?,?,?,?)",
-        (uid, did, endpoint, str(keys["p256dh"])[:200], str(keys["auth"])[:100], time.time()))
-    log.info("push: подписка %s… от %d, устройство #%s", endpoint[:40], uid, did)
-
-
-def push_soon(uid):
-    if not webpush:
-        return
-    with PUSH_LOCK:
-        n = PUSH_PENDING.get(uid, 0)
-        PUSH_PENDING[uid] = n + 1
-    if not n:
-        t = threading.Timer(PUSH_DELAY, _push_flush, args=(uid,))
-        t.daemon = True
-        t.start()
-
-
-def _push_flush(uid):
-    with PUSH_LOCK:
-        n = PUSH_PENDING.pop(uid, 0)
-    now = time.time()
-    # тишина у каждого устройства своя: открытое окно на компьютере не глушит телефон
-    subs = [s for s in q("SELECT * FROM push_subs WHERE owner=?", (uid,))
-            if not (s["device"] and now - LAST_POLL.get(s["device"], 0) < PUSH_QUIET)]
-    if not n or not subs:
-        return
-    with speak(uid):
-        body = (L("Проявлен новый кадр", "A new frame is developed") if n == 1 else
-                L(f"Проявлено {n} {plural_ru(n, 'новый кадр', 'новых кадра', 'новых кадров')}", f"{n} new frames developed"))
-        data = json.dumps({"title": L("Проявка", "Proyavka"), "body": body, "tag": "new-frames", "url": "/"}, ensure_ascii=False)
-    sub_mail = "mailto:proyavka@" + (os.environ.get("DOMAIN") or "localhost")
-    sent = 0
-    for s in subs:
-        try:
-            webpush({"endpoint": s["endpoint"], "keys": {"p256dh": s["p256dh"], "auth": s["auth"]}}, data,
-                    vapid_private_key=vapid(), vapid_claims={"sub": sub_mail}, ttl=6 * 3600, timeout=15)
-            sent += 1
-        except WebPushException as e:
-            code = getattr(e.response, "status_code", None)
-            if code in (404, 410):              # устройство отписалось или подписка протухла
-                run("DELETE FROM push_subs WHERE id=?", (s["id"],))
-                log.info("push: подписка #%d больше не действует (%s), удалена", s["id"], code)
-            else:
-                log.warning("push to %d: %s", uid, e)
-        except Exception as e:
-            log.warning("push to %d: %s", uid, e)
-    log.info("уведомление «%s» для %d: отправлено на %d из %d устройств", body, uid, sent, len(subs))
 
 
 # ================= альбомы по ссылке =================
@@ -3023,6 +1964,7 @@ def album_page(a):
 
 def full_file(ph):
     """Кадр в полном размере: рисуется один раз на каждую правку и лежит в кэше превью (чистится через сутки)."""
+    from proyavka.pools import HEAVY
     path = PREVIEWS / f"{ph['id']}_full_{ph['rev'] or 0}.jpg"
     with FULL_LOCKS[ph["id"]]:
         if path.exists():
@@ -3033,69 +1975,6 @@ def full_file(ph):
 
 
 # ================= Mini App: веб-сервер =================
-SESSIONS = {}          # token -> (срок годности, пользователь)
-SESSION_TTL = 12 * 3600
-
-# Картинки и файлы грузятся через <img src> и <a download>, туда не приложить заголовок, и токен приходилось класть в адрес —
-# а адреса попадают в журналы nginx и историю браузера. Поэтому в адрес идёт не сессия, а отдельный токен «только смотреть и
-# скачивать свои кадры»: подписан ключом сервера, живёт 1–2 суток и сутки остаётся тем же (кэш браузера работает).
-MEDIA_KEY = None
-
-
-def media_secret():
-    global MEDIA_KEY
-    if MEDIA_KEY is None:
-        path = BASE / "media.key"
-        try:
-            MEDIA_KEY = path.read_bytes()
-        except OSError:
-            MEDIA_KEY = secrets.token_bytes(32)
-            path.write_bytes(MEDIA_KEY)
-            try:
-                os.chmod(path, 0o600)
-            except OSError:
-                pass
-    return MEDIA_KEY
-
-
-def _media_sig(uid, exp):
-    return base64.urlsafe_b64encode(hmac.new(media_secret(), f"{uid}.{exp}".encode(), hashlib.sha256).digest()[:16]).decode().rstrip("=")
-
-
-def media_token(uid):
-    exp = (int(time.time() // 86400) + 2) * 86400
-    return f"{uid}.{exp}.{_media_sig(uid, exp)}"
-
-
-def media_uid(tok):
-    """Пользователь по токену для картинок или None."""
-    try:
-        uid, exp, sig = str(tok).split(".")
-        uid, exp = int(uid), int(exp)
-    except ValueError:
-        return None
-    if exp <= time.time() or uid not in USERS or not hmac.compare_digest(sig, _media_sig(uid, exp)):
-        return None
-    return uid
-
-
-def check_init_data(init_data):
-    """Проверка подписи Telegram. Возвращает id пользователя Telegram (пускать ли его — решает список users)."""
-    pairs = dict(parse_qsl(init_data or "", keep_blank_values=True))
-    got = pairs.pop("hash", None)
-    if not got:
-        return False
-    dcs = "\n".join(f"{k}={v}" for k, v in sorted(pairs.items()))
-    secret = hmac.new(b"WebAppData", config.BOT_TOKEN.encode(), hashlib.sha256).digest()
-    calc = hmac.new(secret, dcs.encode(), hashlib.sha256).hexdigest()
-    if not hmac.compare_digest(calc, got):
-        return False
-    if time.time() - int(pairs.get("auth_date", "0")) > 86400:
-        return False
-    try:
-        return int(json.loads(pairs.get("user", "{}")).get("id") or 0) or False
-    except (ValueError, TypeError):
-        return False
 
 
 def photo_json(ph):
@@ -3112,6 +1991,7 @@ def photo_json(ph):
 
 
 def preview_file(ph, key, strength, leak="", lseed=0, crop=None):
+    from proyavka.pools import FAST
     tag = (f"_{leak}{lseed}" if leak else "") + crop_tag(crop)
     path = PREVIEWS / f"{ph['id']}_{key}_{strength}{tag}.jpg"
     if path.exists():
@@ -3332,6 +2212,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def send_full(self, ph):
         """Кадр в полном размере файлом — «Скачать» вне Telegram."""
+        from proyavka.pools import HEAVY
         if has(ph["work"]) or has(ph["src"]):
             out = TMP / f"dl_{ph['id']}_{secrets.token_hex(4)}.jpg"
             try:
@@ -3348,6 +2229,7 @@ class Handler(BaseHTTPRequestHandler):
     def send_zip(self, rows, name=None, cached=False):
         """Несколько кадров одним архивом. Пишется на ходу: кадр проявился — сразу ушёл, nginx не ждёт весь архив.
         cached — для альбомов: полные кадры берутся из кэша (и остаются в нём для следующих скачиваний)."""
+        from proyavka.pools import HEAVY
         self.send_response(200)
         self.send_header("Content-Type", "application/zip")
         self.send_header("Content-Disposition", disposition(name or f"proyavka_{datetime.now():%Y-%m-%d_%H%M}.zip"))
@@ -3490,6 +2372,8 @@ class Handler(BaseHTTPRequestHandler):
         return json.loads(self.rfile.read(n) or b"{}")
 
     def do_GET(self):
+        from proyavka.pools import FAST
+        from proyavka.push import webpush
         from proyavka.config import WEBAPP_HTML
         u = urlparse(self.path)
         parts = [p for p in u.path.split("/") if p]
@@ -3651,6 +2535,8 @@ class Handler(BaseHTTPRequestHandler):
             self.err(500, str(e))
 
     def do_POST(self):
+        from proyavka.push import webpush
+        from proyavka.sessions import check_init_data
         u = urlparse(self.path)
         parts = [p for p in u.path.split("/") if p]
         qs = parse_qs(u.query)

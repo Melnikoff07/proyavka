@@ -18,7 +18,7 @@ def check(name, ok):
 if __name__ == "__main__":
     on = sys.argv[1:] != ["off"]
     h = harness.start(port=8109, extra_env={"RAW_FILES": "1" if on else "0"})
-    from proyavka import config, database      # после start: настройки читаются из окружения при импорте
+    from proyavka import config, database, jobs, pools, scheduler      # после start: настройки читаются из окружения при импорте
     fb = h.fb
     h.auth(1)
     dng = (TD / "TEST0001.dng").read_bytes()
@@ -38,11 +38,11 @@ if __name__ == "__main__":
     check(f"дата съёмки из EXIF RAW: {ph['taken']}", ph["taken"] == "2026-10-01 12:34")
 
     full = config.TMP / "f.jpg"
-    fb.HEAVY.submit(fb.job_full, database.get(ph["id"]), str(full)).result()
+    pools.HEAVY.submit(jobs.job_full, database.get(ph["id"]), str(full)).result()
     check(f"полный размер из RAW: {Image.open(full).size}", Image.open(full).size == (3000, 2000))
-    fb.apply_changes(database.get(ph["id"]), {"crop": [0.4, 0.4, 0.2, 0.2]})
+    scheduler.apply_changes(database.get(ph["id"]), {"crop": [0.4, 0.4, 0.2, 0.2]})
     h.wait(lambda: database.get(ph["id"])["rendered_rev"] == database.get(ph["id"])["rev"], timeout=60)
-    fb.FAST.submit(fb.job_chat, database.get(ph["id"]), str(full)).result()
+    pools.FAST.submit(jobs.job_chat, database.get(ph["id"]), str(full)).result()
     check(f"сильный кроп берёт RAW: {Image.open(full).size}", Image.open(full).size == (600, 400))
 
     # пара RAW+JPEG с камеры: остаётся JPEG

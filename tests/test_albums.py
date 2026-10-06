@@ -22,7 +22,7 @@ def frame(seed, name):
 
 if __name__ == "__main__":
     h = harness.start(port=8113)
-    from proyavka import config, database      # после start: настройки читаются из окружения при импорте
+    from proyavka import config, database, photos      # после start: настройки читаются из окружения при импорте
     fb = h.fb
     h.auth(1)
     for i in range(4):
@@ -71,7 +71,7 @@ if __name__ == "__main__":
     check("неверная ссылка — 404", bad.get("_status") == 404)
 
     # корзина и правки
-    fb.delete_photos([ids[1]])
+    photos.delete_photos([ids[1]])
     check("кадр в корзине из альбома пропал", len(pub.get(f"/a/{tok}/list", auth=False)["photos"]) == 2
           and pub.get(f"/a/{tok}/view/{ids[1]}", auth=False).get("_status") == 404)
     check("и его полный кадр из кэша стёрт", not list(config.PREVIEWS.glob(f"{ids[1]}_full_*.jpg")))
