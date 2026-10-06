@@ -116,7 +116,8 @@ Every film is an original mathematical model (curves, shadow and highlight tints
 | Folder | Contents |
 |---|---|
 | `setup.py` | setup and settings wizard |
-| `bot/` | the server and processing (`filmbot.py`), the app (`webapp.html`), local film preview (`try_films.py`) |
+| `bot/` | the server (`filmbot.py`), the app (`webapp.html`), local film preview (`try_films.py`) |
+| `bot/proyavka/` | the engine as modules: films and colour (`film.py`), frame processing (`imaging.py`), settings, languages |
 | `relay/` | server setup: HTTPS, FTPS, camera upload receiver, cameras of invited users (`proyavka-user`) |
 | `community/` | catalog of films shared by people (`looks.json`) and the script that adds one |
 | `tests/` | test suites and the stand that runs the whole bot without Telegram |

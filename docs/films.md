@@ -2,7 +2,7 @@
 
 **English** · [Русский](films.ru.md)
 
-A film in Proyavka is not an image file or a downloaded LUT — it's a dozen numbers in `PRESETS` in [`bot/filmbot.py`](../bot/filmbot.py). From them the bot builds a 3D LUT for colour on the fly and adds glow, grain and vignette on top.
+A film in Proyavka is not an image file or a downloaded LUT — it's a dozen numbers in `PRESETS` in [`bot/proyavka/film.py`](../bot/proyavka/film.py). From them the bot builds a 3D LUT for colour on the fly and adds glow, grain and vignette on top.
 
 ## Try it
 

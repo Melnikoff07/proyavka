@@ -44,6 +44,7 @@ def sent(h, since, chat, method="sendMessage"):
 
 if __name__ == "__main__":
     h = harness.start(port=8106, before=old_install)
+    from proyavka import i18n      # после start: настройки читаются из окружения при импорте
     fb = h.fb
     # --- миграция
     old = fb.q("SELECT * FROM photos WHERE name='old.jpg'")[0]
@@ -117,24 +118,24 @@ if __name__ == "__main__":
     check("а у владельца работает", fb.get(pb["id"])["preset"] == "across100")
 
     # --- плёнка по умолчанию, язык, место
-    with fb.speak(BOB):
+    with i18n.speak(BOB):
         fb.on_callback({"id": "1", "data": "d:cine250", "message": {"message_id": 1}}, BOB)
     check(f"у Боба своя плёнка по умолчанию: {fb.user(BOB)['default_film']} / у админа {fb.user(ADMIN)['default_film']}",
           fb.user(BOB)["default_film"] == "cine250" and fb.user(ADMIN)["default_film"] == "golden200")
     t3 = time.time()
-    with fb.speak(BOB):
+    with i18n.speak(BOB):
         fb.on_text("/storage", BOB)
     txt = sent(h, t3, BOB)[0]["text"]
     check(f"/storage у Боба — его лимит 5 ГБ и без диска сервера: {txt.splitlines()[-1]!r}", "of 5 GB" in txt and "disk" not in txt)
-    with fb.speak(ADMIN):
+    with i18n.speak(ADMIN):
         fb.on_text("/lang", ADMIN)
     check("/lang: администратор теперь en", fb.user(ADMIN)["lang"] == "en")
-    with fb.speak(ADMIN):
+    with i18n.speak(ADMIN):
         fb.on_text("/lang", ADMIN)
 
     # --- камера Боба
     t4 = time.time()
-    with fb.speak(BOB):
+    with i18n.speak(BOB):
         fb.on_text("/camera", BOB)
     add = [c for c in harness.CAM if c[0] == "add"]
     tok = fb.user(BOB)["cam_token"]
@@ -149,7 +150,7 @@ if __name__ == "__main__":
     msg = (ftp() or [""])[0]
     check(f"Бобу — свой FTP-пользователь: {'user: u' + str(BOB) in msg}", f"user: u{BOB}" in msg and fb.user(BOB)["ftp_pass"] in msg)
     check(f"и свой config.txt ({[d['_files'] for d in docs]})", any("document" in d.get("_files", []) for d in docs))
-    with fb.speak(BOB):
+    with i18n.speak(BOB):
         fb.on_text("/camera", BOB)
     check("повторный /camera не заводит камеру заново", len([c for c in harness.CAM if c[0] == "add"]) == 1)
 

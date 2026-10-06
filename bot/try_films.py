@@ -6,7 +6,7 @@ Try the films on a photo locally — no Telegram, no server.
     python3 bot/try_films.py photo.jpg night800          # одна плёнка в полном размере -> photo_night800.jpg
     python3 bot/try_films.py photo.jpg night800 150 orb  # сила 150 % и засвет «orb»
 
-Удобно, когда подбираешь параметры своей плёнки в PRESETS (bot/filmbot.py): поменял число — запустил — посмотрел.
+Удобно, когда подбираешь параметры своей плёнки в PRESETS (bot/proyavka/film.py): поменял число — запустил — посмотрел.
 """
 import os
 import sys

@@ -33,6 +33,7 @@ def mean_rgb(data):
 
 if __name__ == "__main__":
     h = harness.start(port=8107)
+    from proyavka import film, i18n      # после start: настройки читаются из окружения при импорте
     fb = h.fb
     h.add_user(BOB, "en", "Bob")
     h.auth(ADMIN)
@@ -49,7 +50,7 @@ if __name__ == "__main__":
     r = h.req("/api/upload?lut=1&name=My%20Swap.cube", raw=cube(), ctype="application/octet-stream")
     check(f"LUT загружен: {r}", r.get("key", "").startswith("lut") and r.get("name") == "My Swap")
     key = r["key"]
-    path = fb.lut_dir(ADMIN) / f"{key}.npy"
+    path = film.lut_dir(ADMIN) / f"{key}.npy"
     check(f"лежит в папке администратора: {path.parent}", path.exists())
 
     mine = [x["key"] for x in h.get("/api/presets")["presets"]]
@@ -61,7 +62,7 @@ if __name__ == "__main__":
     check("и превью чужого LUT не получить", hb.get(f"/img/preview/{pb['id']}/{key}?st=100").get("_status") == 404)
     check("в кнопках чата у Боба его нет", key not in str(fb.preset_kb(fb.get(pb["id"]))))
     check("а у администратора есть", key in str(fb.preset_kb(fb.get(pa["id"]))))
-    with fb.speak(BOB):
+    with i18n.speak(BOB):
         check("и в плёнке по умолчанию у Боба нет", key not in str(fb.default_kb(BOB)))
 
     before = mean_rgb(h.get(f"/img/preview/{pa['id']}/original?st=100"))
@@ -76,7 +77,7 @@ if __name__ == "__main__":
     check(f"администратор ставит свой LUT: {r.get('preset_name')}", r.get("preset") == key and r.get("preset_name") == "My Swap")
     h.wait(lambda: fb.get(pa["id"])["rendered_rev"] == fb.get(pa["id"])["rev"], timeout=60)
     h.wait(lambda: h.calls("editMessageMedia", t0), timeout=20)
-    with fb.speak(ADMIN):
+    with i18n.speak(ADMIN):
         cap = fb.caption(fb.get(pa["id"]))
     check(f"в чате подпись с названием LUT: {cap.splitlines()[0]!r}", "My Swap" in cap)
     fb.apply_changes(fb.get(pa["id"]), {"frame": True})
@@ -84,10 +85,10 @@ if __name__ == "__main__":
     check("рамка с LUT рисуется", True)
 
     # своя плёнка по умолчанию для новых кадров
-    with fb.speak(ADMIN):
+    with i18n.speak(ADMIN):
         fb.on_callback({"id": "1", "data": f"d:{key}", "message": {"message_id": 1}}, ADMIN)
     check("LUT можно сделать плёнкой по умолчанию", fb.user(ADMIN)["default_film"] == key)
-    with fb.speak(BOB):
+    with i18n.speak(BOB):
         fb.on_callback({"id": "1", "data": f"d:{key}", "message": {"message_id": 1}}, BOB)
     check("а Боб чужой — нет", fb.user(BOB)["default_film"] != key)
 
@@ -100,8 +101,8 @@ if __name__ == "__main__":
     check("плёнка по умолчанию вернулась на авто", fb.user(ADMIN)["default_film"] == "auto")
     h.wait(lambda: fb.get(pa["id"])["rendered_rev"] == fb.get(pa["id"])["rev"], timeout=60)
     check("и перерисован", True)
-    for i in range(fb.LUT_MAX_COUNT):
+    for i in range(film.LUT_MAX_COUNT):
         fb.add_lut(BOB, f"l{i}.cube", cube(3))
     r = hb.req("/api/upload?lut=1&name=x.cube", raw=cube(3), ctype="application/octet-stream")
-    check(f"лимит {fb.LUT_MAX_COUNT} LUT: {r.get('error')}", r.get("_status") == 400)
+    check(f"лимит {film.LUT_MAX_COUNT} LUT: {r.get('error')}", r.get("_status") == 400)
     harness.done()

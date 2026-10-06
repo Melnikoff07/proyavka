@@ -42,6 +42,7 @@ if __name__ == "__main__":
     conf = Path(tempfile.mkdtemp()) / "config.env"
     conf.write_text("LANGUAGE=ru\nCHAT_ID=900000000000000\n", encoding="utf-8")
     h = harness.start(port=8111, uid=WEB, extra_env={"BOT_TOKEN": "", "CONFIG_FILE": str(conf), "DOMAIN": "test.sslip.io"})
+    from proyavka import film      # после start: настройки читаются из окружения при импорте
     fb = h.fb
     check("бот запущен без токена", fb.BOT_TOKEN == "" and fb.ADMIN == WEB and fb.user(WEB)["tg"] is None)
 
@@ -72,10 +73,10 @@ if __name__ == "__main__":
     me = call(h, "/api/me", token=tok)
     check(f"/api/me: админ, Telegram нет, {me['used'] / 1e6:.1f} МБ из {me['limit'] / 1e6:.0f}",
           me["admin"] and me["telegram"]["bot"] is None and not me["telegram"]["linked"] and me["frames"] == 2)
-    film = list(fb.PRESETS)[2]
-    me = call(h, "/api/me", {"lang": "en", "default_film": film, "name": "Admin <x>"}, tok)
-    check(f"сменил язык, плёнку новым кадрам ({film}) и имя: {me.get('name')!r}",
-          me["lang"] == "en" and me["default_film"] == film and me["name"] == "Admin x")
+    film_key = list(film.PRESETS)[2]
+    me = call(h, "/api/me", {"lang": "en", "default_film": film_key, "name": "Admin <x>"}, tok)
+    check(f"сменил язык, плёнку новым кадрам ({film_key}) и имя: {me.get('name')!r}",
+          me["lang"] == "en" and me["default_film"] == film_key and me["name"] == "Admin x")
     check("чужая плёнка не ставится", call(h, "/api/me", {"default_film": "lut999"}, tok)["_status"] == 400)
     call(h, f"/api/photo/{pids[0]}/hide", {}, tok)
     tr_ = call(h, "/api/trash", token=tok)

@@ -24,6 +24,7 @@ def jpeg(seed, size=(1200, 800)):
 
 if __name__ == "__main__":
     h = harness.start(port=8108, extra_env={"DAILY_UPLOAD_LIMIT": "3", "MAX_MEGAPIXELS": "50"})
+    from proyavka import i18n      # после start: настройки читаются из окружения при импорте
     fb = h.fb
     h.add_user(BOB, "ru", "Bob")
     h.auth(ADMIN)
@@ -69,7 +70,7 @@ if __name__ == "__main__":
     check(f"лимит места соблюдён сразу: {after / 1e6:.1f} МБ из {fb.storage_limit(ADMIN) * 1e3:.1f}", after <= fb.storage_limit(ADMIN) * 1e9)
     newest = max(h.photos(), key=lambda p: p["id"])
     check("новый кадр цел, срезаны старые оригиналы", newest["work"] and os.path.exists(newest["work"]))
-    with fb.speak(ADMIN):
+    with i18n.speak(ADMIN):
         txt = fb.storage_text(ADMIN)
     check(f"/storage в мегабайтах: {txt.splitlines()[-2]!r}", "МБ" in txt.splitlines()[-2])
 

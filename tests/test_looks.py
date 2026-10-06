@@ -26,6 +26,7 @@ def mean_color(b):
 
 if __name__ == "__main__":
     h = harness.start(port=8117, extra_env={"COMMUNITY_URL": ""})      # без сети: каталог из репозитория
+    from proyavka import film      # после start: настройки читаются из окружения при импорте
     fb = h.fb
     h.auth(1)
     for i in range(2):
@@ -34,18 +35,18 @@ if __name__ == "__main__":
     pid = h.photos()[0]["id"]
 
     # --- проверка параметров ---
-    p = fb.clean_params({"contrast": 5, "grain": -1, "lift": [9, 0, 0], "bw": [1, 1, 2], "evil": "x"})
+    p = film.clean_params({"contrast": 5, "grain": -1, "lift": [9, 0, 0], "bw": [1, 1, 2], "evil": "x"})
     check("лишнее отброшено, числа в пределах", "evil" not in p and p["contrast"] == 1.0 and p["grain"] == 0.0 and p["lift"][0] == 0.15)
     check(f"ч/б-веса приведены к сумме 1: {p['bw']}", abs(sum(p["bw"]) - 1) < 1e-3)
     for bad in ({"contrast": "много"}, {"lift": [1, 2]}, {"gamma": "abc"}, {"contrast": float("nan")}, [], None):
         try:
-            fb.clean_params(bad)
+            film.clean_params(bad)
             ok = False
         except ValueError:
             ok = True
         check(f"битые параметры отклонены: {str(bad)[:30]}", ok)
     check("встроенные плёнки проходят проверку без изменений",
-          all(fb.clean_params(v)["contrast"] == round(v["contrast"], 4) for v in fb.PRESETS.values()))
+          all(film.clean_params(v)["contrast"] == round(v["contrast"], 4) for v in film.PRESETS.values()))
 
     # --- список плёнок: у встроенных есть основа для редактора ---
     pr = h.get("/api/presets")["presets"]
@@ -168,6 +169,6 @@ if __name__ == "__main__":
     # --- лимит и удаление ---
     d = h.post(f"/api/lut/{key}/delete")
     check("удаление плёнки: кадр вернулся на автоплёнку", d.get("ok") and fb.get(pid)["preset"] != key)
-    check("файлы стёрты", not (fb.lut_dir(1) / f"{key}.json").exists())
+    check("файлы стёрты", not (film.lut_dir(1) / f"{key}.json").exists())
     check("после удаления её нет в списке", all(x["key"] != key for x in h.get("/api/presets")["presets"]))
     harness.done()

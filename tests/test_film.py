@@ -14,7 +14,7 @@ sys.path.insert(0, str(HERE))
 import numpy as np                      # noqa: E402
 from PIL import Image                   # noqa: E402
 import synth                            # noqa: E402
-import filmbot as fb                    # noqa: E402
+from proyavka import film               # noqa: E402
 
 
 def check(name, ok):
@@ -49,12 +49,12 @@ FLAT = dict(contrast=0.0, lift=(0, 0, 0), top=1.0, shoulder=0.95, sat=1.0, grain
 
 
 def flat(**kw):
-    return fb.clean_params(dict(FLAT, **kw))
+    return film.clean_params(dict(FLAT, **kw))
 
 
 def lut_apply(p, rgb):
     """Что плёнка с параметрами p делает с одним цветом (через ту же функцию, что запекается в LUT)."""
-    return fb.color_fn(np.array([rgb], dtype=np.float32), p)[0]
+    return film.color_fn(np.array([rgb], dtype=np.float32), p)[0]
 
 
 if __name__ == "__main__":
@@ -65,24 +65,24 @@ if __name__ == "__main__":
     sample = Image.open(HERE.parent / "community" / "sample.jpg").convert("RGB")
     worst_lut, worst_img = 0.0, 0
     for key in ("street_neg", "night800", "vivid50", "across100", "expired"):
-        params = fb.clean_params(v1[key]["params"])
-        t = np.asarray(fb._bake(params).table, dtype=np.float32)[::97]
+        params = film.clean_params(v1[key]["params"])
+        t = np.asarray(film._bake(params).table, dtype=np.float32)[::97]
         worst_lut = max(worst_lut, float(np.abs(t - ref[f"{key}_lut"]).max()))
         for name, img in (("scene", scene), ("sample", sample)):
-            r = np.asarray(fb.film(img.copy(), "custom", 100, 3, params).resize((96, 64), Image.BOX), dtype=np.int16)
+            r = np.asarray(film.film(img.copy(), "custom", 100, 3, params).resize((96, 64), Image.BOX), dtype=np.int16)
             worst_img = max(worst_img, int(np.abs(r - ref[f"{key}_{name}"].astype(np.int16)).max()))
     check(f"таблицы цвета старых плёнок воспроизводятся (расхождение {worst_lut:.6f})", worst_lut < 1e-5)
     check(f"готовые кадры старых плёнок воспроизводятся (расхождение {worst_img} из 255)", worst_img <= 6)    # запас на версии Pillow
-    check("снимок старых плёнок полный: 12 штук", len(v1) == 12 and set(v1) == set(fb.PRESETS))
+    check("снимок старых плёнок полный: 12 штук", len(v1) == 12 and set(v1) == set(film.PRESETS))
 
     # --- встроенные плёнки после настройки под полосы: вид закреплён эталоном, а от старого они отличаются ---
     cur = np.load(HERE / "film_ref.npz")
     wl, wi = 0.0, 0
     for key in ("street_neg", "night800", "vivid50", "across100", "expired", "portrait400"):
-        t = np.asarray(fb.preset_lut(key).table, dtype=np.float32)[::97]
+        t = np.asarray(film.preset_lut(key).table, dtype=np.float32)[::97]
         wl = max(wl, float(np.abs(t - cur[f"{key}_lut"]).max()))
         for name, img in (("scene", scene), ("sample", sample)):
-            r = np.asarray(fb.film(img.copy(), key, 100, 3).resize((96, 64), Image.BOX), dtype=np.int16)
+            r = np.asarray(film.film(img.copy(), key, 100, 3).resize((96, 64), Image.BOX), dtype=np.int16)
             wi = max(wi, int(np.abs(r - cur[f"{key}_{name}"].astype(np.int16)).max()))
     check(f"встроенные плёнки выглядят как закреплено в эталоне (таблицы {wl:.6f}, кадры {wi} из 255)", wl < 1e-5 and wi <= 6)
     chart = Image.new("RGB", (6, 1))
@@ -90,17 +90,17 @@ if __name__ == "__main__":
     quiet = dict(grain=0.0, halation=0.0, bloom=0.0, vignette=0.0, soften=0.0, hue=(0,) * 6, bsat=(1,) * 6, grain_shadow=0.0, linear=0.0)
     diffs = {}
     for key, v in v1.items():
-        old_p = fb.clean_params(dict(v["params"], **quiet))
-        new_p = fb.clean_params(dict(fb.params_json(fb.clean_params(fb.PRESETS[key])), **dict(quiet, hue=fb.PRESETS[key]["hue"], bsat=fb.PRESETS[key]["bsat"])))
-        diffs[key] = float(np.abs(np.asarray(fb.film(chart.copy(), "custom", 100, 1, new_p), dtype=np.float32) - np.asarray(fb.film(chart.copy(), "custom", 100, 1, old_p), dtype=np.float32)).max())
+        old_p = film.clean_params(dict(v["params"], **quiet))
+        new_p = film.clean_params(dict(film.params_json(film.clean_params(film.PRESETS[key])), **dict(quiet, hue=film.PRESETS[key]["hue"], bsat=film.PRESETS[key]["bsat"])))
+        diffs[key] = float(np.abs(np.asarray(film.film(chart.copy(), "custom", 100, 1, new_p), dtype=np.float32) - np.asarray(film.film(chart.copy(), "custom", 100, 1, old_p), dtype=np.float32)).max())
     colour = [k for k in v1 if not v1[k]["params"]["bw"]]
     check(f"у всех цветных плёнок есть свои цветовые полосы (сдвиг цвета от {min(diffs[k] for k in colour):.0f} до {max(diffs[k] for k in colour):.0f} из 255)", all(diffs[k] > 4 for k in colour))
-    check("у чёрно-белых цвет не сдвигается, только зерно в тенях", all(diffs[k] < 1 and fb.PRESETS[k]["grain_shadow"] > 0 for k in v1 if v1[k]["params"]["bw"]))
+    check("у чёрно-белых цвет не сдвигается, только зерно в тенях", all(diffs[k] < 1 and film.PRESETS[k]["grain_shadow"] > 0 for k in v1 if v1[k]["params"]["bw"]))
 
     # --- цветовые полосы ---
     rng = np.random.default_rng(1)
     rnd = rng.random((2000, 3)).astype(np.float32)
-    check("полосы без сдвигов — цвет не меняется", float(np.abs(fb.band_adjust(rnd, (0,) * 6, (1,) * 6) - rnd).max()) < 1e-5)
+    check("полосы без сдвигов — цвет не меняется", float(np.abs(film.band_adjust(rnd, (0,) * 6, (1,) * 6) - rnd).max()) < 1e-5)
     green, red, blue, grey = (0.1, 0.8, 0.1), (0.8, 0.1, 0.1), (0.1, 0.1, 0.8), (0.5, 0.5, 0.5)
     shifted = flat(hue=(0, 0, -30, 0, 0, 0))
     gh = hue_of(lut_apply(shifted, green))
@@ -113,41 +113,41 @@ if __name__ == "__main__":
           abs(sat_of(lut_apply(dull, green)) - sat_of(lut_apply(flat(), green)) * 0.5) < 0.03 and abs(sat_of(lut_apply(dull, red)) - sat_of(lut_apply(flat(), red))) < 0.01)
     mix = lut_apply(shifted, (0.1, 0.55, 0.45))               # между зелёным и голубым — плавный переход, а не скачок
     check("между полосами сдвиг плавный", 120 < hue_of(mix) < 165 and abs(hue_of(mix) - hue_of((0.1, 0.55, 0.45))) < 25)
-    bwp = fb.clean_params(dict(fb.params_json(flat()), bw=(0.3, 0.55, 0.15), hue=(0, 0, 30, 0, 0, 0)))
+    bwp = film.clean_params(dict(film.params_json(flat()), bw=(0.3, 0.55, 0.15), hue=(0, 0, 30, 0, 0, 0)))
     check("в чёрно-белой плёнке полосы ни на что не влияют", hue_of(lut_apply(bwp, green)) is None)
 
     # --- смешивание каналов ---
-    check("матрица без перетеканий — единичная", np.allclose(fb.mix_matrix((0,) * 6), np.eye(3)))
-    check("в любой матрице сумма строк — 1 (серое не красится)", all(np.allclose(fb.mix_matrix(m).sum(axis=1), 1) for m in ((0.3, -0.2, 0.1, 0.4, -0.5, 0.25), (0.5,) * 6, (-0.5,) * 6)))
+    check("матрица без перетеканий — единичная", np.allclose(film.mix_matrix((0,) * 6), np.eye(3)))
+    check("в любой матрице сумма строк — 1 (серое не красится)", all(np.allclose(film.mix_matrix(m).sum(axis=1), 1) for m in ((0.3, -0.2, 0.1, 0.4, -0.5, 0.25), (0.5,) * 6, (-0.5,) * 6)))
     mixed = flat(mix=(0.3, 0.1, -0.2, 0.2, 0.15, -0.3))
     check("серые тона после смешивания не меняются", all(np.allclose(lut_apply(mixed, (g, g, g)), lut_apply(flat(), (g, g, g)), atol=1e-3) for g in (0.1, 0.5, 0.9)))
     rg = flat(mix=(0.3, 0, 0, 0, 0, 0))
     check("зелёный в красный: зелень уходит к жёлтому", hue_of(lut_apply(rg, green)) < hue_of(lut_apply(flat(), green)) - 10)
     check("красный канал красного не меняется, если он не участвует", np.allclose(lut_apply(rg, (0.8, 0.0, 0.0))[1:], lut_apply(flat(), (0.8, 0.0, 0.0))[1:], atol=1e-3))
-    check("в чёрно-белой плёнке смешивание ничего не меняет", np.allclose(lut_apply(fb.clean_params(dict(fb.params_json(flat()), bw=(0.3, 0.55, 0.15), mix=(0.4,) * 6)), green),
-                                                                     lut_apply(fb.clean_params(dict(fb.params_json(flat()), bw=(0.3, 0.55, 0.15))), green)))
-    check("mix ограничен допустимым и битый отклоняется", fb.clean_params({"mix": [9, -9, 0, 0, 0, 0]})["mix"][:2] == (0.5, -0.5)
-          and all(_raises(lambda b=b: fb.clean_params({"mix": b})) for b in ([1, 2, 3], "abc")))
-    check("код с перетеканием проходит без потерь", fb.parse_look_code(fb.look_code("Микс", "A", fb.clean_params({"mix": [0.1, 0, 0, -0.1, 0, 0]})))[2]["mix"][3] == -0.1)
+    check("в чёрно-белой плёнке смешивание ничего не меняет", np.allclose(lut_apply(film.clean_params(dict(film.params_json(flat()), bw=(0.3, 0.55, 0.15), mix=(0.4,) * 6)), green),
+                                                                     lut_apply(film.clean_params(dict(film.params_json(flat()), bw=(0.3, 0.55, 0.15))), green)))
+    check("mix ограничен допустимым и битый отклоняется", film.clean_params({"mix": [9, -9, 0, 0, 0, 0]})["mix"][:2] == (0.5, -0.5)
+          and all(_raises(lambda b=b: film.clean_params({"mix": b})) for b in ([1, 2, 3], "abc")))
+    check("код с перетеканием проходит без потерь", film.parse_look_code(film.look_code("Микс", "A", film.clean_params({"mix": [0.1, 0, 0, -0.1, 0, 0]})))[2]["mix"][3] == -0.1)
 
     # --- параметры и коды ---
-    p = fb.clean_params({"hue": [90, -90, 0, 0, 0, 0], "bsat": [5, 0, 1, 1, 1, 1], "grain_shadow": 3, "linear": 7})
+    p = film.clean_params({"hue": [90, -90, 0, 0, 0, 0], "bsat": [5, 0, 1, 1, 1, 1], "grain_shadow": 3, "linear": 7})
     check("новые параметры ограничены допустимым", p["hue"][:2] == (40.0, -40.0) and p["bsat"][:2] == (1.8, 0.4) and p["grain_shadow"] == 1.0 and p["linear"] == 1.0)
     for bad in ({"hue": [1, 2]}, {"hue": "abc"}, {"bsat": [1] * 5}, {"grain_shadow": "x"}):
         try:
-            fb.clean_params(bad)
+            film.clean_params(bad)
             ok = False
         except ValueError:
             ok = True
         check(f"битые новые параметры отклонены: {str(bad)[:24]}", ok)
     old_code = "proyavka-look:1:" + base64.urlsafe_b64encode(json.dumps({"name": "Старая", "p": {"contrast": 0.3}}).encode()).decode()
-    name, by, op = fb.parse_look_code(old_code)
+    name, by, op = film.parse_look_code(old_code)
     check("код, сделанный до этих параметров, читается; новые поля — по умолчанию", op["hue"] == (0.0,) * 6 and op["bsat"] == (1.0,) * 6 and op["linear"] == 0.0)
-    plain = fb.look_code("Обычная", "A", fb.clean_params({"contrast": 0.3, "sat": 1.1}))
-    rich = fb.look_code("С полосами", "A", fb.clean_params(dict(fb.params_json(fb.clean_params(fb.PRESETS["vivid50"])), hue=[0, 0, -20, 0, 0, 0], linear=1)))
-    dec = lambda c: json.loads(base64.urlsafe_b64decode(c[len(fb.LOOK_CODE_PREFIX):] + "==").decode())["p"]
+    plain = film.look_code("Обычная", "A", film.clean_params({"contrast": 0.3, "sat": 1.1}))
+    rich = film.look_code("С полосами", "A", film.clean_params(dict(film.params_json(film.clean_params(film.PRESETS["vivid50"])), hue=[0, 0, -20, 0, 0, 0], linear=1)))
+    dec = lambda c: json.loads(base64.urlsafe_b64decode(c[len(film.LOOK_CODE_PREFIX):] + "==").decode())["p"]
     check("в коде нет полей по умолчанию (он короче и совместим со старыми серверами)", not ({"hue", "bsat", "grain_shadow", "linear"} & set(dec(plain))) and "hue" in dec(rich))
-    back = fb.parse_look_code(rich)[2]
+    back = film.parse_look_code(rich)[2]
     check("плёнка с полосами проходит через код без потерь", back["hue"][2] == -20.0 and back["linear"] == 1.0)
 
     # --- зерно в тенях ---
@@ -155,7 +155,7 @@ if __name__ == "__main__":
 
     def noise_std(gs):
         p = flat(grain=0.06, grain_size=1.6, grain_color=0.0, grain_shadow=gs)
-        a = np.asarray(fb.film(ramp.copy(), "custom", 100, 5, p), dtype=np.float32)[..., 0]
+        a = np.asarray(film.film(ramp.copy(), "custom", 100, 5, p), dtype=np.float32)[..., 0]
         fine = a - np.asarray(Image.fromarray(a.astype(np.uint8)).resize((600, 200)).filter(__import__("PIL.ImageFilter", fromlist=["x"]).GaussianBlur(4)), dtype=np.float32)
         return float(fine[:, 30:150].std()), float(fine[:, 450:570].std())
     d0, l0 = noise_std(0.0)
@@ -169,19 +169,19 @@ if __name__ == "__main__":
     spot[((xx - 450) ** 2 + (yy - 300) ** 2) < 18 ** 2] = (255, 245, 220)
     night = Image.fromarray(spot)
     glow = dict(halation=0.8, hal_thr=0.6, bloom=0.1)
-    o = np.asarray(fb.film(night.copy(), "custom", 100, 1, flat(**glow)), dtype=np.float32)
-    n = np.asarray(fb.film(night.copy(), "custom", 100, 1, flat(**glow, linear=1)), dtype=np.float32)
-    base = np.asarray(fb.film(night.copy(), "custom", 100, 1, flat()), dtype=np.float32)
+    o = np.asarray(film.film(night.copy(), "custom", 100, 1, flat(**glow)), dtype=np.float32)
+    n = np.asarray(film.film(night.copy(), "custom", 100, 1, flat(**glow, linear=1)), dtype=np.float32)
+    base = np.asarray(film.film(night.copy(), "custom", 100, 1, flat()), dtype=np.float32)
     ring = lambda a: float((a[..., 0] - base[..., 0])[:, :][(xx - 450) ** 2 + (yy - 300) ** 2 > 60 ** 2].mean())
     check(f"линейное свечение отличается от прежнего и светится вокруг огня ({ring(o):.2f} / {ring(n):.2f})", ring(n) > 0.3 and abs(ring(n) - ring(o)) > 0.05)
-    acc = fb.fx_linear(night, fb.clean_params(dict(FLAT, **glow, linear=1)))
-    a1 = np.asarray(fb.apply_fx_linear(night, acc, strip=64), dtype=np.int16)
-    a2 = np.asarray(fb.apply_fx_linear(night, acc, strip=4000), dtype=np.int16)
+    acc = film.fx_linear(night, film.clean_params(dict(FLAT, **glow, linear=1)))
+    a1 = np.asarray(film.apply_fx_linear(night, acc, strip=64), dtype=np.int16)
+    a2 = np.asarray(film.apply_fx_linear(night, acc, strip=4000), dtype=np.int16)
     check(f"полосами и целиком — одно и то же (расхождение {int(np.abs(a1 - a2).max())})", int(np.abs(a1 - a2).max()) <= 1)
-    check("без свечения в линейном режиме кадр не меняется", np.array_equal(np.asarray(fb.film(night.copy(), "custom", 100, 1, flat(linear=1))), np.asarray(fb.film(night.copy(), "custom", 100, 1, flat()))))
+    check("без свечения в линейном режиме кадр не меняется", np.array_equal(np.asarray(film.film(night.copy(), "custom", 100, 1, flat(linear=1))), np.asarray(film.film(night.copy(), "custom", 100, 1, flat()))))
     sample_big = Image.open(HERE / "testdata" / "a6300_DSC00266.JPG").convert("RGB")
-    check("на полном кадре 6000×4000 линейный режим отрабатывает", fb.film(sample_big, "custom", 100, 1, fb.clean_params(dict(fb.params_json(fb.clean_params(fb.PRESETS["night800"])), linear=1))).size == (6000, 4000))
+    check("на полном кадре 6000×4000 линейный режим отрабатывает", film.film(sample_big, "custom", 100, 1, film.clean_params(dict(film.params_json(film.clean_params(film.PRESETS["night800"])), linear=1))).size == (6000, 4000))
 
     # --- встроенные плёнки по-прежнему отдаются редактору целиком ---
-    check("у встроенных плёнок в параметрах есть и новые поля", all({"hue", "bsat", "grain_shadow", "linear"} <= set(fb.params_json(fb.clean_params(v))) for v in fb.PRESETS.values()))
+    check("у встроенных плёнок в параметрах есть и новые поля", all({"hue", "bsat", "grain_shadow", "linear"} <= set(film.params_json(film.clean_params(v))) for v in film.PRESETS.values()))
     os._exit(0)

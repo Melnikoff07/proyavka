@@ -18,6 +18,6 @@ jobs:
           cache-dependency-path: tests/requirements.txt
       - run: pip install -r tests/requirements.txt
       - name: pyflakes
-        run: python -m pyflakes bot/filmbot.py setup.py community/add_look.py tests
+        run: python -m pyflakes bot setup.py community tests
       - name: tests (no network, Telegram is mocked)
         run: python tests/run_all.py
