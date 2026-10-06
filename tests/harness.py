@@ -74,12 +74,12 @@ def start(port=8099, lang="ru", workers="2", uid=1, extra_env=None, before=None)
                       REMOTE_DIR=str(Path(base) / "remote") + os.sep)
     os.environ.update(extra_env or {})
     import filmbot as fb
-    from proyavka import config, sessions, telegram
+    from proyavka import camera, config, ingest, sessions, telegram
     fb.real_tg = telegram.tg_send
     telegram.tg_send = fake_tg          # tg() по-прежнему переводит номер пользователя в его чат
-    fb.fetch_from_vps = lambda *a, **k: None
-    fb.vps_watch = lambda *a, **k: None
-    fb.sweep_vps = lambda *a, **k: None
+    ingest.fetch_from_vps = lambda *a, **k: None
+    ingest.vps_watch = lambda *a, **k: None
+    ingest.sweep_vps = lambda *a, **k: None
     # мини-приложение с заглушкой Telegram
     page = config.WEBAPP_HTML.read_text(encoding="utf-8")
     page = page.replace('<script src="https://telegram.org/js/telegram-web-app.js"></script>', FAKE_TG_JS % {"uid": uid})
@@ -90,7 +90,7 @@ def start(port=8099, lang="ru", workers="2", uid=1, extra_env=None, before=None)
     fake_page = Path(base) / "webapp.html"
     fake_page.write_text(page, encoding="utf-8")
     config.WEBAPP_HTML = fake_page
-    fb.cam_helper = fake_cam_helper
+    camera.cam_helper = fake_cam_helper
     orig_check = sessions.check_init_data
     sessions.check_init_data = lambda init: (int(init.split("-", 1)[1]) if str(init).startswith("test-") else orig_check(init))
     if hasattr(fb, "harness_start"):
@@ -101,14 +101,15 @@ def start(port=8099, lang="ru", workers="2", uid=1, extra_env=None, before=None)
 
 
 def _start_like_main(fb):
-    fb.init_db()
-    state = fb.load_state()
+    from proyavka import database, ingest, pools, scheduler, state as pstate, web
+    database.init_db()
+    state = pstate.load_state()
     state.setdefault("default", "auto")
-    threading.Thread(target=fb.dispatcher, daemon=True).start()
-    fb.init_pools()
-    threading.Thread(target=fb.tg_worker, daemon=True).start()
-    fb.start_web()
-    threading.Thread(target=fb.ingest_loop, args=(state,), daemon=True).start()
+    threading.Thread(target=scheduler.dispatcher, daemon=True).start()
+    pools.init_pools()
+    threading.Thread(target=scheduler.tg_worker, daemon=True).start()
+    web.start_web()
+    threading.Thread(target=ingest.ingest_loop, args=(state,), daemon=True).start()
     fb._harness_state = state
 
 
@@ -165,16 +166,18 @@ class Harness:
     def drop(self, src, name=None):
         """Положить кадр, как будто его забрали с сервера-приёмника."""
         import shutil
-        dst = self.fb.INCOMING / (name or Path(src).name)
+        from proyavka import config
+        dst = config.INCOMING / (name or Path(src).name)
         shutil.copy(src, str(dst) + ".tmp")
         os.replace(str(dst) + ".tmp", dst)
         return dst
 
     def add_user(self, uid, lang="ru", name=None):
         """Пользователь, как будто пришёл по приглашению."""
-        self.fb.run("INSERT OR REPLACE INTO users(id, role, name, lang, default_film, created, tg) VALUES (?, 'user', ?, ?, 'auto', ?, ?)",
-                    (uid, name or f"user{uid}", lang, time.time(), None if uid >= self.fb.WEB_BASE else uid))
-        self.fb.load_users()
+        from proyavka import config, database, users
+        database.run("INSERT OR REPLACE INTO users(id, role, name, lang, default_film, created, tg) VALUES (?, 'user', ?, ?, 'auto', ?, ?)",
+                    (uid, name or f"user{uid}", lang, time.time(), None if uid >= config.WEB_BASE else uid))
+        users.load_users()
 
     def as_user(self, uid):
         """Другой клиент «Проявки» с тем же стендом."""
@@ -192,7 +195,8 @@ class Harness:
         raise TimeoutError("не дождался")
 
     def photos(self, sql="SELECT * FROM photos ORDER BY id", args=()):
-        return self.fb.q(sql, args)
+        from proyavka import database
+        return database.q(sql, args)
 
     def calls(self, method=None, since=0):
         return [c for c in CALLS if (method is None or c[1] == method) and c[0] >= since]

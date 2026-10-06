@@ -20,6 +20,7 @@ def params(**kw):
 
 if __name__ == "__main__":
     h = harness.start(port=8119, extra_env={"COMMUNITY_HUB": "1", "COMMUNITY_URL": ""})
+    from proyavka import looks      # после start: настройки читаются из окружения при импорте
     fb = h.fb
     h.auth(1)
     pub = harness.Harness(fb, h.port, h.base)                      # без входа
@@ -69,14 +70,14 @@ if __name__ == "__main__":
     check("чужие имена и обход пути — 404", pub.get("/community/looks/..%2fx.jpg", auth=False).get("_status") == 404
           and pub.get("/community/etc", auth=False).get("_status") == 404)
     # каталог попадает и в разбор у скачивающего сервера
-    check("каталог разбирается так же, как у остальных", [e["id"] for e in fb._community_entries(pubcat)].count("teplaya-osen") == 1)
+    check("каталог разбирается так же, как у остальных", [e["id"] for e in looks._community_entries(pubcat)].count("teplaya-osen") == 1)
 
     nxt = h.get("/api/community/pending")["items"][0]
     check("отклонить", h.post(f"/api/community/pending/{nxt['id']}", {"action": "reject"}).get("ok")
           and all(i["id"] != nxt["id"] for i in h.get("/api/community/pending")["items"]))
 
     # --- отправка из приложения: на этот же сервер и по сети ---
-    fb.SUBMITS.clear()
+    looks.SUBMITS.clear()
     mk = h2.post("/api/look", {"name": "Моя", "params": params(contrast=0.9, vignette=0.4)})
     info = h2.get("/api/community")["submit"]
     check(f"отправка включена: {info}", info["on"])
@@ -87,23 +88,23 @@ if __name__ == "__main__":
     check("повторная отправка не копит", h2.post(f"/api/look/{mk['key']}/submit").get("ok")
           and sum(1 for i in h.get("/api/community/pending")["items"] if i["name"] == "Моя") == 1)
     mk2 = h2.post("/api/look", {"name": "По сети", "params": params(contrast=0.2, vignette=0.1)})
-    fb.COMMUNITY_SUBMIT_URL = f"http://127.0.0.1:{h.port}/api/community/submit"
+    looks.COMMUNITY_SUBMIT_URL = f"http://127.0.0.1:{h.port}/api/community/submit"
     net = h2.post(f"/api/look/{mk2['key']}/submit")
     check("отправка по сети на приёмник", net.get("ok") and any(i["name"] == "По сети" for i in h.get("/api/community/pending")["items"]))
-    fb.COMMUNITY_SUBMIT_URL = "http://127.0.0.1:9/api/community/submit"
+    looks.COMMUNITY_SUBMIT_URL = "http://127.0.0.1:9/api/community/submit"
     mk3 = h2.post("/api/look", {"name": "Недоступно", "params": params(contrast=0.3, vignette=0.2)})
     bad = h2.post(f"/api/look/{mk3['key']}/submit")
     check(f"приёмник недоступен — понятная ошибка: {bad.get('error')}", bad.get("_status") == 400 and "сервер" in bad["error"])
-    fb.COMMUNITY_SUBMIT_URL = "http://evil.example/api/community/submit"
+    looks.COMMUNITY_SUBMIT_URL = "http://evil.example/api/community/submit"
     check("чужой адрес без https не годится", h2.post(f"/api/look/{mk3['key']}/submit").get("_status") == 400)
-    fb.COMMUNITY_SUBMIT_URL = ""
+    looks.COMMUNITY_SUBMIT_URL = ""
     imp = h2.post("/api/community/add", {"id": "teplaya-osen"})
     check("плёнку из каталога обратно не предлагают", h2.post(f"/api/look/{imp['key']}/submit").get("_status") == 400)
     check("чужую плёнку отправить нельзя", h.post(f"/api/look/{mk['key']}/submit").get("_status") == 400)
 
     # --- сервер, который не приёмник ---
-    fb.COMMUNITY_HUB = False
-    fb.COMMUNITY["at"] = 0
+    looks.COMMUNITY_HUB = False
+    looks.COMMUNITY["at"] = 0
     check("не приёмник: приёма нет", pub.post("/api/community/submit", {"name": "x", "p": params()}, auth=False).get("_status") == 404)
     check("не приёмник: каталога для других нет", pub.get("/community/looks.json", auth=False).get("_status") in (401, 404))
     check("не приёмник и адрес не задан: отправка выключена", not h2.get("/api/community")["submit"]["on"]

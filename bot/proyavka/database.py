@@ -1,10 +1,12 @@
 """База SQLite: подключение, блокировки, схема и миграции, запросы q/run и кадр по номеру (get/upd)."""
+
 import sqlite3
 import threading
 import time
 
 from .config import CHAT_ID, DB_PATH, LANG, WEB_BASE
 from .film import OLD_KEYS
+
 
 DB_LOCK = threading.RLock()      # доступ к sqlite
 

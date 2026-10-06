@@ -1,4 +1,5 @@
 """Пользователи и их настройки: кто есть, язык, плёнка по умолчанию, свои LUT (список и проверка), папки и лимиты места."""
+
 import os
 import threading
 
@@ -6,6 +7,7 @@ from . import config, i18n
 from .config import BASE, CHAT_ID, LANG
 from .film import LUT_NAMES, LUT_OWNER, PRESETS, is_lut
 from .database import q, run
+
 
 # Бот один, пользователей несколько: администратор (тот, кто ставил) приглашает остальных через /invite.
 # У каждого кадра есть владелец; лента, кнопки, «Проявка», экспорт и место на диске — у каждого свои.

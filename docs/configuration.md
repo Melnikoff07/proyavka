@@ -14,8 +14,8 @@ When installed on a VPS as root, the program lives in `/opt/proyavka`; on a home
 |---|---|---|
 | `config.env` | all bot settings (see below) | yes, then restart the bot |
 | `camera-config/config.txt` | settings file for the Sony camera app; the bot sends it on `/camera` | via the wizard |
-| `bot/filmbot.py` | the bot, the web server and everything that is not split out yet | no |
-| `bot/proyavka/` | the engine as modules: `film.py` — films (`PRESETS`) and colour/glow/grain, `imaging.py` — opening frames, crop, leaks, stamp, `config.py` — settings, `i18n.py` — languages | `film.py` — yes, see [films](films.md) |
+| `bot/filmbot.py` | the entry point | no |
+| `bot/proyavka/` | the code, one module per job (see [architecture](architecture.md)); `film.py` — films (`PRESETS`) and colour/glow/grain | `film.py` — yes, see [films](films.md) |
 | `bot/webapp.html` | the Mini App (one HTML file) | yes |
 | `relay/` | server setup scripts and the camera upload receiver | rarely |
 | data folder (`BASE_DIR`) | originals, processed frames, previews, database | no |

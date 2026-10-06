@@ -1,4 +1,5 @@
 """Мелкие помощники без зависимостей от остального: файлы, JPEG в память, QR, имена файлов, множественное число."""
+
 import hashlib
 import io
 import os
@@ -6,6 +7,7 @@ import re
 import threading
 from pathlib import Path
 from urllib.parse import quote
+
 
 def jpeg(img, q=92):
     buf = io.BytesIO()

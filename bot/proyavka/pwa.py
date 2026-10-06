@@ -1,10 +1,10 @@
 """Приложение как установленная программа: значок, манифест, service worker и политика безопасности страницы."""
-import io
-from PIL import Image
-from PIL import ImageDraw
-from PIL import ImageFilter
 
-from .film import L
+import io
+from PIL import Image, ImageDraw, ImageFilter
+
+from .i18n import L
+
 
 ICONS = {}
 

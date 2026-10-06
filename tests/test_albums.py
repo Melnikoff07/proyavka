@@ -22,7 +22,7 @@ def frame(seed, name):
 
 if __name__ == "__main__":
     h = harness.start(port=8113)
-    from proyavka import config, database, photos      # после start: настройки читаются из окружения при импорте
+    from proyavka import config, database, invites, photos      # после start: настройки читаются из окружения при импорте
     fb = h.fb
     h.auth(1)
     for i in range(4):
@@ -92,6 +92,6 @@ if __name__ == "__main__":
     a2 = h.post("/api/albums", {"ids": [ids[0]]})
     h.add_user(4)
     database.run("UPDATE albums SET owner=4")
-    fb.delete_user(4)
+    invites.delete_user(4)
     check("удалили пользователя — его альбомы тоже", not database.q("SELECT 1 FROM albums") and a2.get("n") == 1)
     harness.done()

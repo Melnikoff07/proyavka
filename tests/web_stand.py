@@ -10,7 +10,8 @@ if __name__ == "__main__":
     h = harness.start(uid=900_000_000_000_000, extra_env={"BOT_TOKEN": "", "CONFIG_FILE": str(conf), "DOMAIN": "test.sslip.io"})
     for f in sorted((Path(__file__).resolve().parent / "testdata").glob("*.JPG")):
         h.drop(f)
-    code, link = h.fb.new_pair(h.fb.ADMIN)
-    print("стенд:", h.url + "/?browser", "код:", h.fb.show_code(code), flush=True)
+    from proyavka import devices, users
+    code, link = devices.new_pair(users.ADMIN)
+    print("стенд:", h.url + "/?browser", "код:", devices.show_code(code), flush=True)
     while True:
         time.sleep(3600)

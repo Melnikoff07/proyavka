@@ -55,7 +55,7 @@ def code_of(link):
 
 if __name__ == "__main__":
     h = harness.start(port=8110)
-    from proyavka import config, database, sessions      # после start: настройки читаются из окружения при импорте
+    from proyavka import botui, config, database, devices, invites, sessions      # после start: настройки читаются из окружения при импорте
     fb = h.fb
     h.add_user(BOB, "en", "Bob")
     h.auth(ADMIN)
@@ -84,7 +84,7 @@ if __name__ == "__main__":
 
     # /link в боте: QR и ссылка с одноразовым кодом
     t0 = time.time()
-    fb.on_text("/link", ADMIN)
+    botui.on_text("/link", ADMIN)
     c = h.calls("sendPhoto", t0)
     cap = c[-1][2]["caption"] if c else ""
     link = c[-1][2]["reply_markup"]["inline_keyboard"][0][0]["url"] if c else ""
@@ -162,11 +162,11 @@ if __name__ == "__main__":
 
     # бот: /devices и отключение кнопкой
     t0 = time.time()
-    fb.on_text("/devices", ADMIN)
+    botui.on_text("/devices", ADMIN)
     msg = h.calls("sendMessage", t0)[-1][2]
     kb = msg["reply_markup"]["inline_keyboard"]
     check(f"/devices: {msg['text'].splitlines()[1]}", "iPhone" in msg["text"] and kb[0][0]["callback_data"] == f"dv:{row['id']}")
-    fb.on_callback({"id": "1", "data": kb[0][0]["callback_data"], "message": {"message_id": 5}}, ADMIN)
+    botui.on_callback({"id": "1", "data": kb[0][0]["callback_data"], "message": {"message_id": 5}}, ADMIN)
     check("устройство отключено кнопкой", not database.q("SELECT 1 FROM devices WHERE owner=?", (ADMIN,)))
     st, hd, body = raw_get(h, "/api/photos", dev_tok2)
     check(f"его сессия сразу закрыта: {st}", st == 401)
@@ -176,13 +176,13 @@ if __name__ == "__main__":
     check("Telegram-сессия администратора живёт", st == 200)
 
     # просроченный код и подбор
-    link = fb.make_pair(ADMIN)
+    link = devices.make_pair(ADMIN)
     database.run("UPDATE pairs SET exp=? WHERE code=?", (time.time() - 1, code_of(link)))
     check("просроченный код не работает", post(h, "/api/pair", {"code": code_of(link)})["_status"] == 403)
     t = time.time()
     codes = [post(h, "/api/pair", {"code": f"guess{i:020d}"}, ip="10.0.0.9")["_status"] for i in range(sessions.FAIL_MAX + 1)]
     check(f"подбор: {sessions.FAIL_MAX} неудач за {time.time() - t:.0f} с, потом 429", codes[:-1] == [403] * sessions.FAIL_MAX and codes[-1] == 429)
-    good = fb.make_pair(ADMIN)
+    good = devices.make_pair(ADMIN)
     check("с того же адреса даже верный код ждёт", post(h, "/api/pair", {"code": code_of(good)}, ip="10.0.0.9")["_status"] == 429)
     check("с другого адреса — работает", post(h, "/api/pair", {"code": code_of(good)}, ip="10.0.0.10")["_status"] == 200)
 
@@ -193,7 +193,7 @@ if __name__ == "__main__":
     sessions.FAIL_MAX_ALL = 10 ** 6
 
     # удаление пользователя убирает и его устройства
-    fb.delete_user(BOB)
+    invites.delete_user(BOB)
     check("Боб удалён — его устройства тоже", not database.q("SELECT 1 FROM devices WHERE owner=?", (BOB,)))
     st, hd, body = raw_get(h, "/api/photos", bob_tok)
     check(f"сессия устройства Боба закрыта: {st}", st == 401)

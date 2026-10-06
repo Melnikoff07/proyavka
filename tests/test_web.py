@@ -1,5 +1,6 @@
 """«Проявка» без Telegram: установка с QR, кадры только в приложении, настройки, приглашения кодом,
 подключение бота из приложения и привязка своего Telegram."""
+import requests
 import json
 import os
 import re
@@ -42,7 +43,7 @@ if __name__ == "__main__":
     conf = Path(tempfile.mkdtemp()) / "config.env"
     conf.write_text("LANGUAGE=ru\nCHAT_ID=900000000000000\n", encoding="utf-8")
     h = harness.start(port=8111, uid=WEB, extra_env={"BOT_TOKEN": "", "CONFIG_FILE": str(conf), "DOMAIN": "test.sslip.io"})
-    from proyavka import config, database, film, telegram, users      # после start: настройки читаются из окружения при импорте
+    from proyavka import config, database, film, invites, telegram, users      # после start: настройки читаются из окружения при импорте
     fb = h.fb
     check("бот запущен без токена", config.BOT_TOKEN == "" and users.ADMIN == WEB and users.user(WEB)["tg"] is None)
 
@@ -131,14 +132,14 @@ if __name__ == "__main__":
     # подключить бота из приложения
     check("Маше нельзя подключать бота", call(h, "/api/tg/bot", {"token": "1:" + "x" * 35}, bob_tok)["_status"] == 403)
     check("кривой токен не принят", call(h, "/api/tg/bot", {"token": "abc"}, tok)["_status"] == 400)
-    real_post = fb.requests.post
+    real_post = requests.post
 
     class R:
         def json(self):
             return {"ok": True, "result": {"username": "proyavka_test_bot"}}
-    fb.requests.post = lambda url, **kw: R() if url.endswith("/getMe") else real_post(url, **kw)
+    requests.post = lambda url, **kw: R() if url.endswith("/getMe") else real_post(url, **kw)
     r = call(h, "/api/tg/bot", {"token": "123456:" + "A" * 35}, tok)
-    fb.requests.post = real_post
+    requests.post = real_post
     check(f"бот подключён: @{r.get('bot')}, токен в config.env",
           r.get("bot") == "proyavka_test_bot" and config.BOT_TOKEN.startswith("123456:") and "BOT_TOKEN=123456:" in conf.read_text()
           and "CHAT_ID=900000000000000" in conf.read_text())
@@ -150,11 +151,11 @@ if __name__ == "__main__":
     code = link["url"].split("start=link_")[1]
     check(f"ссылка на бота: {link['url'][:45]}…", link["url"].startswith("https://t.me/proyavka_test_bot?start=link_"))
     t1 = time.time()
-    fb.on_stranger({"from": {"id": 555, "first_name": "A"}, "chat": {"id": 555, "type": "private"}, "text": "/start link_" + code})
+    invites.on_stranger({"from": {"id": 555, "first_name": "A"}, "chat": {"id": 555, "type": "private"}, "text": "/start link_" + code})
     check("Telegram 555 привязан к администратору", users.user(WEB)["tg"] == 555 and telegram.uid_of_tg(555) == WEB)
     m = [c for c in sends(t1) if c[2].get("chat_id") == 555]
     check("в бот пришло приветствие", m and "Telegram" in m[0][2]["text"])
-    fb.on_stranger({"from": {"id": 556}, "chat": {"id": 556, "type": "private"}, "text": "/start link_" + code})
+    invites.on_stranger({"from": {"id": 556}, "chat": {"id": 556, "type": "private"}, "text": "/start link_" + code})
     check("та же ссылка второй раз не работает", telegram.uid_of_tg(556) is None)
     t2 = time.time()
     h.drop(TD / "a6300_DSC00270.JPG", name="NEW0001.JPG")
@@ -169,7 +170,7 @@ if __name__ == "__main__":
     # приглашение через Telegram тем же кодом
     inv = call(h, "/api/invite", {}, tok)
     check(f"теперь у приглашения и Telegram-ссылка: {inv['tg_url'][:40]}…", inv["tg_url"].endswith("?start=" + inv["code"].replace("-", "")))
-    fb.on_stranger({"from": {"id": 777, "first_name": "Петя"}, "chat": {"id": 777, "type": "private"},
+    invites.on_stranger({"from": {"id": 777, "first_name": "Петя"}, "chat": {"id": 777, "type": "private"},
                     "text": "/start " + inv["code"].replace("-", "")})
     check("Петя пришёл через Telegram: номер = его id, чат = он сам", users.user(777) and users.user(777)["tg"] == 777)
 

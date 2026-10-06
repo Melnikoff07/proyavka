@@ -44,29 +44,29 @@ def sent(h, since, chat, method="sendMessage"):
 
 if __name__ == "__main__":
     h = harness.start(port=8106, before=old_install)
-    from proyavka import config, database, i18n, scheduler, users      # после start: настройки читаются из окружения при импорте
+    from proyavka import botui, config, database, i18n, ingest, invites, scheduler, state, users      # после start: настройки читаются из окружения при импорте
     fb = h.fb
     # --- миграция
     old = database.q("SELECT * FROM photos WHERE name='old.jpg'")[0]
     check(f"старые кадры — администратора: owner={old['owner']}", old["owner"] == ADMIN)
     check(f"администратор в таблице users: {users.user(ADMIN)['role']}", users.user(ADMIN)["role"] == "admin")
-    st = fb.load_state()
-    fb.migrate_state(st)
+    st = state.load_state()
+    state.migrate_state(st)
     check(f"плёнка по умолчанию перенесена: {users.user(ADMIN)['default_film']}", users.user(ADMIN)["default_film"] == "golden200")
-    check(f"смещение getUpdates не потерялось: {fb.load_state()}", fb.load_state().get("offset") == 5)
+    check(f"смещение getUpdates не потерялось: {state.load_state()}", state.load_state().get("offset") == 5)
     database.run("UPDATE photos SET hidden=1 WHERE name='old.jpg'")
 
     # --- приглашение
     t0 = time.time()
-    fb.on_text("/invite", ADMIN)
+    botui.on_text("/invite", ADMIN)
     link = sent(h, t0, ADMIN)[-1]["text"]
     m = re.search(r"t\.me/proyavka_test_bot\?start=([\w-]+)", link)
     check(f"/invite даёт ссылку: {m and m.group(0)}", bool(m))
     code = m.group(1)
-    fb.on_text("/invite", BOB)          # не администратор — ничего
+    botui.on_text("/invite", BOB)          # не администратор — ничего
     check("/invite у обычного пользователя не работает (он ещё и не пользователь)", len(sent(h, t0, BOB)) == 0)
     t1 = time.time()
-    fb.on_stranger({"from": {"id": BOB, "first_name": "Bob", "username": "bob", "language_code": "en"}, "text": f"/start {code}"})
+    invites.on_stranger({"from": {"id": BOB, "first_name": "Bob", "username": "bob", "language_code": "en"}, "text": f"/start {code}"})
     check(f"Боб принят, язык en: {users.user(BOB) and users.user(BOB)['lang']}", users.user(BOB) and users.user(BOB)["lang"] == "en")
     welcome = sent(h, t1, BOB)
     check(f"приветствие по-английски: {welcome[0]['text'][:40]!r}", welcome and welcome[0]["text"].startswith("Hi!"))
@@ -75,10 +75,10 @@ if __name__ == "__main__":
     check("у Боба свои команды на английском, без /invite",
           cmds and all(c["command"] != "invite" for c in cmds[-1]["commands"]) and cmds[-1]["commands"][0]["description"] == "Frame feed in the chat")
     t2 = time.time()
-    fb.on_stranger({"from": {"id": EVE, "first_name": "Eve", "language_code": "ru"}, "text": f"/start {code}"})
+    invites.on_stranger({"from": {"id": EVE, "first_name": "Eve", "language_code": "ru"}, "text": f"/start {code}"})
     check("ссылка одноразовая: Ева не прошла", not users.user(EVE) and "недействительна" in sent(h, t2, EVE)[0]["text"])
-    fb.on_stranger({"from": {"id": EVE, "first_name": "Eve", "language_code": "ru"}, "text": "привет"})
-    fb.on_stranger({"from": {"id": EVE, "first_name": "Eve", "language_code": "ru"}, "text": "ау"})
+    invites.on_stranger({"from": {"id": EVE, "first_name": "Eve", "language_code": "ru"}, "text": "привет"})
+    invites.on_stranger({"from": {"id": EVE, "first_name": "Eve", "language_code": "ru"}, "text": "ау"})
     check("незнакомцу отвечают один раз", len(sent(h, t2, EVE)) == 2)
     r = h.post("/api/auth", {"initData": f"test-{EVE}"}, auth=False)
     check(f"«Проявка» не пускает незнакомца: {r.get('_status')}", r.get("_status") == 403)
@@ -112,31 +112,31 @@ if __name__ == "__main__":
     check("чужой кадр не удаляется", h.post(f"/api/photo/{pb['id']}/hide", {}).get("_status") == 404)
     r = h.post("/api/batch", {"action": "delete", "ids": [pb["id"]]})
     check(f"пакет с чужим кадром ничего не делает: {r}", r.get("done") == 0 and not database.get(pb["id"])["hidden"])
-    fb.on_callback({"id": "1", "data": f"p:{pb['id']}:across100", "message": {"message_id": pb["msg_id"]}}, ADMIN)
+    botui.on_callback({"id": "1", "data": f"p:{pb['id']}:across100", "message": {"message_id": pb["msg_id"]}}, ADMIN)
     check("кнопка под чужим кадром не работает", database.get(pb["id"])["preset"] != "across100")
-    fb.on_callback({"id": "1", "data": f"p:{pb['id']}:across100", "message": {"message_id": pb["msg_id"]}}, BOB)
+    botui.on_callback({"id": "1", "data": f"p:{pb['id']}:across100", "message": {"message_id": pb["msg_id"]}}, BOB)
     check("а у владельца работает", database.get(pb["id"])["preset"] == "across100")
 
     # --- плёнка по умолчанию, язык, место
     with i18n.speak(BOB):
-        fb.on_callback({"id": "1", "data": "d:cine250", "message": {"message_id": 1}}, BOB)
+        botui.on_callback({"id": "1", "data": "d:cine250", "message": {"message_id": 1}}, BOB)
     check(f"у Боба своя плёнка по умолчанию: {users.user(BOB)['default_film']} / у админа {users.user(ADMIN)['default_film']}",
           users.user(BOB)["default_film"] == "cine250" and users.user(ADMIN)["default_film"] == "golden200")
     t3 = time.time()
     with i18n.speak(BOB):
-        fb.on_text("/storage", BOB)
+        botui.on_text("/storage", BOB)
     txt = sent(h, t3, BOB)[0]["text"]
     check(f"/storage у Боба — его лимит 5 ГБ и без диска сервера: {txt.splitlines()[-1]!r}", "of 5 GB" in txt and "disk" not in txt)
     with i18n.speak(ADMIN):
-        fb.on_text("/lang", ADMIN)
+        botui.on_text("/lang", ADMIN)
     check("/lang: администратор теперь en", users.user(ADMIN)["lang"] == "en")
     with i18n.speak(ADMIN):
-        fb.on_text("/lang", ADMIN)
+        botui.on_text("/lang", ADMIN)
 
     # --- камера Боба
     t4 = time.time()
     with i18n.speak(BOB):
-        fb.on_text("/camera", BOB)
+        botui.on_text("/camera", BOB)
     add = [c for c in harness.CAM if c[0] == "add"]
     tok = users.user(BOB)["cam_token"]
     check(f"на сервере заведена камера {add and add[-1][1]}", add and add[-1][1] == f"u{BOB}")
@@ -151,17 +151,17 @@ if __name__ == "__main__":
     check(f"Бобу — свой FTP-пользователь: {'user: u' + str(BOB) in msg}", f"user: u{BOB}" in msg and users.user(BOB)["ftp_pass"] in msg)
     check(f"и свой config.txt ({[d['_files'] for d in docs]})", any("document" in d.get("_files", []) for d in docs))
     with i18n.speak(BOB):
-        fb.on_text("/camera", BOB)
+        botui.on_text("/camera", BOB)
     check("повторный /camera не заводит камеру заново", len([c for c in harness.CAM if c[0] == "add"]) == 1)
 
     # --- куда кладёт сервер-приёмник
-    fb.REMOTE_DIR, fb.REMOTE_USERS = "/srv/camera/upload/", "/srv/camera/u/"
-    fb._USER_DIR_RE = re.compile(re.escape(fb.REMOTE_USERS) + r"u(\d{1,15})/upload/")
-    check("файл из папки администратора", fb.remote_owner("/srv/camera/upload/DSC1.JPG") == (ADMIN, "DSC1.JPG"))
-    check("файл из папки Боба", fb.remote_owner(f"/srv/camera/u/u{BOB}/upload/DSC2.JPG") == (BOB, "DSC2.JPG"))
+    ingest.REMOTE_DIR, ingest.REMOTE_USERS = "/srv/camera/upload/", "/srv/camera/u/"
+    ingest._USER_DIR_RE = re.compile(re.escape(ingest.REMOTE_USERS) + r"u(\d{1,15})/upload/")
+    check("файл из папки администратора", ingest.remote_owner("/srv/camera/upload/DSC1.JPG") == (ADMIN, "DSC1.JPG"))
+    check("файл из папки Боба", ingest.remote_owner(f"/srv/camera/u/u{BOB}/upload/DSC2.JPG") == (BOB, "DSC2.JPG"))
     check("временные и чужие файлы не берутся",
-          fb.remote_owner(f"/srv/camera/u/u{BOB}/upload/.incoming/x.part") is None
-          and fb.remote_owner("/srv/camera/u/u999/upload/a.jpg") is None and fb.remote_owner("/etc/passwd") is None)
+          ingest.remote_owner(f"/srv/camera/u/u{BOB}/upload/.incoming/x.part") is None
+          and ingest.remote_owner("/srv/camera/u/u999/upload/a.jpg") is None and ingest.remote_owner("/etc/passwd") is None)
 
     # --- честная очередь: большой пакет администратора не держит кадр Боба
     for i in range(8):
@@ -183,17 +183,17 @@ if __name__ == "__main__":
 
     # --- лимит и удаление пользователя
     t6 = time.time()
-    fb.on_text("/users", ADMIN)
+    botui.on_text("/users", ADMIN)
     scr = sent(h, t6, ADMIN)[-1]
     check(f"/users: {scr['text'].splitlines()}", "Bob" in scr["text"] and str(scr["reply_markup"]).count("ud:") == 1)
-    fb.on_callback({"id": "1", "data": f"ul:{BOB}", "message": {"message_id": 7}}, ADMIN)
+    botui.on_callback({"id": "1", "data": f"ul:{BOB}", "message": {"message_id": 7}}, ADMIN)
     check(f"лимит Боба по кнопке: {users.storage_limit(BOB)} ГБ", users.storage_limit(BOB) == 10)
-    fb.on_callback({"id": "1", "data": f"ud:{ADMIN}", "message": {"message_id": 7}}, ADMIN)
+    botui.on_callback({"id": "1", "data": f"ud:{ADMIN}", "message": {"message_id": 7}}, ADMIN)
     check("себя удалить нельзя", users.user(ADMIN) is not None)
-    fb.on_callback({"id": "1", "data": f"udy:{BOB}", "message": {"message_id": 7}}, BOB)
+    botui.on_callback({"id": "1", "data": f"udy:{BOB}", "message": {"message_id": 7}}, BOB)
     check("Боб не может удалять", users.user(BOB) is not None)
     bob_dir = config.BASE / "users" / str(BOB)
-    fb.on_callback({"id": "1", "data": f"udy:{BOB}", "message": {"message_id": 7}}, ADMIN)
+    botui.on_callback({"id": "1", "data": f"udy:{BOB}", "message": {"message_id": 7}}, ADMIN)
     check("Боб удалён", users.user(BOB) is None and not database.q("SELECT id FROM photos WHERE owner=?", (BOB,)))
     check(f"его папка стёрта: {bob_dir.exists()}", not bob_dir.exists())
     check(f"камера на сервере убрана: {harness.CAM[-1][:2]}", harness.CAM[-1][:2] == ("del", f"u{BOB}"))

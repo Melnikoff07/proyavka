@@ -1,4 +1,5 @@
 """Этап 3: пакетная правка — очередь, темп правок в чате, одно итоговое сообщение, 429."""
+import requests
 import time
 from pathlib import Path
 import harness
@@ -113,13 +114,13 @@ if __name__ == "__main__":
             return R(429, {"ok": False, "description": "Too Many Requests", "parameters": {"retry_after": 1}})
         return R(200, {"ok": True, "result": {"message_id": 1}})
 
-    orig = fb.requests.post
-    fb.requests.post = fake_post
+    orig = requests.post
+    requests.post = fake_post
     t4 = time.time()
     try:
         res = fb.real_tg("editMessageMedia", files={"f": ("p.jpg", io.BytesIO(b"JPEGDATA"))}, chat_id=1, message_id=5)
     finally:
-        fb.requests.post = orig
+        requests.post = orig
     check(f"429: подождал {time.time() - t4:.1f} с и повторил с тем же файлом",
           res == {"message_id": 1} and calls == [b"JPEGDATA", b"JPEGDATA"] and time.time() - t4 >= 0.9)
     check("после 429 фоновые правки придержаны", telegram._PACE.get(1, 0) > time.monotonic() - 0.2)

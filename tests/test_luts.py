@@ -33,7 +33,7 @@ def mean_rgb(data):
 
 if __name__ == "__main__":
     h = harness.start(port=8107)
-    from proyavka import database, film, i18n, scheduler, telegram, users      # после start: настройки читаются из окружения при импорте
+    from proyavka import botui, database, film, i18n, looks, scheduler, telegram, users      # после start: настройки читаются из окружения при импорте
     fb = h.fb
     h.add_user(BOB, "en", "Bob")
     h.auth(ADMIN)
@@ -63,7 +63,7 @@ if __name__ == "__main__":
     check("в кнопках чата у Боба его нет", key not in str(telegram.preset_kb(database.get(pb["id"]))))
     check("а у администратора есть", key in str(telegram.preset_kb(database.get(pa["id"]))))
     with i18n.speak(BOB):
-        check("и в плёнке по умолчанию у Боба нет", key not in str(fb.default_kb(BOB)))
+        check("и в плёнке по умолчанию у Боба нет", key not in str(botui.default_kb(BOB)))
 
     before = mean_rgb(h.get(f"/img/preview/{pa['id']}/original?st=100"))
     after = mean_rgb(h.get(f"/img/preview/{pa['id']}/{key}?st=100"))
@@ -86,10 +86,10 @@ if __name__ == "__main__":
 
     # своя плёнка по умолчанию для новых кадров
     with i18n.speak(ADMIN):
-        fb.on_callback({"id": "1", "data": f"d:{key}", "message": {"message_id": 1}}, ADMIN)
+        botui.on_callback({"id": "1", "data": f"d:{key}", "message": {"message_id": 1}}, ADMIN)
     check("LUT можно сделать плёнкой по умолчанию", users.user(ADMIN)["default_film"] == key)
     with i18n.speak(BOB):
-        fb.on_callback({"id": "1", "data": f"d:{key}", "message": {"message_id": 1}}, BOB)
+        botui.on_callback({"id": "1", "data": f"d:{key}", "message": {"message_id": 1}}, BOB)
     check("а Боб чужой — нет", users.user(BOB)["default_film"] != key)
 
     # удаление
@@ -102,7 +102,7 @@ if __name__ == "__main__":
     h.wait(lambda: database.get(pa["id"])["rendered_rev"] == database.get(pa["id"])["rev"], timeout=60)
     check("и перерисован", True)
     for i in range(film.LUT_MAX_COUNT):
-        fb.add_lut(BOB, f"l{i}.cube", cube(3))
+        looks.add_lut(BOB, f"l{i}.cube", cube(3))
     r = hb.req("/api/upload?lut=1&name=x.cube", raw=cube(3), ctype="application/octet-stream")
     check(f"лимит {film.LUT_MAX_COUNT} LUT: {r.get('error')}", r.get("_status") == 400)
     harness.done()

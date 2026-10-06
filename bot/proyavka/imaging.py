@@ -1,22 +1,18 @@
 """Обработка кадра: открытие оригиналов (в том числе RAW), кадрирование, засветы, дата и рамка, листы-превью, автовыбор плёнки."""
+
 import hashlib
 import math
 import numpy as np
 import os
 import threading
-from PIL import Image
-from PIL import ImageChops
-from PIL import ImageDraw
-from PIL import ImageFilter
-from PIL import ImageFont
-from PIL import ImageOps
+from PIL import Image, ImageChops, ImageDraw, ImageFilter, ImageFont, ImageOps
 from datetime import datetime
 from pathlib import Path
 
-from . import film
 from .config import FULL_EDGE, LUMA, RAW_EXTS, VIEW_EDGE, WORK_EDGE
-from .i18n import tr
-from .film import L, PRESETS, look, pname
+from .i18n import L, tr
+from .film import PRESETS, film, look, pname
+
 
 # ================= засветы =================
 FIRE = [(0.0, (0.55, 0.05, 0.02)), (0.35, (0.95, 0.25, 0.05)), (0.7, (1.0, 0.6, 0.15)), (1.0, (1.0, 0.92, 0.7))]

@@ -1,11 +1,14 @@
 """Настройки из переменных окружения (config.env), папки с данными и общие константы."""
+
 import importlib.util
 import logging
 import numpy as np
 import os
+import re
 import warnings
 from PIL import Image
 from pathlib import Path
+
 
 # «Бомба» в картинке: крошечный файл, который при разборе раздувается в гигабайты памяти.
 # Больше MAX_MEGAPIXELS — отказ сразу при открытии (у самых больших камер ~100 Мп).
@@ -96,6 +99,8 @@ PROJECT_URL = os.environ.get("PROJECT_URL", "https://github.com/Melnikoff07/proy
 
 
 CONTACT_TG = os.environ.get("CONTACT_TG", "Sashkere").strip().lstrip("@")     # контакт автора: подвал альбомов и «⋯» → «О проекте»; пусто — скрыть
+if not re.fullmatch(r"[A-Za-z0-9_]{4,32}", CONTACT_TG):
+    CONTACT_TG = ""
 
 
 # Выбранные кадры — одной ссылкой для кого угодно, без входа: смотреть и скачивать (по одному или архивом).

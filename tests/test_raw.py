@@ -18,7 +18,7 @@ def check(name, ok):
 if __name__ == "__main__":
     on = sys.argv[1:] != ["off"]
     h = harness.start(port=8109, extra_env={"RAW_FILES": "1" if on else "0"})
-    from proyavka import config, database, jobs, pools, scheduler      # после start: настройки читаются из окружения при импорте
+    from proyavka import config, database, ingest, jobs, pools, scheduler      # после start: настройки читаются из окружения при импорте
     fb = h.fb
     h.auth(1)
     dng = (TD / "TEST0001.dng").read_bytes()
@@ -27,7 +27,7 @@ if __name__ == "__main__":
         check(f"без RAW_FILES DNG отклонён: {r.get('error')}", r.get("_status") == 400)
         harness.done()
 
-    fb.RAW_WAIT = 2
+    ingest.RAW_WAIT = 2
     r = h.req("/api/upload?name=TEST0001.dng", raw=dng, ctype="application/octet-stream")
     check(f"DNG через «+» принят: {r}", r.get("ok") and r.get("duplicate") is None)
     ph = h.wait(lambda: [p for p in h.photos() if p["name"].lower().endswith(".dng") and p["msg_id"]], timeout=60)[0]
@@ -61,7 +61,7 @@ if __name__ == "__main__":
     shutil.copy(TD / "TEST0002.dng", config.INCOMING / "SOLO0002.tmp")
     os.replace(config.INCOMING / "SOLO0002.tmp", config.INCOMING / "SOLO0002.DNG")
     h.wait(lambda: [p for p in h.photos() if p["name"] == "SOLO0002.DNG"], timeout=60)
-    check(f"одиночный RAW проявлен через {time.time() - t:.1f} с (ждал JPEG {fb.RAW_WAIT} с)", time.time() - t >= fb.RAW_WAIT)
+    check(f"одиночный RAW проявлен через {time.time() - t:.1f} с (ждал JPEG {ingest.RAW_WAIT} с)", time.time() - t >= ingest.RAW_WAIT)
     # JPEG опоздал после проявленного RAW — не дублируется
     shutil.copy(TD / "a6300_DSC00269.JPG", config.INCOMING / "SOLO0002.tmp")
     os.replace(config.INCOMING / "SOLO0002.tmp", config.INCOMING / "SOLO0002.JPG")

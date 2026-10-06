@@ -1,8 +1,5 @@
 """Движок плёнок: параметры и встроенные плёнки, цвет (кривые, полосы, смешивание), свечение, зерно, виньетка, свои LUT и свои плёнки (проверка параметров, коды обмена)."""
-from PIL import Image
-from PIL import ImageChops
-from PIL import ImageFilter
-from pathlib import Path
+
 import base64
 import json
 import math
@@ -10,11 +7,12 @@ import numpy as np
 import os
 import re
 import threading
+from PIL import Image, ImageChops, ImageFilter
+from pathlib import Path
 
-from .config import BASE
-from .config import CHAT_ID
-from .config import LUMA
+from .config import BASE, CHAT_ID, LUMA
 from .i18n import L
+
 
 # ================= плёнки =================
 DEFAULTS = dict(

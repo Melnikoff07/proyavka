@@ -108,6 +108,7 @@ Every film is an original mathematical model (curves, shadow and highlight tints
 
 - **[Settings, files and logs](docs/configuration.md)** — what's in `config.env`, where frames and data live, how to read logs and restart the bot.
 - **[Films: how they work and how to make your own](docs/films.md)** — every parameter explained; a new film is a dozen numbers.
+- **[How the code is organised](docs/architecture.md)** — the modules, their layers and the rules for imports and tests.
 - **Tests:** `pip install -r tests/requirements.txt && python tests/run_all.py` — the whole bot runs with Telegram mocked and synthetic frames, no network or camera needed (also runs in GitHub Actions on every push).
 - **Try films locally:** `.venv/bin/python bot/try_films.py photo.jpg` renders a sheet with every film — no server needed.
 
@@ -116,8 +117,8 @@ Every film is an original mathematical model (curves, shadow and highlight tints
 | Folder | Contents |
 |---|---|
 | `setup.py` | setup and settings wizard |
-| `bot/` | the server (`filmbot.py`), the app (`webapp.html`), local film preview (`try_films.py`) |
-| `bot/proyavka/` | the engine as modules: films and colour (`film.py`), frame processing (`imaging.py`), settings, languages |
+| `bot/` | the entry point (`filmbot.py`), the app (`webapp.html`), local film preview (`try_films.py`) |
+| `bot/proyavka/` | the code, one module per job: films and colour (`film.py`), frame processing (`imaging.py`), the scheduler, Telegram, the web server... — see [how the code is organised](docs/architecture.md) |
 | `relay/` | server setup: HTTPS, FTPS, camera upload receiver, cameras of invited users (`proyavka-user`) |
 | `community/` | catalog of films shared by people (`looks.json`) and the script that adds one |
 | `tests/` | test suites and the stand that runs the whole bot without Telegram |

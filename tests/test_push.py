@@ -24,7 +24,7 @@ def frame(seed, name):
 
 if __name__ == "__main__":
     h = harness.start(port=8112)
-    from proyavka import config, database, push, scheduler      # после start: настройки читаются из окружения при импорте
+    from proyavka import config, database, devices, push, scheduler      # после start: настройки читаются из окружения при импорте
     fb = h.fb
     h.auth(1)
     check("pywebpush есть", push.webpush is not None)
@@ -48,7 +48,7 @@ if __name__ == "__main__":
           and (push._VAPID.clear() or push.push_key()) == j["key"])
 
     # устройство с подпиской
-    link = fb.make_pair(1)
+    link = devices.make_pair(1)
     r = h.post("/api/pair", {"code": link.split("#pair=")[1], "name": "iPhone · Safari (app)"}, auth=False)
     dev_tok = r["token"]
     hd = harness.Harness(fb, h.port, h.base)
@@ -111,6 +111,6 @@ if __name__ == "__main__":
           and not database.q("SELECT 1 FROM push_subs"))
     hd.post("/api/push/subscribe", sub)
     did = database.q("SELECT device FROM push_subs")[0]["device"]
-    fb.drop_device(1, did)
+    devices.drop_device(1, did)
     check("отключили устройство — его подписка ушла", not database.q("SELECT 1 FROM push_subs"))
     harness.done()

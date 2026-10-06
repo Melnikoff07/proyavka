@@ -26,7 +26,7 @@ def mean_color(b):
 
 if __name__ == "__main__":
     h = harness.start(port=8117, extra_env={"COMMUNITY_URL": ""})      # без сети: каталог из репозитория
-    from proyavka import database, film      # после start: настройки читаются из окружения при импорте
+    from proyavka import database, film, looks      # после start: настройки читаются из окружения при импорте
     fb = h.fb
     h.auth(1)
     for i in range(2):
@@ -163,7 +163,7 @@ if __name__ == "__main__":
     raw = {"looks": [{"id": "ok-one", "name": "Ok", "p": {"contrast": 0.3}},
                      {"id": "BAD ID", "name": "x", "p": {}}, {"id": "no-params", "name": "x"},
                      {"id": "bad-num", "name": "x", "p": {"sat": "abc"}}, "мусор", None]}
-    ents = fb._community_entries(raw)
+    ents = looks._community_entries(raw)
     check(f"в каталоге остаются только годные записи: {[e['id'] for e in ents]}", [e["id"] for e in ents] == ["ok-one"])
 
     # --- лимит и удаление ---
