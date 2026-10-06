@@ -66,6 +66,13 @@ if [ ! -f "/etc/letsencrypt/live/$DOMAIN/fullchain.pem" ]; then
     if [ -n "${LE_EMAIL:-}" ]; then mail=(--email "$LE_EMAIL"); else mail=(--register-unsafely-without-email); fi
     certbot certonly --webroot -w /var/www/proyavka-acme -d "$DOMAIN" --non-interactive --agree-tos "${mail[@]}"
 fi
+# второй сертификат с RSA-ключом — для камер на Android 2.3 (a5000, a6000, RX100 III…): ECDSA и TLS 1.2 они не умеют
+if [ ! -f "/etc/letsencrypt/live/$DOMAIN-rsa/fullchain.pem" ]; then
+    if [ -n "${LE_EMAIL:-}" ]; then mail=(--email "$LE_EMAIL"); else mail=(--register-unsafely-without-email); fi
+    certbot certonly --webroot -w /var/www/proyavka-acme -d "$DOMAIN" --cert-name "$DOMAIN-rsa" --key-type rsa --rsa-key-size 2048 \
+        --non-interactive --agree-tos "${mail[@]}" \
+        || echo "$(t "RSA-сертификат не получен — камеры на Android 2.3 (a6000 и т. п.) не смогут отправлять кадры" "No RSA certificate — cameras on Android 2.3 (a6000 etc.) can't send frames")"
+fi
 install -d /etc/letsencrypt/renewal-hooks/deploy
 cat > /etc/letsencrypt/renewal-hooks/deploy/proyavka.sh <<'EOF'
 #!/bin/sh
@@ -115,6 +122,24 @@ server {
     }
 }
 EOF
+if [ -f "/etc/letsencrypt/live/$DOMAIN-rsa/fullchain.pem" ]; then
+# Камеры Sony на Android 2.3 (a5000, a6000, RX100 III, NEX-5T…) знают только TLS 1.0 и старые шифры. Им — отдельный порт,
+# на котором есть только приём кадров; основной сайт и приложение остаются на TLS 1.2+.
+cat >> /etc/nginx/sites-available/proyavka <<EOF
+server {
+    listen 8443 ssl;
+    server_name $DOMAIN;
+    ssl_certificate /etc/letsencrypt/live/$DOMAIN-rsa/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/$DOMAIN-rsa/privkey.pem;
+    ssl_protocols TLSv1 TLSv1.1 TLSv1.2;
+    ssl_ciphers 'ECDHE-RSA-AES128-SHA:ECDHE-RSA-AES256-SHA:AES128-SHA:AES256-SHA:@SECLEVEL=0';
+    ssl_prefer_server_ciphers on;
+    client_max_body_size 1m;
+    include snippets/proyavka-camera.conf;
+    location / { return 404; }
+}
+EOF
+fi
 if ! nginx -t 2>/dev/null; then   # старый nginx не знает "http2 on"
     sed -i -e 's/listen 443 ssl;/listen 443 ssl http2;/' -e '/http2 on;/d' /etc/nginx/sites-available/proyavka
 fi
@@ -219,7 +244,7 @@ systemctl restart proyavka-recv
 
 if command -v ufw >/dev/null && ufw status | grep -q "Status: active"; then
     say "$(t "Файрвол" "Firewall")"
-    ufw allow 80/tcp; ufw allow 443/tcp; ufw allow 21/tcp; ufw allow 50000:50100/tcp
+    ufw allow 80/tcp; ufw allow 443/tcp; ufw allow 8443/tcp; ufw allow 21/tcp; ufw allow 50000:50100/tcp
 fi
 
 sleep 1

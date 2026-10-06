@@ -26,6 +26,7 @@ function Fetch($url, $name) {
 Fetch "https://api.adoptium.net/v3/binary/latest/17/ga/windows/x64/jdk/hotspot/normal/eclipse?project=jdk" "jdk"
 Fetch "https://dl.google.com/android/repository/build-tools_r34-windows.zip" "build-tools"
 Fetch "https://dl.google.com/android/repository/android-16_r05.zip" "platform-16"
+Fetch "https://dl.google.com/android/repository/android-2.3.3_r02.zip" "platform-10"   # проверка: код годится и для камер на Android 2.3
 
 $env:JAVA_HOME = "$Tools\jdk"
 $env:PATH = "$Tools\jdk\bin;$env:PATH"
@@ -43,7 +44,11 @@ Copy-Item certs\*.pem build\assets\certs\
 $src = Get-ChildItem -Recurse app\src -Filter *.java | ForEach-Object FullName
 & javac -encoding UTF-8 -source 8 -target 8 -Xlint:-options -bootclasspath $JAR -d build\cls @src
 if ($LASTEXITCODE) { throw "javac" }
-& "$BT\d8.bat" --release --min-api 16 --lib $JAR --output build\dex (Get-ChildItem -Recurse build\cls -Filter *.class | ForEach-Object FullName)
+# a5000, a6000, RX100 III… — Android 2.3 (API 10): всё, чего там нет, должно быть только за проверкой SDK_INT
+New-Item -ItemType Directory -Force build\check10 | Out-Null
+& javac -encoding UTF-8 -source 8 -target 8 -Xlint:-options -bootclasspath "$Tools\platform-10\android.jar" -d build\check10 @src
+if ($LASTEXITCODE) { throw "javac: код не собирается для Android 2.3 (API 10)" }
+& "$BT\d8.bat" --release --min-api 10 --lib $JAR --output build\dex (Get-ChildItem -Recurse build\cls -Filter *.class | ForEach-Object FullName)
 if ($LASTEXITCODE) { throw "d8" }
 
 & "$BT\aapt.exe" package -f -M app\AndroidManifest.xml -S app\res -I $JAR -A build\assets -F build\unsigned.apk

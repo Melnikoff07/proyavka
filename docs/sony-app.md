@@ -4,6 +4,8 @@
 
 For Sony cameras with PlayMemories Camera Apps: a5000/a5100, a6000/a6300/a6500, a7 II / a7R II / a7S II, RX100 III–V, RX10 II/III and others from the [compatibility list](https://openmemories.readthedocs.io/devices.html). If your camera menu has an **Application** section, it most likely works.
 
+Two generations of these cameras exist: older ones (a5000, a6000, RX100 III, NEX-5T…) run Android 2.3, newer ones (a6300, a6500, a7 II, RX100 IV…) Android 4.1. The app (1.4 and later) works on both. Android 2.3 only knows the old TLS 1.0, so those cameras send frames to a separate port of your server, **8443**, which accepts camera uploads only — the setup wizard opens it (update the server: `python3 setup.py` → Update). If your hosting has its own firewall, allow TCP 8443 there.
+
 You need a Windows or macOS computer, a USB cable and 10 minutes. The camera firmware is not modified: the app installs like the official PlayMemories apps and can be removed in the camera menu.
 
 ## 1. Download two files
@@ -70,4 +72,6 @@ The app speaks the language set in the wizard (`lang` in `config.txt`); without 
 | No keyboard appears | Press the center button on the password field |
 | "the server rejected the token" | `config.txt` is outdated — get a new one with /camera |
 | "No new frames" | Everything is sent already. To send again, delete `PROYAVKA/sent.txt` |
+| pmca-gui: "Error 504 … Invalid contents for install" | An app older than 1.4 on an Android 2.3 camera (a6000 etc.) — download the current Proyavka.apk |
+| Android 2.3 camera (a6000…) can't reach the server | Update the server (`setup.py` → Update) so port 8443 is set up; allow TCP 8443 in the hosting firewall |
 | pmca-gui can't see the camera | Try the other USB mode (MTP ↔ Mass Storage), another cable or port; close apps that open the camera |

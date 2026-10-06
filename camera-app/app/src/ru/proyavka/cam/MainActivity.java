@@ -201,9 +201,22 @@ public class MainActivity extends Activity {
     private Uploader uploader(Properties cfg) throws Exception {
         String url = cfg.getProperty("url", "").trim(), token = cfg.getProperty("token", "").trim();
         if (url.length() == 0 || token.length() == 0) return null;
+        if (android.os.Build.VERSION.SDK_INT < 16) url = legacyUrl(cfg, url);
         String model = android.os.Build.MODEL == null ? "" : android.os.Build.MODEL.replaceAll("[^A-Za-z0-9-]", "");
         return new Uploader(url, token, cfg.getProperty("prefix", model.length() > 0 ? model + "_" : "cam_").trim(),
                 Tls.factory(Cam.certs(this)), new File(Cam.dir(), "sent.txt"));
+    }
+
+    /**
+     * Камеры на Android 2.3 (a5000, a6000, RX100 III…) умеют только TLS 1.0 — сервер принимает их на отдельном порту
+     * (только приём кадров). Адрес: url_legacy из config.txt или тот же адрес с портом 8443.
+     */
+    static String legacyUrl(Properties cfg, String url) {
+        String own = cfg.getProperty("url_legacy", "").trim();
+        if (own.length() > 0) return own;
+        java.util.regex.Matcher m = java.util.regex.Pattern.compile("^(https://[^/:]+)(:\\d+)?(/.*)?$").matcher(url);
+        if (!m.matches()) return url;
+        return m.group(1) + ":8443" + (m.group(3) == null ? "" : m.group(3));
     }
 
     // ---------- отправка (в отдельном потоке) ----------
@@ -277,7 +290,8 @@ public class MainActivity extends Activity {
             }
             SystemClock.sleep(500);
         }
-        wifiLock = wifi.createWifiLock(WifiManager.WIFI_MODE_FULL_HIGH_PERF, "proyavka");
+        // WIFI_MODE_FULL_HIGH_PERF (3) есть с Android 3.1; на камерах с Android 2.3 — обычный режим
+        wifiLock = wifi.createWifiLock(android.os.Build.VERSION.SDK_INT >= 12 ? 3 : WifiManager.WIFI_MODE_FULL, "proyavka");
         wifiLock.acquire();   // без энергосбережения Wi-Fi на время отправки
         show(Cam.L("Проверяю сервер", "Checking the server"), Cam.L("Сеть: ", "Network: ") + Cam.currentSsid(this, wifi), 0);
         u.ping();

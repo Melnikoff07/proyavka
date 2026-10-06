@@ -16,8 +16,9 @@ import javax.net.ssl.SSLSocketFactory;
 import javax.net.ssl.TrustManagerFactory;
 
 /**
- * HTTPS для Android 4.1: доверяем только корням Let's Encrypt, лежащим в приложении
- * (в системном хранилище камеры их нет), и включаем TLS 1.2 — на API 16 он есть, но выключен.
+ * HTTPS для камер: доверяем только корням Let's Encrypt, лежащим в приложении (в системном хранилище камеры их нет).
+ * Android 4.1: включаем TLS 1.2 — он есть, но выключен. Android 2.3: TLS 1.2 нет вовсе, остаётся то, что есть (TLS 1.0) —
+ * для таких камер на сервере отдельный порт.
  */
 public final class Tls {
     private Tls() {}
@@ -51,7 +52,7 @@ public final class Tls {
                 SSLSocket ss = (SSLSocket) s;
                 List<String> want = new ArrayList<String>();
                 List<String> sup = Arrays.asList(ss.getSupportedProtocols());
-                for (String p : new String[] {"TLSv1.2"}) if (sup.contains(p)) want.add(p);
+                for (String p : new String[] {"TLSv1.2", "TLSv1.1"}) if (sup.contains(p)) want.add(p);
                 if (!want.isEmpty()) ss.setEnabledProtocols(want.toArray(new String[0]));
             }
             return s;

@@ -22,6 +22,10 @@ English first, [по-русски — ниже](#журнал-изменений
 ### Film editor: the basics
 - A new first tab, **Basics**: exposure, contrast, highlights, shadows, whites, blacks, temperature and tint — applied before the film, like in any photo editor. Exposure rolls bright parts off softly instead of clipping.
 
+### Older Sony cameras (Android 2.3)
+- The camera app (1.4) now installs and works on a5000, a5100, a6000, RX100 III, NEX-5T and other cameras of the older generation (Android 2.3). Before, pmca-gui failed with "Error 504 … Invalid contents for install".
+- Android 2.3 only knows TLS 1.0, so the server gets a separate port, **8443**, that accepts camera uploads only (its own RSA certificate, old ciphers); the website and the app stay on TLS 1.2+. The app picks the port by itself. Update the server with `setup.py` → Update; allow TCP 8443 if your hosting has a firewall.
+
 ### Burger theme
 - A third theme next to light and dark: cream, brown and red, rounded buttons, and the app name drawn between two buns (Settings → Theme → Burger).
 
@@ -109,6 +113,10 @@ English first, [по-русски — ниже](#журнал-изменений
 
 ### Редактор плёнки: основное
 - Новая первая вкладка **«Основное»**: экспозиция, контраст, света, тени, белые, чёрные, температура и оттенок — до плёнки, как в любом фоторедакторе. Экспозиция сжимает яркое мягко, а не обрезает.
+
+### Старые камеры Sony (Android 2.3)
+- Приложение камеры (1.4) теперь ставится и работает на a5000, a5100, a6000, RX100 III, NEX-5T и других камерах старого поколения (Android 2.3). Раньше pmca-gui падал с «Error 504 … Invalid contents for install».
+- Android 2.3 знает только TLS 1.0, поэтому у сервера появился отдельный порт **8443**, на котором только приём кадров с камеры (свой RSA-сертификат, старые шифры); сайт и приложение остаются на TLS 1.2+. Нужный порт приложение выбирает само. Обнови сервер через `setup.py` → «Обновить»; если у хостинга файрвол — открой TCP 8443.
 
 ### Тема «Бургер»
 - Третья тема рядом со светлой и тёмной: кремовый, коричневый и красный, скруглённые кнопки, а название нарисовано между двумя булками («Настройки» → «Тема» → «Бургер»).
