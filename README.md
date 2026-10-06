@@ -17,6 +17,7 @@ Take a shot, and half a minute later it's in your feed already "on film": colour
 - **no Telegram needed:** the app installs on a phone from the browser (iPhone: Share → Add to Home Screen; Android and computers: Install in Chrome or Edge); devices sign in with a one-time code or QR. Prefer Telegram? Connect a bot at setup or later in the settings — frames then also arrive in the chat with film buttons
 - notifications when new frames are developed (switch them on or off per device), light / dark / auto theme
 - share albums by link: pick a day or any frames, send the link — anyone can view and download them without signing in; delete the album and the link stops working
+- your own films: build one from sliders with a live preview on your frame, share it as a text code, or take one from the community catalog (`community/looks.json` in this repo — suggest yours from the app, it opens a ready GitHub issue)
 - one server for several people: family or friends by invite code, each with their own feed, camera and storage
 - English and Russian interface, chosen per user
 - runs on your own server — no subscriptions, no third-party cloud

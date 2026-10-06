@@ -1,0 +1,45 @@
+{
+  "v": 1,
+  "looks": [
+    {
+      "id": "warm-postcard",
+      "name": "Warm Postcard",
+      "by": "Proyavka",
+      "desc": {"ru": "тёплая выцветшая открытка: мягкий контраст, песочные света", "en": "a warm faded postcard: soft contrast, sandy highlights"},
+      "p": {"contrast": 0.28, "lift": [0.055, 0.045, 0.035], "top": 0.96, "shoulder": 0.74, "sat": 0.92,
+            "gamma": [1.0, 1.0, 1.04], "shadow_tint": [0.01, 0.0, -0.01], "high_tint": [0.05, 0.03, -0.035],
+            "halation": 0.3, "hal_thr": 0.72, "bloom": 0.12, "soften": 0.6, "grain": 0.045, "grain_size": 1.6,
+            "grain_color": 0.35, "vignette": 0.2, "bw": null}
+    },
+    {
+      "id": "teal-nights",
+      "name": "Teal Nights",
+      "by": "Proyavka",
+      "desc": {"ru": "холодные бирюзовые тени, красное свечение огней, крупное зерно", "en": "cold teal shadows, red glow around lights, coarse grain"},
+      "p": {"contrast": 0.5, "lift": [0.02, 0.035, 0.05], "top": 0.97, "shoulder": 0.76, "sat": 0.9,
+            "gamma": [1.0, 0.99, 1.0], "shadow_tint": [-0.04, 0.015, 0.05], "high_tint": [0.025, 0.0, -0.01],
+            "halation": 0.8, "hal_thr": 0.6, "bloom": 0.12, "soften": 0.5, "grain": 0.06, "grain_size": 1.9,
+            "grain_color": 0.4, "vignette": 0.28, "bw": null}
+    },
+    {
+      "id": "soft-mono",
+      "name": "Soft Mono",
+      "by": "Proyavka",
+      "desc": {"ru": "мягкая чёрно-белая плёнка с тёплыми полутонами и тонким зерном", "en": "soft black & white with gentle midtones and fine grain"},
+      "p": {"contrast": 0.38, "lift": [0.03, 0.03, 0.03], "top": 0.965, "shoulder": 0.75, "sat": 1.0,
+            "gamma": [1.0, 1.0, 1.0], "shadow_tint": [0.0, 0.0, 0.0], "high_tint": [0.012, 0.006, -0.01],
+            "halation": 0.2, "hal_thr": 0.7, "bloom": 0.1, "soften": 0.7, "grain": 0.04, "grain_size": 1.4,
+            "grain_color": 0.0, "vignette": 0.22, "bw": [0.3, 0.55, 0.15]}
+    },
+    {
+      "id": "green-summer",
+      "name": "Green Summer",
+      "by": "Proyavka",
+      "desc": {"ru": "сочная зелень и тёплое небо, как с летней мыльницы", "en": "lush greens and a warm sky, like a summer point-and-shoot"},
+      "p": {"contrast": 0.42, "lift": [0.02, 0.03, 0.03], "top": 0.98, "shoulder": 0.8, "sat": 1.2,
+            "gamma": [1.0, 0.96, 1.0], "shadow_tint": [-0.015, 0.02, 0.01], "high_tint": [0.03, 0.012, -0.025],
+            "halation": 0.3, "hal_thr": 0.74, "bloom": 0.08, "soften": 0.5, "grain": 0.04, "grain_size": 1.5,
+            "grain_color": 0.3, "vignette": 0.18, "bw": null}
+    }
+  ]
+}

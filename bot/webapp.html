@@ -239,6 +239,33 @@
   .paircode { font-size: 34px; font-weight: 500; letter-spacing: .06em; margin: 2px 0 10px; user-select: all; -webkit-user-select: all; }
   .al-name { width: 100%; font: inherit; font-size: 16px; color: var(--text); background: var(--tile); border: 0; padding: 0 12px; height: 44px; }
   .al-acts { padding: 16px 0 0; }
+  /* редактор плёнки и сообщество: полноэкранные слои поверх настроек */
+  .layer2 { z-index: 13; }
+  .ed-pic { position: sticky; top: 0; z-index: 2; background: var(--bg); height: 36vh; min-height: 170px; padding: 0 var(--pad) 10px;
+            display: flex; align-items: center; justify-content: center; }
+  .ed-pic img { max-width: 100%; max-height: 100%; object-fit: contain; transition: opacity .15s linear; }
+  .ed-pic.busy img { opacity: .7; }
+  .ed-pic p { margin: 0; }
+  .ed-top { padding: 4px var(--pad) 0; display: flex; flex-direction: column; gap: 10px; }
+  .ed-top .st-select { max-width: none; width: 100%; padding: 12px 10px; }
+  .ed-sl { padding: 8px var(--pad) 0; }
+  .ed-sl .row { display: flex; justify-content: space-between; align-items: baseline; }
+  .ed-sl .v { color: var(--muted); }
+  .ed-sl input[type=range] { width: 100%; margin: 6px 0 0; accent-color: var(--text); height: 28px; }
+  .ed-h { padding: 22px var(--pad) 2px; }
+  .cm-grid { padding: 14px var(--pad) 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px 10px; }
+  @media (min-width: 600px) { .cm-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+  .cm-card .tile span { padding: 0 12px; text-align: center; }
+  .cm-card .tile img { width: 100%; height: 100%; object-fit: cover; }
+  .cm-card .nm { margin-top: 7px; font-weight: 500; }
+  .cm-card .ds { margin-top: 2px; font-size: 12px; line-height: 1.3; min-height: 2.6em; }
+  .cm-card button.go { margin-top: 6px; text-decoration: underline; text-underline-offset: 3px; text-decoration-thickness: 1px; }
+  .cm-card button.go:disabled { text-decoration: none; opacity: 1; color: var(--muted); }
+  .cm-import { display: flex; gap: 10px; padding: 12px var(--pad) 0; }
+  .cm-import input { flex: 1; min-width: 0; font: inherit; color: var(--text); background: var(--tile); border: 0; padding: 0 12px; height: 44px;
+                     text-transform: none; letter-spacing: 0; }
+  .cm-import .btn { flex: 0 0 auto; padding: 0 18px; }
+  textarea.linkbox { resize: none; word-break: break-all; font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; }
   .vleft { display: flex; gap: 12px; align-items: baseline; }
   .vback { padding: 0 6px 0 0; }
   .vback[hidden] { display: none; }
@@ -323,6 +350,18 @@
   <div class="sheet-head cap"><span id="alTitle"></span><button id="alClose" data-i18n="Close">Закрыть</button></div>
   <div class="pair" id="alBody"></div>
 </div>
+<section class="settings layer2" id="lookEd" hidden aria-label="Редактор плёнки" data-i18n-aria="Film editor">
+  <div class="vbar cap"><span class="vleft"><button class="vback" id="edBack" aria-label="Назад" data-i18n-aria="Back">←</button><span id="edTitle"></span></span><span></span><span></span></div>
+  <div class="ed-pic" id="edPic"><img id="edImg" alt="" hidden><p class="muted" id="edNoPic" hidden></p></div>
+  <div class="ed-top"><input class="al-name" id="edName" maxlength="32" autocomplete="off">
+    <select class="st-select" id="edBase" aria-label="Начать с" data-i18n-aria="Start from"></select></div>
+  <div id="edBody"></div>
+  <div class="actions"><button class="btn" id="edSave"></button><button class="link cap" id="edReset" data-i18n="Reset">Сбросить</button></div>
+</section>
+<section class="settings layer2" id="community" hidden aria-label="Сообщество" data-i18n-aria="Community">
+  <div class="vbar cap"><span class="vleft"><button class="vback" id="cmBack" aria-label="Назад" data-i18n-aria="Back">←</button><span data-i18n="Community">Сообщество</span></span><span></span><span></span></div>
+  <div id="cmBody"></div>
+</section>
 <section class="settings" id="settings" hidden aria-label="Настройки" data-i18n-aria="Settings">
   <div class="vbar cap"><span class="vleft"><button class="vback" id="stBack" aria-label="Назад" data-i18n-aria="Back">←</button><span data-i18n="Settings">Настройки</span></span><span></span><span></span></div>
   <div class="st-sec" style="border-top:0">
@@ -346,6 +385,12 @@
     <p class="muted st-p" id="stUsedNote"></p>
     <button class="st-link cap" id="stTrashBtn"></button>
     <div class="grid st-grid" id="stTrash" hidden></div>
+  </div>
+  <div class="st-sec">
+    <div class="st-h cap muted" data-i18n="My films">Мои плёнки</div>
+    <div id="stLooks"></div>
+    <div class="actions"><button class="btn" id="stLookNew" data-i18n="Create a film">Создать плёнку</button><button class="link cap" id="stCommunity" data-i18n="Community">Сообщество</button></div>
+    <p class="muted st-p" data-i18n="Build your own film from sliders, share it as a code, or take one from the community catalog.">Собери свою плёнку ползунками, поделись ею кодом или возьми готовую из каталога сообщества.</p>
   </div>
   <div class="st-sec">
     <div class="st-h cap muted" data-i18n="Albums by link">Альбомы по ссылке</div>
@@ -459,7 +504,8 @@ function presetName(key) { const f = presets.find((x) => x.key === key); return 
 function prevUrl(p, film, leak) {
   const lk = leak ? `&lk=${leak}&ls=${p.leak_seed || 0}` : "";
   const c = p.crop ? `&c=${p.crop.join(",")}` : "";
-  return url(`/img/preview/${p.id}/${film}`, `&st=${p.strength}${lk}${c}`);
+  const r = lookRev[film] ? `&r=${lookRev[film]}` : "";
+  return url(`/img/preview/${p.id}/${film}`, `&st=${p.strength}${lk}${c}${r}`);
 }
 function previewUrl(p) { return prevUrl(p, p.preset, p.leak); }
 function leakName(key) { const l = leaks.find((x) => x.key === key); return l ? l.name : ""; }
@@ -705,7 +751,7 @@ $("sDelete").onclick = () => {
 
 /* вне Telegram нет его кнопки «назад»: открытые слои кладём в историю, системный «назад» их закрывает */
 let histPushed = false, histIgnore = false;
-function layerOpen() { return cur >= 0 || selecting || !$("sheet").hidden || !$("albumSheet").hidden || !$("settings").hidden || !!crop; }
+function layerOpen() { return cur >= 0 || selecting || !$("sheet").hidden || !$("albumSheet").hidden || !$("settings").hidden || !$("lookEd").hidden || !$("community").hidden || !!crop; }
 function syncHistory() {
   if (tg) return;
   const open = layerOpen();
@@ -722,6 +768,8 @@ addEventListener("popstate", () => {
 
 function onBack() {
   if (!$("albumSheet").hidden) return closeAlbumSheet();
+  if (!$("lookEd").hidden) return closeEditor();
+  if (!$("community").hidden) return closeCommunity();
   if (!$("settings").hidden) return closeSettings();
   if (crop) exitCrop();
   else if (cur >= 0) closeViewer();
@@ -977,6 +1025,13 @@ function renderStrip(p) {
     add.innerHTML = `<div class="pic">+</div><div class="fname">${T("Свой LUT", "Your LUT")}</div>`;
     add.onclick = () => $("lutPicker").click();
     frag.appendChild(add);
+    for (const [glyph, ru, en, fn] of [["✎", "Создать", "Create", () => openEditor({})], ["✦", "Сообщество", "Community", openCommunity]]) {
+      const b = document.createElement("button");
+      b.className = "film addlut";
+      b.innerHTML = `<div class="pic">${glyph}</div><div class="fname">${T(ru, en)}</div>`;
+      b.onclick = fn;
+      frag.appendChild(b);
+    }
   }
   strip.replaceChildren(frag);
   const sel = strip.querySelector('[aria-pressed="true"]');
@@ -1218,6 +1273,7 @@ async function openSettings() {
   await renderMe();
   applyTheme();
   renderPush();
+  renderMyLooks();
   renderAlbums();
   renderDevices();
   if (me && me.admin) renderUsers();
@@ -1679,6 +1735,7 @@ async function reloadPresets() {
   const pj = await api("/api/presets");
   presets = pj.presets;
   if (photos[cur]) renderStrip(photos[cur]);
+  if (!$("settings").hidden) renderMyLooks();
 }
 $("lutPicker").onchange = async () => {
   const f = $("lutPicker").files[0];
@@ -1699,13 +1756,13 @@ $("lutPicker").onchange = async () => {
 function holdToDelete(el, key, name) {
   let t = null;
   const ask = () => {
-    const q = T(`Удалить LUT «${name}»? Кадры с ним перейдут на автоплёнку.`, `Delete LUT "${name}"? Frames using it switch to their auto film.`);
+    const q = T(`Удалить «${name}»? Кадры с ней перейдут на автоплёнку.`, `Delete "${name}"? Frames using it switch to their auto film.`);
     const go = async (ok) => {
       if (!ok) return;
       try {
         await api(`/api/lut/${key}/delete`, {});
         await reloadPresets();
-        toast(T("LUT удалён", "LUT deleted"));
+        toast(T("Удалено", "Deleted"));
         jobs = Math.max(jobs, 1); schedulePoll();
       } catch (e) { toast(e.message); }
     };
@@ -1719,6 +1776,287 @@ function holdToDelete(el, key, name) {
   el.addEventListener("contextmenu", (e) => { e.preventDefault(); ask(); });
   el.addEventListener("click", (e) => { if (t === "fired") { t = null; e.stopImmediatePropagation(); } }, true);
 }
+
+/* ---------- свои плёнки: редактор, коды, сообщество ---------- */
+// Плёнка — несколько чисел (контраст, зерно, халяция…). Редактор крутит их ползунками, сервер на каждое движение
+// присылает кадр с получившейся плёнкой; сохраняется только по кнопке.
+const mean3 = (a) => (a[0] + a[1] + a[2]) / 3;
+const AX_TEMP = [1, 0, -1], AX_TINT = [-0.5, 1, -0.5];      // оси цвета: холодный↔тёплый и пурпурный↔зелёный
+const axGet = (a, ax) => (ax === AX_TEMP ? (a[0] - a[2]) / 2 : (2 * a[1] - a[0] - a[2]) / 3);
+const axSet = (a, ax, v) => { const d = v - axGet(a, ax); return a.map((x, i) => clamp(x + d * ax[i], -0.1, 0.1)); };
+const tintSliders = (f) => [
+  { n: [`Холод ↔ тепло`, `Cool ↔ warm`], min: -0.08, max: 0.08, step: 0.002, get: (P) => axGet(P[f], AX_TEMP), set: (P, v) => { P[f] = axSet(P[f], AX_TEMP, v); } },
+  { n: [`Пурпур ↔ зелень`, `Magenta ↔ green`], min: -0.06, max: 0.06, step: 0.002, get: (P) => axGet(P[f], AX_TINT), set: (P, v) => { P[f] = axSet(P[f], AX_TINT, v); } }];
+const simple = (k, ru, en, min, max, step) => ({ n: [ru, en], min, max, step, get: (P) => P[k], set: (P, v) => { P[k] = v; } });
+const ED_SECTIONS = [
+  { h: ["Цвет", "Colour"], s: [simple("sat", "Насыщенность", "Saturation", 0, 2, 0.01), simple("contrast", "Контраст", "Contrast", 0, 1, 0.01),
+    { n: ["Выцветание", "Fade"], min: 0, max: 0.15, step: 0.005, get: (P) => mean3(P.lift), set: (P, v) => { const d = v - mean3(P.lift); P.lift = P.lift.map((x) => clamp(x + d, 0, 0.15)); } },
+    simple("top", "Яркость светов", "Highlight level", 0.8, 1, 0.005)] },
+  { h: ["Тени", "Shadows"], s: tintSliders("shadow_tint") },
+  { h: ["Света", "Highlights"], s: tintSliders("high_tint") },
+  { h: ["Свечение", "Glow"], s: [simple("halation", "Красное свечение огней", "Red halation", 0, 1.2, 0.01), simple("bloom", "Дымка", "Bloom", 0, 0.3, 0.005),
+    simple("soften", "Мягкость", "Softness", 0, 1.5, 0.02)] },
+  { h: ["Зерно и виньетка", "Grain and vignette"], s: [simple("grain", "Зерно", "Grain", 0, 0.12, 0.002), simple("grain_size", "Размер зерна", "Grain size", 1, 3, 0.05),
+    simple("grain_color", "Цветность зерна", "Grain colour", 0, 1, 0.02), simple("vignette", "Виньетка", "Vignette", 0, 0.5, 0.01)] },
+];
+const pctOf = (s, v) => Math.round(s.min < 0 ? (v / s.max) * 100 : ((v - s.min) / (s.max - s.min)) * 100);
+const lookRev = {};         // ключ плёнки -> метка правки: превью в ленте берутся заново, а не из кэша браузера
+let ed = null;              // { key, P, orig, photo, rows, seq, timer, ctl }
+const deep = (o) => JSON.parse(JSON.stringify(o));
+
+function edPhoto() {
+  const c = cur >= 0 ? photos[cur] : null;
+  return c && !c.archived ? c : photos.find((x) => !x.archived && x.ready) || null;
+}
+function showLayer(el) {
+  el.hidden = false;
+  el.scrollTop = 0;
+  document.body.style.overflow = "hidden";
+  if (tg) tg.BackButton.show();
+  syncHistory();
+}
+function hideLayer(el) {
+  el.hidden = true;
+  const still = cur >= 0 || !$("settings").hidden;
+  document.body.style.overflow = still ? "hidden" : "";
+  if (tg && !still && !selecting) tg.BackButton.hide();
+  syncHistory();
+}
+
+async function openEditor({ key } = {}) {
+  let P, name;
+  try {
+    if (key) { const j = await api(`/api/look/${key}`); P = j.params; name = j.name; }
+    else {
+      const cp = presets.find((f) => f.p && photos[cur] && f.key === photos[cur].preset) || presets.find((f) => f.key === "street_neg") || presets.find((f) => f.p);
+      P = deep(cp.p);
+      name = T("Моя плёнка", "My film");
+    }
+  } catch (e) { return toast(e.message); }
+  ed = { key: key || null, P, orig: deep(P), photo: edPhoto(), rows: [], seq: 0, timer: 0, ctl: null };
+  $("edTitle").textContent = key ? T("Изменить плёнку", "Edit film") : T("Новая плёнка", "New film");
+  $("edName").value = name;
+  $("edName").placeholder = T("Название", "Name");
+  $("edSave").textContent = key ? T("Сохранить", "Save") : T("Сохранить плёнку", "Save film");
+  $("edSave").disabled = false;
+  const base = $("edBase");
+  base.hidden = !!key;
+  base.replaceChildren(Object.assign(document.createElement("option"), { value: "", textContent: T("Начать с плёнки…", "Start from a film…") }),
+    ...presets.filter((f) => f.p).map((f) => Object.assign(document.createElement("option"), { value: f.key, textContent: f.name })));
+  base.value = "";
+  $("edImg").hidden = true;
+  $("edNoPic").hidden = !!ed.photo;
+  $("edNoPic").textContent = T("Нет готового кадра для просмотра. Плёнку можно сохранить и применить позже.", "No finished frame to preview on. You can save the film and apply it later.");
+  const frag = document.createDocumentFragment();
+  for (const sec of ED_SECTIONS) {
+    const h = document.createElement("div");
+    h.className = "ed-h cap muted";
+    h.textContent = T(...sec.h);
+    frag.appendChild(h);
+    for (const s of sec.s) {
+      const el = document.createElement("div");
+      el.className = "ed-sl";
+      el.innerHTML = `<div class="row"><span></span><span class="v cap"></span></div><input type="range" min="${s.min}" max="${s.max}" step="${s.step}">`;
+      el.querySelector(".row span").textContent = T(...s.n);
+      const input = el.querySelector("input"), vEl = el.querySelector(".v");
+      input.setAttribute("aria-label", T(...s.n));
+      input.oninput = () => { s.set(ed.P, Number(input.value)); vEl.textContent = pctOf(s, Number(input.value)); edPreview(); };
+      ed.rows.push({ s, input, vEl });
+      frag.appendChild(el);
+    }
+  }
+  const bw = document.createElement("div");
+  bw.className = "ed-sl";
+  bw.style.paddingTop = "22px";
+  bw.innerHTML = `<button class="tog" aria-pressed="false"></button>`;
+  bw.firstChild.textContent = T("Чёрно-белая", "Black & white");
+  bw.firstChild.onclick = () => { ed.P.bw = ed.P.bw ? null : [0.3, 0.55, 0.15]; edSync(); edPreview(); };
+  ed.bwBtn = bw.firstChild;
+  frag.appendChild(bw);
+  $("edBody").replaceChildren(frag);
+  edSync();
+  showLayer($("lookEd"));
+  edPreview();
+}
+function edSync() {
+  for (const { s, input, vEl } of ed.rows) { const v = s.get(ed.P); input.value = v; vEl.textContent = pctOf(s, v); }
+  ed.bwBtn.setAttribute("aria-pressed", String(!!ed.P.bw));
+}
+function edPreview() {
+  if (!ed) return;
+  clearTimeout(ed.timer);
+  ed.timer = setTimeout(async () => {
+    const e = ed;
+    if (!e || !e.photo) return;
+    const my = ++e.seq;
+    if (e.ctl) e.ctl.abort();
+    e.ctl = new AbortController();
+    $("edPic").classList.add("busy");
+    try {
+      const r = await fetch("/api/look/try", { method: "POST", signal: e.ctl.signal, headers: { "X-Token": token, "Content-Type": "application/json" },
+                                               body: JSON.stringify({ id: e.photo.id, params: e.P }) });
+      if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || T(`Сервер ответил ${r.status}`, `Server responded ${r.status}`));
+      const blob = await r.blob();
+      if (ed !== e || my !== e.seq) return;
+      const old = $("edImg").src;
+      $("edImg").src = URL.createObjectURL(blob);
+      $("edImg").hidden = false;
+      if (old.startsWith("blob:")) URL.revokeObjectURL(old);
+    } catch (err) { if (err.name !== "AbortError") toast(err.message); }
+    finally { if (ed === e && my === e.seq) $("edPic").classList.remove("busy"); }
+  }, 140);
+}
+function closeEditor() {
+  if (!ed) return;
+  clearTimeout(ed.timer);
+  if (ed.ctl) ed.ctl.abort();
+  ed = null;
+  hideLayer($("lookEd"));
+}
+$("edBack").onclick = () => onBack();
+$("edBase").onchange = () => {
+  const f = presets.find((x) => x.key === $("edBase").value);
+  if (!f || !ed) return;
+  ed.P = deep(f.p);
+  ed.orig = deep(f.p);
+  edSync();
+  edPreview();
+};
+$("edReset").onclick = () => { if (!ed) return; ed.P = deep(ed.orig); edSync(); edPreview(); };
+$("edSave").onclick = async () => {
+  if (!ed) return;
+  const e = ed, name = $("edName").value.trim() || T("Моя плёнка", "My film");
+  $("edSave").disabled = true;
+  try {
+    const r = await api("/api/look", { key: e.key || undefined, name, params: e.P });
+    const fresh = !e.key, inViewer = cur >= 0 && photos[cur];
+    closeEditor();
+    lookRev[r.key] = Date.now();
+    await reloadPresets();
+    if (fresh && inViewer) apply({ preset: r.key });
+    else if (!fresh) { jobs = Math.max(jobs, 1); schedulePoll(); if (photos[cur]) renderStrip(photos[cur]); }
+    toast(T(`Плёнка «${r.name}» сохранена`, `Film "${r.name}" saved`));
+    haptic("success");
+  } catch (err) { toast(err.message); $("edSave").disabled = false; }
+};
+$("stLookNew").onclick = () => openEditor({});
+
+function renderMyLooks() {
+  const mine = presets.filter((f) => f.look);
+  $("stLooks").replaceChildren(...mine.map((f) => {
+    const row = document.createElement("div");
+    row.className = "st-user";
+    row.innerHTML = `<div class="dn"><span></span></div><button class="cap" data-act="edit">${T("Изменить", "Edit")}</button>` +
+      `<button class="cap" data-act="share">${T("Поделиться", "Share")}</button><button class="cap" data-act="del">${T("Удалить", "Delete")}</button>`;
+    row.querySelector(".dn span").textContent = f.name;
+    row.querySelector('[data-act="edit"]').onclick = () => openEditor({ key: f.key });
+    row.querySelector('[data-act="share"]').onclick = () => shareLook(f);
+    row.querySelector('[data-act="del"]').onclick = () => ask(T(`Удалить плёнку «${f.name}»? Кадры с ней перейдут на автоплёнку.`, `Delete the film "${f.name}"? Frames using it switch to their auto film.`),
+      async (ok) => { if (ok) try { await api(`/api/lut/${f.key}/delete`, {}); await reloadPresets(); jobs = Math.max(jobs, 1); schedulePoll(); toast(T("Удалено", "Deleted")); } catch (e) { toast(e.message); } });
+    return row;
+  }));
+}
+
+async function shareLook(f) {
+  let j;
+  try { j = await api(`/api/look/${f.key}/share`); } catch (e) { return toast(e.message); }
+  openAlbumSheet(f.name,
+    `<textarea class="linkbox" id="lkCode" rows="4" readonly></textarea>` +
+    `<p class="muted" style="margin:10px 0 0">${T("Код — это вся плёнка в одной строке. Вставь его в «Сообщество» у друга, и плёнка появится у него. «Предложить в каталог» откроет готовую заявку на GitHub (нужен аккаунт) — или пришли код автору проекта.",
+      "The code is the whole film in one line. Paste it into Community on a friend's device and the film appears there. “Suggest to the catalog” opens a ready issue on GitHub (an account is needed) — or just send the code to the project author.")}</p>` +
+    `<div class="actions al-acts"><button class="btn" id="lkCopy">${T("Копировать код", "Copy code")}</button>` +
+    `<button class="link cap" id="lkSend">${T("Отправить", "Send")}</button></div>` +
+    (j.suggest_url ? `<button class="link cap" id="lkSuggest">${T("Предложить в каталог", "Suggest to the catalog")}</button>` : ""));
+  $("lkCode").value = j.code;
+  $("lkCode").onfocus = () => $("lkCode").select();
+  $("lkCopy").onclick = () => copyText(j.code, T("Код скопирован", "Code copied"));
+  $("lkSend").onclick = async () => {
+    if (tg && tg.openTelegramLink) return tg.openTelegramLink(`https://t.me/share/url?url=${encodeURIComponent(" ")}&text=${encodeURIComponent(j.code)}`);
+    if (navigator.share) { try { await navigator.share({ title: f.name, text: j.code }); } catch (e) {} return; }
+    copyText(j.code, T("Код скопирован", "Code copied"));
+  };
+  if (j.suggest_url) $("lkSuggest").onclick = () => openExternal(j.suggest_url);
+}
+
+async function openCommunity() {
+  $("cmBody").innerHTML = `<p class="muted st-p">${T("Загружаю каталог…", "Loading the catalog…")}</p>`;
+  showLayer($("community"));
+  let j;
+  try { j = await api("/api/community"); } catch (e) { $("cmBody").innerHTML = ""; return toast(e.message); }
+  if ($("community").hidden) return;
+  const body = document.createDocumentFragment();
+  const intro = document.createElement("p");
+  intro.className = "muted st-p";
+  intro.textContent = T("Плёнки, которые собрали и выложили люди. Превью — на твоём последнем кадре. Добавленная плёнка появится в ленте плёнок.",
+                        "Films that people made and shared. Previews use your latest frame. An added film shows up in the film strip.");
+  body.appendChild(intro);
+  const imp = document.createElement("form");
+  imp.className = "cm-import";
+  imp.innerHTML = `<input autocomplete="off" spellcheck="false"><button class="btn" type="submit">${T("Добавить", "Add")}</button>`;
+  imp.firstChild.placeholder = T("Код плёнки: proyavka-look:1:…", "Film code: proyavka-look:1:…");
+  imp.onsubmit = async (e) => {
+    e.preventDefault();
+    const code = imp.firstChild.value.trim();
+    if (!code) return;
+    try {
+      const r = await api("/api/look/import", { code });
+      imp.firstChild.value = "";
+      lookRev[r.key] = Date.now();
+      await reloadPresets();
+      toast(T(`Плёнка «${r.name}» добавлена`, `Film "${r.name}" added`));
+      haptic("success");
+    } catch (err) { toast(err.message); }
+  };
+  body.appendChild(imp);
+  const grid = document.createElement("div");
+  grid.className = "cm-grid";
+  if (!j.looks.length) {
+    const none = document.createElement("p");
+    none.className = "muted st-p";
+    none.textContent = T("Каталог пока пуст или не загрузился.", "The catalog is empty or could not be loaded.");
+    body.appendChild(none);
+  }
+  for (const l of j.looks) {
+    const card = document.createElement("div");
+    card.className = "cm-card";
+    const pic = j.sample ? `<img loading="lazy" decoding="async" alt="" src="${esc(url(`/img/look/${l.id}`, `&p=${j.sample}&h=${l.h}`))}">` : `<span class="cap muted"></span>`;
+    card.innerHTML = `<div class="tile">${pic}</div><div class="nm"></div><div class="cap muted by"></div><div class="ds muted"></div><button class="go cap"></button>`;
+    card.querySelector(".nm").textContent = l.name;
+    card.querySelector(".by").textContent = (l.by ? T("автор ", "by ") + l.by : "") + (l.bw ? (l.by ? " · " : "") + T("ч/б", "b&w") : "");
+    card.querySelector(".ds").textContent = l.desc;
+    const sp = card.querySelector(".tile span");
+    if (sp) sp.textContent = l.name;
+    const go = card.querySelector(".go");
+    const paint = () => {
+      const canApply = l.installed && cur >= 0 && photos[cur];
+      go.textContent = !l.installed ? T("Добавить", "Add") : canApply ? T("Применить к кадру", "Apply to frame") : T("✓ У тебя", "✓ Added");
+      go.disabled = !!l.installed && !canApply;
+    };
+    paint();
+    go.onclick = async () => {
+      if (l.installed) { closeCommunity(); return apply({ preset: l.installed }); }
+      go.disabled = true;
+      try {
+        const r = await api("/api/community/add", { id: l.id });
+        l.installed = r.key;
+        await reloadPresets();
+        toast(T(`Плёнка «${r.name}» добавлена`, `Film "${r.name}" added`));
+        haptic("success");
+      } catch (err) { toast(err.message); }
+      paint();
+    };
+    grid.appendChild(card);
+  }
+  body.appendChild(grid);
+  const note = document.createElement("p");
+  note.className = "muted st-p";
+  note.textContent = T("Свою плёнку можно предложить в каталог: «⋯» → «Мои плёнки» → «Поделиться».", "To suggest your own film: ⋯ → My films → Share.");
+  body.appendChild(note);
+  $("cmBody").replaceChildren(body);
+}
+function closeCommunity() { if (!$("community").hidden) hideLayer($("community")); }
+$("cmBack").onclick = () => onBack();
+$("stCommunity").onclick = openCommunity;
 
 /* ---------- кадрирование ---------- */
 // рамка в долях некадрированного кадра; ratio — ширина/высота в пикселях (0 — свободно)

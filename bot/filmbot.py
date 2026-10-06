@@ -337,16 +337,31 @@ LUT_CACHE = {}
 LUT_LOCK = threading.Lock()
 
 
-def preset_lut(key):
+def _bake(p):
+    n = 33
+    x = np.linspace(0, 1, n, dtype=np.float32)
+    b, g, r = np.meshgrid(x, x, x, indexing="ij")          # красный меняется быстрее всех
+    rgb = np.stack([r.ravel(), g.ravel(), b.ravel()], axis=1)
+    out = color_fn(rgb, p).astype(np.float32)
+    # numpy-таблица вместо списка: 0,4 МБ вместо 3,5 МБ на плёнку в каждом процессе, результат тот же
+    return ImageFilter.Color3DLUT(n, np.ascontiguousarray(out.ravel()), channels=3)
+
+
+PARAM_LUT_CACHE = {}      # параметры своей плёнки -> таблица; ограничен: ползунки редактора дают много вариантов
+
+
+def preset_lut(key, p=None):
+    """Цветовая таблица плёнки. p — параметры своей плёнки (у встроенных берутся из PRESETS)."""
     with LUT_LOCK:
+        if p is not None:
+            k = json.dumps(p, sort_keys=True)
+            if k not in PARAM_LUT_CACHE:
+                PARAM_LUT_CACHE[k] = _bake(p)
+                while len(PARAM_LUT_CACHE) > 12:
+                    PARAM_LUT_CACHE.pop(next(iter(PARAM_LUT_CACHE)))
+            return PARAM_LUT_CACHE[k]
         if key not in LUT_CACHE:
-            n = 33
-            x = np.linspace(0, 1, n, dtype=np.float32)
-            b, g, r = np.meshgrid(x, x, x, indexing="ij")          # красный меняется быстрее всех
-            rgb = np.stack([r.ravel(), g.ravel(), b.ravel()], axis=1)
-            out = color_fn(rgb, PRESETS[key]).astype(np.float32)
-            # numpy-таблица вместо списка: 0,4 МБ вместо 3,5 МБ на плёнку в каждом процессе, результат тот же
-            LUT_CACHE[key] = ImageFilter.Color3DLUT(n, np.ascontiguousarray(out.ravel()), channels=3)
+            LUT_CACHE[key] = _bake(PRESETS[key])
         return LUT_CACHE[key]
 
 
@@ -495,11 +510,116 @@ def user_lut(owner, key):
     return f
 
 
+# ---- свои плёнки: те же параметры, что у встроенных (контраст, зерно, халяция…), но задаёт их человек ----
+# Лежат рядом с LUT: строка в таблице luts (size=0) и файл lut<id>.json с параметрами. Видит и применяет владелец.
+# Параметры — несколько чисел, поэтому плёнкой легко поделиться: текстовый код или каталог сообщества.
+LOOK_FIELDS = {                    # поле -> (сколько чисел, минимум, максимум)
+    "contrast": (1, 0.0, 1.0), "lift": (3, 0.0, 0.15), "top": (1, 0.8, 1.0), "shoulder": (1, 0.5, 0.95),
+    "sat": (1, 0.0, 2.0), "gamma": (3, 0.7, 1.3), "shadow_tint": (3, -0.1, 0.1), "high_tint": (3, -0.1, 0.1),
+    "halation": (1, 0.0, 1.2), "hal_thr": (1, 0.4, 0.95), "bloom": (1, 0.0, 0.3), "soften": (1, 0.0, 1.5),
+    "grain": (1, 0.0, 0.12), "grain_size": (1, 1.0, 3.0), "grain_color": (1, 0.0, 1.0), "vignette": (1, 0.0, 0.5),
+}
+LOOK_CODE_PREFIX = "proyavka-look:1:"
+LOOK_META_CACHE = {}               # путь -> (mtime, параметры или None) — в процессах-работниках
+
+
+def clean_params(d):
+    """Параметры плёнки из чужих рук (редактор, код, каталог): только известные поля, числа в допустимых пределах."""
+    if not isinstance(d, dict):
+        raise ValueError(L("нет параметров плёнки", "no film parameters"))
+    out = {}
+    for k, (n, lo, hi) in LOOK_FIELDS.items():
+        base = DEFAULTS[k]
+        v = d.get(k, base)
+        try:
+            if n == 1:
+                vals = float(v)
+                if not math.isfinite(vals):
+                    raise ValueError
+                out[k] = round(min(hi, max(lo, vals)), 4)
+            else:
+                if not isinstance(v, (list, tuple)) or len(v) != n:
+                    raise ValueError
+                if not all(math.isfinite(float(x)) for x in v):
+                    raise ValueError
+                out[k] = tuple(round(min(hi, max(lo, float(x))), 4) for x in v)
+        except (TypeError, ValueError):
+            raise ValueError(L(f"неверное значение «{k}»", f"invalid value for \"{k}\""))
+    bw = d.get("bw")
+    if bw:
+        try:
+            if len(bw) != 3 or not all(math.isfinite(float(x)) for x in bw):
+                raise ValueError
+            w = [min(1.0, max(0.0, float(x))) for x in bw]
+            s = sum(w) or 1.0
+            out["bw"] = tuple(round(x / s, 4) for x in w)      # веса каналов в сумме дают 1
+        except (TypeError, ValueError):
+            raise ValueError(L("неверные веса ч/б", "invalid b&w weights"))
+    else:
+        out["bw"] = None
+    return out
+
+
+def params_json(p):
+    """Параметры в JSON (кортежи — списки). Одинаковые параметры дают одинаковую строку."""
+    return {k: (list(v) if isinstance(v, tuple) else v) for k, v in p.items()}
+
+
+def look_params(owner, key):
+    """Параметры своей плёнки или None, если это обычный LUT. Читается в процессах-работниках: без базы, по файлу."""
+    path = str(lut_dir(owner) / f"{key}.json")
+    try:
+        mtime = os.path.getmtime(path)
+    except OSError:
+        return None
+    with LUT_LOCK:
+        hit = LOOK_META_CACHE.get(path)
+        if hit and hit[0] == mtime:
+            return hit[1]
+    try:
+        raw = json.loads(Path(path).read_text(encoding="utf-8")).get("params")
+        p = clean_params(raw) if raw else None
+    except (OSError, ValueError, AttributeError):
+        p = None
+    with LUT_LOCK:
+        LOOK_META_CACHE[path] = (mtime, p)
+        while len(LOOK_META_CACHE) > 64:
+            LOOK_META_CACHE.pop(next(iter(LOOK_META_CACHE)))
+    return p
+
+
+def clean_text(s, n):
+    return re.sub(r"[\x00-\x1f\x7f<>]", "", str(s or "")).strip()[:n]
+
+
+def look_code(name, author, p):
+    """Текст, которым можно поделиться где угодно: плёнка целиком в одной строке."""
+    blob = json.dumps({"name": name, "by": author, "p": params_json(p)}, ensure_ascii=False, separators=(",", ":"))
+    return LOOK_CODE_PREFIX + base64.urlsafe_b64encode(blob.encode("utf-8")).decode().rstrip("=")
+
+
+def parse_look_code(code):
+    """Код (или сырой JSON) -> (название, автор, параметры). Всё проверяется: код приходит от кого угодно."""
+    code = str(code or "").strip()
+    try:
+        if code.startswith(LOOK_CODE_PREFIX):
+            b = code[len(LOOK_CODE_PREFIX):]
+            data = json.loads(base64.urlsafe_b64decode(b + "=" * (-len(b) % 4)).decode("utf-8"))
+        else:
+            data = json.loads(code)
+        return clean_text(data.get("name"), 32) or "Look", clean_text(data.get("by"), 40), clean_params(data.get("p"))
+    except (ValueError, TypeError, AttributeError):
+        raise ValueError(L("это не код плёнки Проявки", "this is not a Proyavka film code"))
+
+
 def look(img, ph, key, strength, seed):
     """Плёнка, свой LUT или оригинал. LUT — только цвет; сила смешивает его с исходником (больше 100% — усиливает)."""
     if key == "original":
         return img
     if is_lut(key):
+        p = look_params(ph.get("owner"), key)
+        if p is not None:                           # своя плёнка из редактора или сообщества — те же эффекты, что у встроенных
+            return film(img, key, strength, seed, p)
         try:
             lut = user_lut(ph.get("owner"), key)
         except OSError:
@@ -510,8 +630,9 @@ def look(img, ph, key, strength, seed):
     return film(img, key, strength, seed)
 
 
-def film(img, key, strength=100, seed=0):
-    p = PRESETS[key]
+def film(img, key, strength=100, seed=0, p=None):
+    pr = p
+    p = pr or PRESETS[key]
     rng = np.random.default_rng(seed)
     w, h = img.size
     soft = p["soften"] * max(w, h) / 3000.0
@@ -520,7 +641,7 @@ def film(img, key, strength=100, seed=0):
     orig = img
     fx = fx_layer(img, p)
     a = ImageChops.screen(img, fx) if fx is not None else img
-    a = a.filter(preset_lut(key))
+    a = a.filter(preset_lut(key, pr))
     k = strength / 100.0
     if k != 1:
         a = Image.blend(orig, a, k)
@@ -1038,6 +1159,196 @@ def delete_lut(owner, key):
     return len(rows)
 
 
+# ================= свои плёнки и сообщество =================
+# Редактор в «Проявке» собирает плёнку из ползунков; сообщество — каталог community/looks.json в GitHub: сервер
+# скачивает его сам (раз в час), так что отдельный сайт не нужен, а читателей каталога GitHub не видит.
+COMMUNITY_URL = os.environ.get("COMMUNITY_URL", "https://raw.githubusercontent.com/Melnikoff07/proyavka/main/community/looks.json")
+COMMUNITY_REPO = os.environ.get("COMMUNITY_REPO", "Melnikoff07/proyavka")    # куда ведёт «Предложить в каталог»
+COMMUNITY_TTL = 3600
+COMMUNITY_MAX = 600
+COMMUNITY = {"at": 0.0, "looks": []}
+COMMUNITY_LOCK = threading.Lock()
+COMMUNITY_BUNDLED = Path(__file__).resolve().parent.parent / "community" / "looks.json"
+
+
+def _write_look(owner, key, name, params, author, src):
+    d = lut_dir(owner)
+    d.mkdir(parents=True, exist_ok=True)
+    meta = {"name": name, "size": 0, "params": params_json(params), "author": author, "src": src}
+    tmp = d / f"{key}.tmp.json"
+    tmp.write_text(json.dumps(meta, ensure_ascii=False), encoding="utf-8")
+    os.replace(tmp, d / f"{key}.json")
+
+
+def add_look(owner, name, params, author="", src=""):
+    """Новая своя плёнка (из редактора, по коду или из каталога). Лимит общий с LUT."""
+    if len(user_luts(owner)) >= LUT_MAX_COUNT:
+        raise ValueError(L(f"уже {LUT_MAX_COUNT} своих плёнок и LUT — удали ненужные", f"already {LUT_MAX_COUNT} films and LUTs — delete some"))
+    params = clean_params(params)
+    name = clean_text(name, 32) or "Look"
+    lid = run("INSERT INTO luts(owner, name, size, created) VALUES (?,?,?,?)", (owner, name, 0, time.time()))
+    key = f"lut{lid}"
+    _write_look(owner, key, name, params, clean_text(author, 40), clean_text(src, 40))
+    load_luts()
+    log.info("плёнка %s «%s» у %d", key, name, owner)
+    return {"key": key, "name": name}
+
+
+def user_look(owner, key):
+    """Своя плёнка для редактора: название, параметры, автор. Чужую или обычный LUT не отдаём."""
+    if not is_lut(key) or LUT_OWNER.get(key) != owner:
+        raise ValueError(L("нет такой плёнки", "no such film"))
+    meta = lut_meta(owner, key)
+    p = look_params(owner, key)
+    if p is None:
+        raise ValueError(L("это LUT-файл, его параметров нет", "this is a LUT file, it has no parameters"))
+    return {"key": key, "name": meta.get("name") or LUT_NAMES.get(key) or "Look", "params": params_json(p),
+            "author": meta.get("author") or "", "src": meta.get("src") or ""}
+
+
+def edit_look(owner, key, name, params):
+    """Сохранить правку своей плёнки. Кадры с ней перерисовываются, ссылка на плёнку остаётся прежней."""
+    cur = user_look(owner, key)
+    params = clean_params(params)
+    name = clean_text(name, 32) or cur["name"]
+    run("UPDATE luts SET name=? WHERE id=? AND owner=?", (name, int(key[3:]), owner))
+    _write_look(owner, key, name, params, cur["author"], cur["src"])
+    rows = q("SELECT id FROM photos WHERE owner=? AND preset=?", (owner, key))
+    for r in rows:
+        run("UPDATE photos SET rev=rev+1, updated=? WHERE id=?", (time.time(), r["id"]))
+        schedule_view(r["id"], prio=1, uid=owner)
+    for f in PREVIEWS.glob(f"*_{key}_*.jpg"):
+        remove(str(f))
+    load_luts()
+    return {"key": key, "name": name, "redrawn": len(rows)}
+
+
+def look_share(uid, key):
+    """Код плёнки и ссылка «Предложить в каталог» (готовая заявка в GitHub — человек сам решает, отправлять ли)."""
+    cur = user_look(uid, key)
+    author = clean_text((user(uid) or {}).get("name"), 40)
+    code = look_code(cur["name"], author, clean_params(cur["params"]))
+    body = f"Author: {author or '—'}\nName: {cur['name']}\n\n```\n{code}\n```\n"
+    url = (f"https://github.com/{COMMUNITY_REPO}/issues/new?title={quote('Look: ' + cur['name'])}&body={quote(body)}"
+           if COMMUNITY_REPO else "")
+    return {"code": code, "suggest_url": url, "author": author}
+
+
+def _community_entries(raw):
+    out = []
+    for e in (raw.get("looks") if isinstance(raw, dict) else None) or []:
+        try:
+            cid = str(e["id"])
+            if not re.fullmatch(r"[a-z0-9][a-z0-9-]{0,39}", cid):
+                continue
+            p = clean_params(e["p"])
+            desc = e.get("desc") or ""
+            if isinstance(desc, dict):
+                desc = {k: clean_text(v, 140) for k, v in desc.items() if k in ("ru", "en")}
+            else:
+                desc = {"ru": clean_text(desc, 140), "en": clean_text(desc, 140)}
+            out.append({"id": cid, "name": clean_text(e.get("name"), 32) or cid, "by": clean_text(e.get("by"), 40),
+                        "desc": desc, "p": p,
+                        "h": hashlib.sha1(json.dumps(params_json(p), sort_keys=True).encode()).hexdigest()[:10]})
+        except (KeyError, TypeError, ValueError, AttributeError):
+            continue                                     # одна битая запись не должна ронять каталог
+        if len(out) >= COMMUNITY_MAX:
+            break
+    return out
+
+
+def community_catalog(force=False):
+    """Каталог плёнок сообщества: из сети (кэш на час), иначе с диска, иначе копия из репозитория."""
+    with COMMUNITY_LOCK:
+        if not force and COMMUNITY["looks"] and time.time() - COMMUNITY["at"] < COMMUNITY_TTL:
+            return COMMUNITY["looks"]
+        cache = BASE / "community.json"
+        raw = None
+        if COMMUNITY_URL.startswith("https://"):
+            try:
+                r = requests.get(COMMUNITY_URL, timeout=8, stream=True)
+                r.raise_for_status()
+                data = r.raw.read(2 * 1024 * 1024 + 1, decode_content=True)
+                if len(data) > 2 * 1024 * 1024:
+                    raise ValueError("catalog too large")
+                raw = json.loads(data)
+                if _community_entries(raw) or raw.get("looks") == []:
+                    cache.write_bytes(data)
+                else:
+                    raw = None
+            except (requests.RequestException, ValueError, OSError) as e:
+                log.warning("каталог сообщества не скачался: %s", e)
+        for src in (cache, COMMUNITY_BUNDLED):
+            if raw is not None:
+                break
+            try:
+                raw = json.loads(src.read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                raw = None
+        COMMUNITY["looks"] = _community_entries(raw)
+        COMMUNITY["at"] = time.time()
+        return COMMUNITY["looks"]
+
+
+def community_json(uid):
+    have = {}
+    for r in user_luts(uid):
+        src = lut_meta(uid, f"lut{r['id']}").get("src")
+        if src:
+            have[src] = f"lut{r['id']}"
+    sample = None
+    for r in q("SELECT id, work FROM photos WHERE owner=? AND hidden=0 AND work IS NOT NULL ORDER BY taken DESC, id DESC LIMIT 5", (uid,)):
+        if has(r["work"]):
+            sample = r["id"]
+            break
+    en = user_lang(uid) == "en"
+    items = []
+    for e in community_catalog():
+        d = e["desc"]
+        items.append({"id": e["id"], "name": e["name"], "by": e["by"], "h": e["h"], "bw": bool(e["p"]["bw"]),
+                      "desc": (d.get("en") if en else d.get("ru")) or d.get("ru") or d.get("en") or "",
+                      "installed": have.get(e["id"], "")})
+    return {"looks": items, "sample": sample, "repo": COMMUNITY_REPO}
+
+
+def community_add(uid, cid):
+    for e in community_catalog():
+        if e["id"] == cid:
+            for r in user_luts(uid):                     # уже добавлена — вторую копию не делаем
+                if lut_meta(uid, f"lut{r['id']}").get("src") == cid:
+                    return {"key": f"lut{r['id']}", "name": r["name"], "again": True}
+            return add_look(uid, e["name"], e["p"], e["by"], cid)
+    raise ValueError(L("в каталоге нет такой плёнки", "no such film in the catalog"))
+
+
+def try_look(uid, data):
+    """Живой просмотр редактора: кадр пользователя с плёнкой из ползунков (картинка, ничего не сохраняется)."""
+    try:
+        ph = get(int(data.get("id")))
+        strength = int(data.get("strength") or 100)
+    except (TypeError, ValueError):
+        ph = None
+    if not ph or ph["owner"] != uid or ph["hidden"]:
+        raise ValueError(L("кадр не найден", "frame not found"))
+    if not has(ph["work"]):
+        raise ValueError(L("кадр в архиве", "frame is archived"))
+    if strength not in STRENGTHS:
+        strength = 100
+    params = clean_params(data.get("params"))
+    return FAST.submit(job_try, dict(ph), params, strength).result(timeout=120)
+
+
+def community_preview(ph, cid):
+    """Плёнка каталога на кадре пользователя; файл-кэш на сутки."""
+    for e in community_catalog():
+        if e["id"] == cid:
+            path = PREVIEWS / f"{ph['id']}_cm{e['h']}_100.jpg"
+            if not path.exists():
+                FAST.submit(job_try, dict(ph), e["p"], 100, str(path)).result(timeout=120)
+            return path
+    return None
+
+
 def storage_limit(uid):
     u = USERS.get(uid) or {}
     if u.get("storage_gb"):
@@ -1463,23 +1774,39 @@ def job_full(ph, path):
     return save_atomic(render(ph, full=True), path, 95)
 
 
-def job_preview(ph, key, strength, path, leak=""):
+def preview_base(ph):
+    """Уменьшенный кадр (420 px) — основа всех превью; кадрированное сперва вырезается, потом уменьшается."""
     crop = ph.get("crop")
     base_path = PREVIEWS / f"{ph['id']}_base{crop_tag(crop)}.jpg"
     if not base_path.exists():
         b = Image.open(ph["work"])
-        if crop:                                 # кадрированное превью — сперва вырезать, потом уменьшать
+        if crop:
             b = crop_img(b, crop)
         else:
             b.draft("RGB", (420, 420))
         b = b.convert("RGB")
         b.thumbnail((420, 420), Image.LANCZOS)
         save_atomic(b, str(base_path), 92)
-    base = Image.open(base_path).convert("RGB")
+    return Image.open(base_path).convert("RGB")
+
+
+def job_preview(ph, key, strength, path, leak=""):
+    base = preview_base(ph)
     out = look(base, ph, key, strength, ph["id"])
     if leak:
         out = light_leak(out, leak, leak_seed(ph))
     return save_atomic(out, path, 84)
+
+
+def job_try(ph, params, strength, path=None):
+    """Кадр с плёнкой, которой ещё нет в базе: живой просмотр в редакторе и превью плёнок сообщества.
+    Без path — JPEG байтами (редактор не засоряет диск), с path — файлом-кэшем."""
+    out = film(preview_base(ph), "custom", strength, ph["id"], params)
+    if path:
+        return save_atomic(out, path, 84)
+    buf = io.BytesIO()
+    out.save(buf, "JPEG", quality=84)
+    return buf.getvalue()
 
 
 def job_source(work, path):
@@ -4180,13 +4507,30 @@ class Handler(BaseHTTPRequestHandler):
                 return self.err(401, L("нужна авторизация через Telegram", "Telegram authorization required"))
             if parts == ["api", "presets"]:
                 items = [{"key": "original", "name": L("Оригинал", "Original"), "when": L("без обработки", "unprocessed")}]
-                items += [{"key": k, "name": p["name"], "when": tr(p["when"]), "desc": tr(p["desc"])} for k, p in PRESETS.items()]
-                items += [{"key": f"lut{r['id']}", "name": r["name"], "when": f"LUT {r['size']}³", "desc": "", "lut": True}
+                items += [{"key": k, "name": p["name"], "when": tr(p["when"]), "desc": tr(p["desc"]),
+                           "p": params_json(clean_params(p))} for k, p in PRESETS.items()]     # p — основа для редактора
+                items += [{"key": f"lut{r['id']}", "name": r["name"], "desc": "", "lut": True,
+                           "when": f"LUT {r['size']}³" if r["size"] else L("Своя плёнка", "Your film"),
+                           **({"look": True} if not r["size"] else {})}
                           for r in user_luts(uid)]
                 leaks = [{"key": k, "name": tr(v[0]), "desc": tr(v[1])} for k, v in LEAKS.items()]
                 return self.js({"presets": items, "strengths": STRENGTHS, "leaks": leaks})
             if parts == ["api", "me"]:
                 return self.js(me_json(uid))
+            if parts == ["api", "community"]:
+                return self.js(community_json(uid))
+            if len(parts) == 3 and parts[:2] == ["api", "look"]:
+                return self.js(user_look(uid, parts[2]))
+            if len(parts) == 4 and parts[:2] == ["api", "look"] and parts[3] == "share":
+                return self.js(look_share(uid, parts[2]))
+            if len(parts) == 3 and parts[:2] == ["img", "look"]:
+                ph = self.mine((qs.get("p") or [""])[0], uid)
+                if not ph or ph["hidden"] or not has(ph["work"]):
+                    return self.err(404, L("нет кадра", "no frame"))
+                path = community_preview(ph, parts[2])
+                if not path:
+                    return self.err(404, L("нет такой плёнки", "no such film"))
+                return self.file(str(path))
             if parts == ["api", "albums"]:
                 return self.js({"albums": user_albums(uid)})
             if parts == ["api", "trash"]:
@@ -4266,6 +4610,8 @@ class Handler(BaseHTTPRequestHandler):
             return self.err(404, L("не найдено", "not found"))
         except (BrokenPipeError, ConnectionResetError):
             pass
+        except (ValueError, RuntimeError) as e:
+            self.err(400, str(e))
         except Exception as e:
             log.exception("GET %s", self.path)
             self.err(500, str(e))
@@ -4335,6 +4681,17 @@ class Handler(BaseHTTPRequestHandler):
                 return self.js(batch_action(data, uid))
             if parts == ["api", "me"]:
                 return self.js(set_me(uid, data))
+            if parts == ["api", "look", "try"]:
+                return self.send(200, try_look(uid, data), "image/jpeg", "no-store")
+            if parts == ["api", "look"]:            # новая своя плёнка из редактора; с key — правка существующей
+                if data.get("key"):
+                    return self.js(edit_look(uid, str(data["key"]), data.get("name"), data.get("params")))
+                return self.js(add_look(uid, data.get("name"), data.get("params"), (user(uid) or {}).get("name") or ""))
+            if parts == ["api", "look", "import"]:
+                name, by, params = parse_look_code(data.get("code"))
+                return self.js(add_look(uid, name, params, by))
+            if parts == ["api", "community", "add"]:
+                return self.js(community_add(uid, str(data.get("id") or "")))
             if parts == ["api", "albums"]:
                 return self.js(make_album(uid, data))
             if len(parts) in (3, 4) and parts[:2] == ["api", "album"] and parts[2].isdigit():
