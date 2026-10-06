@@ -109,6 +109,8 @@ if __name__ == "__main__":
     check("код с префиксом", s["code"].startswith("proyavka-look:1:"))
     check("ссылка «Предложить» ведёт в GitHub с кодом", s["suggest_url"].startswith("https://github.com/") and "issues/new" in s["suggest_url"]
           and "proyavka-look" in s["suggest_url"])
+    check("для отправки есть контакт автора и название", s["contact"] == "Sashkere" and s["name"] == "Холодная")
+    check("своя плёнка не помечена как из сообщества", next(x for x in h.get("/api/presets")["presets"] if x["key"] == key).get("community") is False)
     imp = h2.post("/api/look/import", {"code": s["code"]})
     check(f"код импортируется у другого: {imp.get('name')}", imp.get("name") == "Холодная")
     h2got = h2.get(f"/api/look/{imp['key']}")
@@ -132,6 +134,8 @@ if __name__ == "__main__":
     check(f"добавлена из каталога: {ad.get('name')}", ad.get("key", "").startswith("lut") and not ad.get("again"))
     ad2 = h.post("/api/community/add", {"id": first["id"]})
     check("повторно не дублируется", ad2.get("again") and ad2["key"] == ad["key"])
+    check("плёнка из каталога помечена: предлагать её обратно не нужно",
+          next(x for x in h.get("/api/presets")["presets"] if x["key"] == ad["key"]).get("community") is True)
     check("в каталоге помечена как добавленная", next(x for x in h.get("/api/community")["looks"] if x["id"] == first["id"])["installed"] == ad["key"])
     check("неизвестная плёнка каталога — 400", h.post("/api/community/add", {"id": "net-takoy"}).get("_status") == 400)
 

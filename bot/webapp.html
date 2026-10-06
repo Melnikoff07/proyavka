@@ -376,6 +376,7 @@
     <select class="st-select" id="edBase" aria-label="Начать с" data-i18n-aria="Start from"></select></div>
   <div id="edBody"></div>
   <div class="actions"><button class="btn" id="edSave"></button><button class="link cap" id="edReset" data-i18n="Reset">Сбросить</button></div>
+  <div class="actions" style="padding-top:6px"><button class="link cap" id="edShare" style="color:var(--text);text-decoration:underline;text-underline-offset:3px" data-i18n="Suggest to the community">Предложить в сообщество</button></div>
 </section>
 <section class="settings layer2" id="community" hidden aria-label="Сообщество" data-i18n-aria="Community">
   <div class="vbar cap"><span class="vleft"><button class="vback" id="cmBack" aria-label="Назад" data-i18n-aria="Back">←</button><span data-i18n="Community">Сообщество</span></span><span></span><span></span></div>
@@ -2041,7 +2042,7 @@ $("edBase").onchange = () => {
   edPreview();
 };
 $("edReset").onclick = () => { if (!ed) return; ed.P = deep(ed.orig); edSync(); edPreview(); };
-$("edSave").onclick = async () => {
+async function saveEditor(andShare) {
   if (!ed) return;
   const e = ed, name = $("edName").value.trim() || T("Моя плёнка", "My film");
   $("edSave").disabled = true;
@@ -2055,8 +2056,11 @@ $("edSave").onclick = async () => {
     else if (!fresh) { jobs = Math.max(jobs, 1); schedulePoll(); if (photos[cur]) renderStrip(photos[cur]); }
     toast(T(`Плёнка «${r.name}» сохранена`, `Film "${r.name}" saved`));
     haptic("success");
+    if (andShare) shareLook({ key: r.key, name: r.name });          // «Предложить в сообщество» — сохранить и сразу к отправке
   } catch (err) { toast(err.message); $("edSave").disabled = false; }
-};
+}
+$("edSave").onclick = () => saveEditor(false);
+$("edShare").onclick = () => saveEditor(true);
 $("stLookNew").onclick = () => openEditor({});
 
 function renderMyLooks() {
@@ -2065,10 +2069,12 @@ function renderMyLooks() {
     const row = document.createElement("div");
     row.className = "st-user";
     row.innerHTML = `<div class="dn"><span></span></div><button class="cap" data-act="edit">${T("Изменить", "Edit")}</button>` +
-      `<button class="cap" data-act="share">${T("Поделиться", "Share")}</button><button class="cap" data-act="del">${T("Удалить", "Delete")}</button>`;
+      (f.community ? "" : `<button class="cap" data-act="share" style="color:var(--text)">${T("В сообщество", "To community")}</button>`) +
+      `<button class="cap" data-act="del">${T("Удалить", "Delete")}</button>`;
     row.querySelector(".dn span").textContent = f.name;
     row.querySelector('[data-act="edit"]').onclick = () => openEditor({ key: f.key });
-    row.querySelector('[data-act="share"]').onclick = () => shareLook(f);
+    const sh = row.querySelector('[data-act="share"]');
+    if (sh) sh.onclick = () => shareLook(f);
     row.querySelector('[data-act="del"]').onclick = () => ask(T(`Удалить плёнку «${f.name}»? Кадры с ней перейдут на автоплёнку.`, `Delete the film "${f.name}"? Frames using it switch to their auto film.`),
       async (ok) => { if (ok) try { await api(`/api/lut/${f.key}/delete`, {}); await reloadPresets(); jobs = Math.max(jobs, 1); schedulePoll(); toast(T("Удалено", "Deleted")); } catch (e) { toast(e.message); } });
     return row;
@@ -2078,22 +2084,48 @@ function renderMyLooks() {
 async function shareLook(f) {
   let j;
   try { j = await api(`/api/look/${f.key}/share`); } catch (e) { return toast(e.message); }
-  openAlbumSheet(f.name,
-    `<textarea class="linkbox" id="lkCode" rows="4" readonly></textarea>` +
-    `<p class="muted" style="margin:10px 0 0">${T("Код — это вся плёнка в одной строке. Вставь его в «Сообщество» у друга, и плёнка появится у него. «Предложить в каталог» откроет готовую заявку на GitHub (нужен аккаунт) — или пришли код автору проекта.",
-      "The code is the whole film in one line. Paste it into Community on a friend's device and the film appears there. “Suggest to the catalog” opens a ready issue on GitHub (an account is needed) — or just send the code to the project author.")}</p>` +
-    `<div class="actions al-acts"><button class="btn" id="lkCopy">${T("Копировать код", "Copy code")}</button>` +
-    `<button class="link cap" id="lkSend">${T("Отправить", "Send")}</button></div>` +
-    (j.suggest_url ? `<button class="link cap" id="lkSuggest">${T("Предложить в каталог", "Suggest to the catalog")}</button>` : ""));
+  const text = `${j.name} — ${j.author || "—"}\n${j.code}`;
+  openAlbumSheet(T("В сообщество", "To the community"),
+    `<div style="font-size:22px;font-weight:500;letter-spacing:-.025em"></div>` +
+    `<p class="muted" style="margin:6px 0 0" id="lkAbout"></p>` +
+    `<div class="actions al-acts">` +
+    (j.contact ? `<button class="btn" id="lkTg">${T("Отправить в Telegram", "Send via Telegram")}</button>` : "") +
+    (j.suggest_url ? `<button class="${j.contact ? "link cap" : "btn"}" id="lkGh">${T("Через GitHub", "Via GitHub")}</button>` : "") + `</div>` +
+    `<p class="muted" style="margin:12px 0 0">${T("Хочешь показать плёнку на своём кадре — приложи фото к сообщению (по желанию). Код ниже — это вся плёнка в одной строке: его можно отправить и другу, он вставит его в «Сообщество».",
+                                                    "Want to show the film on your own photo? Attach it to the message (optional). The code below is the whole film in one line: you can also send it to a friend, who pastes it into Community.")}</p>` +
+    `<textarea class="linkbox" id="lkCode" rows="3" readonly></textarea>` +
+    `<button class="link cap" id="lkCopy">${T("Копировать код", "Copy code")}</button>`);
+  $("alBody").firstChild.textContent = j.name;
+  const who = j.author ? T(`под именем «${j.author}»`, `as "${j.author}"`) : T("без имени", "without a name");
+  $("lkAbout").textContent = T(`Плёнка уйдёт автору проекта на проверку. Если подойдёт, её добавят в общий каталог — ${who}. `,
+                               `The film goes to the project author for review. If it fits, it is added to the shared catalog — ${who}. `);
+  const rename = document.createElement("button");
+  rename.className = "link cap";
+  rename.style.padding = "0";
+  rename.textContent = T("Изменить имя", "Change name");
+  rename.onclick = async () => {
+    const n = prompt(T("Под каким именем показать автора?", "What name should the author be shown under?"), j.author || "");
+    if (n === null) return;
+    if (await saveMe({ name: n.trim() })) shareLook(f);
+  };
+  $("lkAbout").appendChild(rename);
   $("lkCode").value = j.code;
   $("lkCode").onfocus = () => $("lkCode").select();
   $("lkCopy").onclick = () => copyText(j.code, T("Код скопирован", "Code copied"));
-  $("lkSend").onclick = async () => {
-    if (tg && tg.openTelegramLink) return tg.openTelegramLink(`https://t.me/share/url?url=${encodeURIComponent(" ")}&text=${encodeURIComponent(j.code)}`);
-    if (navigator.share) { try { await navigator.share({ title: f.name, text: j.code }); } catch (e) {} return; }
-    copyText(j.code, T("Код скопирован", "Code copied"));
+  if (j.contact) $("lkTg").onclick = () => {
+    // копирование начинаем до открытия чата: после перехода страница теряет фокус и буфер уже не дастся
+    navigator.clipboard.writeText(text).then(() => toast(T("Скопировано — вставь в чат и отправь", "Copied — paste into the chat and send")),
+                                             () => { $("lkCode").select(); toast(T("Скопируй код ниже вручную и вставь в чат", "Copy the code below and paste it into the chat")); });
+    openLink(`https://t.me/${j.contact}`);
   };
-  if (j.suggest_url) $("lkSuggest").onclick = () => openExternal(j.suggest_url);
+  if (j.suggest_url) $("lkGh").onclick = () => openExternal(j.suggest_url);
+}
+function pickMyLook() {
+  const mine = presets.filter((f) => f.look && !f.community);
+  if (!mine.length) { toast(T("Сначала создай свою плёнку", "Create your own film first")); closeCommunity(); openEditor({}); return; }
+  if (mine.length === 1) return shareLook(mine[0]);
+  openAlbumSheet(T("Какую плёнку предложить?", "Which film to suggest?"), mine.map((f, i) => `<button class="st-link cap" data-i="${i}" style="padding-left:0"></button>`).join(""));
+  $("alBody").querySelectorAll("button").forEach((b) => { b.textContent = mine[b.dataset.i].name; b.onclick = () => shareLook(mine[b.dataset.i]); });
 }
 
 let cm = null;              // { looks, ctx } — каталог и кадр, с которого его открыли (null — из настроек)
@@ -2118,6 +2150,12 @@ function renderCommunity() {
     : T("Плёнки, которые собрали и выложили люди. Нажми на плёнку, чтобы рассмотреть. Чтобы примерить на свой кадр, открой каталог из просмотра кадра.",
         "Films that people made and shared. Tap one to look closer. To try it on your own frame, open the catalog from the frame viewer.");
   body.appendChild(intro);
+  const sug = document.createElement("div");
+  sug.className = "actions";
+  sug.style.paddingTop = "12px";
+  sug.innerHTML = `<button class="btn">${T("Предложить свою плёнку", "Suggest your own film")}</button>`;
+  sug.firstChild.onclick = pickMyLook;
+  body.appendChild(sug);
   const imp = document.createElement("form");
   imp.className = "cm-import";
   imp.innerHTML = `<input autocomplete="off" spellcheck="false"><button class="btn" type="submit">${T("Добавить", "Add")}</button>`;
@@ -2161,8 +2199,8 @@ function renderCommunity() {
   body.appendChild(grid);
   const note = document.createElement("p");
   note.className = "muted st-p";
-  note.textContent = T("Свою плёнку можно предложить в каталог: «⋯» → «Мои плёнки» → «Поделиться». Превью в каталоге нарисованы на общем образце.",
-                       "To suggest your own film: ⋯ → My films → Share. Catalog previews use a shared sample photo.");
+  note.textContent = T("Превью в каталоге нарисованы на общем образце. Свою плёнку можно предложить кнопкой вверху или из редактора.",
+                       "Catalog previews use a shared sample photo. You can suggest your own film with the button at the top or from the editor.");
   body.appendChild(note);
   $("cmBody").replaceChildren(body);
 }

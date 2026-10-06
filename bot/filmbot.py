@@ -1231,7 +1231,7 @@ def look_share(uid, key):
     body = f"Author: {author or '—'}\nName: {cur['name']}\n\n```\n{code}\n```\n"
     url = (f"https://github.com/{COMMUNITY_REPO}/issues/new?title={quote('Look: ' + cur['name'])}&body={quote(body)}"
            if COMMUNITY_REPO else "")
-    return {"code": code, "suggest_url": url, "author": author}
+    return {"code": code, "suggest_url": url, "author": author, "contact": CONTACT_TG, "name": cur["name"]}
 
 
 def _community_entries(raw):
@@ -4618,7 +4618,7 @@ class Handler(BaseHTTPRequestHandler):
                            "p": params_json(clean_params(p))} for k, p in PRESETS.items()]     # p — основа для редактора
                 items += [{"key": f"lut{r['id']}", "name": r["name"], "desc": "", "lut": True,
                            "when": f"LUT {r['size']}³" if r["size"] else L("Своя плёнка", "Your film"),
-                           **({"look": True} if not r["size"] else {})}
+                           **({"look": True, "community": bool(lut_meta(uid, f"lut{r['id']}").get("src"))} if not r["size"] else {})}
                           for r in user_luts(uid)]
                 leaks = [{"key": k, "name": tr(v[0]), "desc": tr(v[1])} for k, v in LEAKS.items()]
                 return self.js({"presets": items, "strengths": STRENGTHS, "leaks": leaks})
