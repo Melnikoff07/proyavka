@@ -162,9 +162,22 @@ if __name__ == "__main__":
     # --- битый каталог из сети не ломает ничего ---
     raw = {"looks": [{"id": "ok-one", "name": "Ok", "p": {"contrast": 0.3}},
                      {"id": "BAD ID", "name": "x", "p": {}}, {"id": "no-params", "name": "x"},
-                     {"id": "bad-num", "name": "x", "p": {"sat": "abc"}}, "мусор", None]}
+                     {"id": "bad-num", "name": "x", "p": {"sat": "abc"}}, "мусор", None,
+                     {"id": "huge", "name": "x", "p": {"contrast": 10 ** 400}}]}
     ents = looks._community_entries(raw)
     check(f"в каталоге остаются только годные записи: {[e['id'] for e in ents]}", [e["id"] for e in ents] == ["ok-one"])
+
+    # --- отрисовки плёнок каталога на своих кадрах ограничены по частоте (готовые из кэша — без счёта) ---
+    looks.PREVIEW_PER_MIN, looks.PREVIEW_RATE = 1, {}
+    ids = [l["id"] for l in h.get("/api/community")["looks"]]
+    from proyavka.config import PREVIEWS
+    for f in PREVIEWS.glob(f"{pid}_cm*"):
+        f.unlink()
+    status = lambda r: 200 if isinstance(r, bytes) else r.get("_status")
+    codes = [status(h.get(f"/img/look/{i}?p={pid}")) for i in ids[:3]]
+    check(f"лимит отрисовок каталога: {codes}", codes[0] == 200 and 429 in codes[1:])
+    check("уже готовое превью отдаётся и сверх лимита", isinstance(h.get(f"/img/look/{ids[0]}?p={pid}"), bytes))
+    looks.PREVIEW_PER_MIN = 30
 
     # --- лимит и удаление ---
     d = h.post(f"/api/lut/{key}/delete")

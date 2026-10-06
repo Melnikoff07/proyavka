@@ -5,12 +5,12 @@ import time
 from datetime import datetime
 
 from .config import PAGE, STRENGTHS, TMP, WEBAPP_URL, WEB_BASE, log
-from .i18n import L, speak, tr, user_lang
+from .i18n import L, speak, tr
 from .util import jpeg, remove
 from .film import LUT_MAX_BYTES, LUT_NAMES, LUT_OWNER, PRESETS, canon, pname
 from .imaging import gallery_image
 from .database import get, q
-from .users import ADMIN, INVITE_DAYS, set_user, storage_limit, user, user_luts, valid_look
+from .users import ADMIN, INVITE_DAYS, set_user, storage_limit, user, user_lang, user_luts, valid_look
 from .jobs import job_contact
 from .pools import NET
 from .telegram import (

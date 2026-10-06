@@ -40,7 +40,7 @@ from proyavka.storage import cleanup
 from proyavka.telegram import safe
 from proyavka.users import ADMIN, CLEANUP_MINUTES, USERS
 from proyavka.util import remove, segno
-from proyavka.web import backfill_fingerprints, backfill_views, start_web
+from proyavka.web import backfill_fingerprints, backfill_views, refilm_builtin, start_web
 
 _getaddrinfo = socket.getaddrinfo
 
@@ -72,6 +72,7 @@ def main():
     threading.Thread(target=vps_watch, daemon=True, name="vps-watch").start()
     threading.Thread(target=ingest_loop, args=(state,), daemon=True, name="ingest").start()
     backfill_fingerprints()
+    refilm_builtin()
     backfill_views()
     if RAW_MISSING:
         log.warning("RAW включён, но нет библиотеки rawpy — RAW выключен. Поставить: .venv/bin/pip install rawpy "

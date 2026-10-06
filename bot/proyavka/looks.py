@@ -14,7 +14,7 @@ from pathlib import Path
 from urllib.parse import quote, urlparse
 
 from .config import BASE, COMMUNITY_BUNDLED, CONTACT_TG, PREVIEWS, STRENGTHS, WEBAPP_URL, log
-from .i18n import L, user_lang
+from .i18n import L
 from .util import remove
 from .film import (
     LUT_MAX_BYTES, LUT_MAX_COUNT, LUT_NAMES, LUT_OWNER, clean_params, clean_text, is_lut, look_code,
@@ -22,7 +22,7 @@ from .film import (
 )
 from .imaging import has
 from .database import get, q, run
-from .users import ADMIN, load_luts, set_user, user, user_luts
+from .users import ADMIN, load_luts, set_user, user, user_lang, user_luts
 from .jobs import base_path, job_base, job_sample, job_try
 from .scheduler import schedule_view
 
@@ -189,38 +189,62 @@ def _community_entries(raw):
             out.append({"id": cid, "name": clean_text(e.get("name"), 32) or cid, "by": clean_text(e.get("by"), 40),
                         "desc": desc, "p": p,
                         "h": hashlib.sha1(json.dumps(params_json(p), sort_keys=True).encode()).hexdigest()[:10]})
-        except (KeyError, TypeError, ValueError, AttributeError):
+        except (KeyError, TypeError, ValueError, AttributeError, OverflowError):
             continue                                     # одна битая запись не должна ронять каталог
         if len(out) >= COMMUNITY_MAX:
+            log.warning("в каталоге больше %d плёнок — остальные не показываются", COMMUNITY_MAX)
             break
     return out
+
+
+COMMUNITY_FETCH = threading.Lock()      # каталог качает один поток; остальные пока берут прежний
+
+
+def _fetch_limited(url, limit, timeout=8, total=20):
+    """GET с пределом размера и общего времени (таймаут requests — на каждое чтение, а не на весь ответ)."""
+    t0 = time.time()
+    with requests.get(url, timeout=timeout, stream=True) as r:
+        if r.status_code != 200:
+            return r.status_code, b""
+        buf = bytearray()
+        for chunk in r.iter_content(65536):
+            buf += chunk
+            if len(buf) > limit:
+                raise ValueError("too large")
+            if time.time() - t0 > total:
+                raise ValueError("too slow")
+        return 200, bytes(buf)
 
 
 def community_catalog(force=False):
     """Каталог плёнок сообщества: из сети (кэш на час), иначе с диска, иначе копия из репозитория."""
     with COMMUNITY_LOCK:
-        if not force and COMMUNITY["looks"] and time.time() - COMMUNITY["at"] < COMMUNITY_TTL:
+        fresh = COMMUNITY["looks"] and time.time() - COMMUNITY["at"] < COMMUNITY_TTL
+        if not force and fresh:
             return COMMUNITY["looks"]
         if COMMUNITY_HUB:                                   # приёмник ведёт каталог сам
             COMMUNITY["looks"] = _community_entries(hub_raw())
             COMMUNITY["at"] = time.time()
             return COMMUNITY["looks"]
+    # скачивание — без общей блокировки: пока каталог едет, остальные запросы отдают прежний, а не ждут
+    if not COMMUNITY_FETCH.acquire(blocking=not COMMUNITY["looks"]):
+        return COMMUNITY["looks"]
+    try:
         cache = BASE / "community.json"
         raw = None
         if COMMUNITY_URL.startswith("https://"):
             try:
-                r = requests.get(COMMUNITY_URL, timeout=8, stream=True)
-                r.raise_for_status()
-                data = r.raw.read(2 * 1024 * 1024 + 1, decode_content=True)
-                if len(data) > 2 * 1024 * 1024:
-                    raise ValueError("catalog too large")
+                code, data = _fetch_limited(COMMUNITY_URL, 2 * 1024 * 1024)
+                if code != 200:
+                    raise ValueError(f"HTTP {code}")
                 raw = json.loads(data)
                 if _community_entries(raw) or raw.get("looks") == []:
                     cache.write_bytes(data)
                 else:
                     raw = None
-            except (requests.RequestException, ValueError, OSError) as e:
+            except (requests.RequestException, ValueError, OSError, AttributeError) as e:
                 log.warning("каталог сообщества не скачался: %s", e)
+                raw = None
         for src in (cache, COMMUNITY_BUNDLED):
             if raw is not None:
                 break
@@ -228,9 +252,13 @@ def community_catalog(force=False):
                 raw = json.loads(src.read_text(encoding="utf-8"))
             except (OSError, ValueError):
                 raw = None
-        COMMUNITY["looks"] = _community_entries(raw)
-        COMMUNITY["at"] = time.time()
-        return COMMUNITY["looks"]
+        looks = _community_entries(raw)
+        with COMMUNITY_LOCK:
+            COMMUNITY["looks"] = looks
+            COMMUNITY["at"] = time.time()
+        return looks
+    finally:
+        COMMUNITY_FETCH.release()
 
 
 def community_json(uid):
@@ -302,21 +330,32 @@ def _submit_rate(key):
             SUBMITS.pop(next(iter(SUBMITS)))
 
 
+SUBMIT_EXPIRE_DAYS = 30           # заявка, которую так и не посмотрели, уходит из очереди: забитая очередь не держится вечно
+
+
+HUB_LOCK = threading.Lock()       # очередь и каталог приёмника меняются по одному: приём, одобрение, отклонение
+
+
 def hub_receive(payload, ip):
-    """Приём плёнки от кого угодно: всё проверяется и ограничивается, в каталог ничего не попадает без одобрения."""
+    """Приём плёнки от кого угодно: всё проверяется и ограничивается, в каталог ничего не попадает без одобрения.
+    ip — адрес из X-Real-IP (его ставит nginx); от другого сервера Проявки это адрес сервера, а не человека."""
     if not isinstance(payload, dict) or len(json.dumps(payload, ensure_ascii=False)) > 8192:
         raise ValueError(L("это не плёнка Проявки", "this is not a Proyavka film"))
     params = clean_params(payload.get("p"))
     name = clean_text(payload.get("name"), 32) or "Look"
     by = clean_text(payload.get("by"), 40)
     h = hashlib.sha1(json.dumps(params_json(params), sort_keys=True).encode()).hexdigest()[:10]
-    if q("SELECT 1 FROM submissions WHERE h=? AND status='new'", (h,)) or any(e["h"] == h for e in community_catalog()):
-        return {"ok": True, "again": True}                  # такая уже есть — повторно не копим
-    _submit_rate(ip or "?")
-    if q("SELECT COUNT(*) AS n FROM submissions WHERE status='new'")[0]["n"] >= SUBMIT_PENDING_MAX:
-        raise RateLimit(L("очередь на проверку переполнена — попробуй позже", "the review queue is full — try again later"))
-    run("INSERT INTO submissions(name, by, params, h, created, ip, status) VALUES (?,?,?,?,?,?, 'new')",
-        (name, by, json.dumps(params_json(params)), h, time.time(), ip or "", ))
+    in_catalog = any(e["h"] == h for e in community_catalog())
+    with HUB_LOCK:                                         # проверка дубля и запись — одним шагом
+        run("UPDATE submissions SET status='expired' WHERE status='new' AND created < ?",
+            (time.time() - SUBMIT_EXPIRE_DAYS * 86400,))
+        if in_catalog or q("SELECT 1 FROM submissions WHERE h=? AND status='new'", (h,)):
+            return {"ok": True, "again": True}              # такая уже есть — повторно не копим
+        _submit_rate(ip or "?")
+        if q("SELECT COUNT(*) AS n FROM submissions WHERE status='new'")[0]["n"] >= SUBMIT_PENDING_MAX:
+            raise RateLimit(L("очередь на проверку переполнена — попробуй позже", "the review queue is full — try again later"))
+        run("INSERT INTO submissions(name, by, params, h, created, ip, status) VALUES (?,?,?,?,?,?, 'new')",
+            (name, by, json.dumps(params_json(params)), h, time.time(), ip or ""))
     log.info("плёнка на проверку: «%s» от «%s»", name, by)
     return {"ok": True}
 
@@ -338,7 +377,8 @@ def submit_look(uid, key):
             raise ValueError(L("не удалось связаться с сервером проекта — попробуй позже", "could not reach the project server — try again later"))
         if r.status_code != 200:
             try:
-                msg = r.json().get("error")
+                body = r.json()
+                msg = clean_text(body.get("error"), 200) if isinstance(body, dict) else ""
             except ValueError:
                 msg = ""
             raise ValueError(msg or L("сервер проекта не принял плёнку", "the project server did not accept the film"))
@@ -369,36 +409,47 @@ def pending_preview(sid):
     return path
 
 
-def hub_decide(sid, data):
-    """Одобрить заявку (плёнка попадает в каталог вместе с превью на образце) или отклонить."""
-    from .pools import FAST
-    rows = q("SELECT * FROM submissions WHERE id=? AND status='new'", (sid,))
-    if not rows:
-        raise ValueError(L("заявка уже обработана", "this submission was already handled"))
-    row = rows[0]
-    if data.get("action") == "reject":
-        run("UPDATE submissions SET status='rejected' WHERE id=?", (sid,))
-        return {"ok": True}
-    if data.get("action") != "approve":
-        raise ValueError("action")
-    params = clean_params(json.loads(row["params"]))
-    name = clean_text(data.get("name"), 32) or row["name"]
-    by = clean_text(data.get("by"), 40) if "by" in data else row["by"]
-    raw = hub_raw()
-    taken = {e["id"] for e in raw["looks"]}
-    base = re.sub(r"[^a-z0-9]+", "-", "".join(CYR.get(c, c) for c in name.lower())).strip("-")[:30] or "look"
+def look_slug(name, taken):
+    """Адрес плёнки в каталоге из названия. «sample» и «…-before» заняты картинками каталога (образец и «до»)."""
+    base = re.sub(r"[^a-z0-9]+", "-", "".join(CYR.get(c, c) for c in name.lower())).strip("-")[:30].strip("-") or "look"
+    if base == "sample" or base.endswith("-before"):
+        base = f"{base}-look"
     slug, n = base, 2
     while slug in taken:
         slug, n = f"{base}-{n}", n + 1
-    (HUB_DIR / "looks").mkdir(parents=True, exist_ok=True)
-    FAST.submit(job_sample, params, str(HUB_DIR / "looks" / f"{slug}.jpg")).result(timeout=120)
-    desc = {"ru": clean_text(data.get("desc_ru"), 140), "en": clean_text(data.get("desc_en"), 140)}
-    raw.setdefault("looks", []).append({"id": slug, "name": name, "by": by, "desc": desc, "p": params_json(params)})
-    tmp = HUB_DIR / "looks.tmp.json"
-    tmp.write_text(json.dumps(raw, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    os.replace(tmp, HUB_DIR / "looks.json")
-    run("UPDATE submissions SET status='approved' WHERE id=?", (sid,))
-    COMMUNITY["at"] = 0                                     # каталог перечитается сразу
+    return slug
+
+
+def hub_decide(sid, data):
+    """Одобрить заявку (плёнка попадает в каталог вместе с превью на образце) или отклонить.
+    Под одной блокировкой: два одобрения подряд (двойной тап, две вкладки) не затирают каталог друг другу."""
+    from .pools import FAST
+    action = data.get("action")
+    if action not in ("approve", "reject"):
+        raise ValueError("action")
+    with HUB_LOCK:
+        rows = q("SELECT * FROM submissions WHERE id=? AND status='new'", (sid,))
+        if not rows:
+            raise ValueError(L("заявка уже обработана", "this submission was already handled"))
+        row = rows[0]
+        if action == "reject":
+            run("UPDATE submissions SET status='rejected' WHERE id=?", (sid,))
+            return {"ok": True}
+        params = clean_params(json.loads(row["params"]))
+        name = clean_text(data.get("name"), 32) or row["name"]
+        by = clean_text(data.get("by"), 40) if "by" in data else row["by"]
+        raw = hub_raw()
+        looks = raw.setdefault("looks", [])
+        slug = look_slug(name, {e.get("id") for e in looks if isinstance(e, dict)})
+        (HUB_DIR / "looks").mkdir(parents=True, exist_ok=True)
+        FAST.submit(job_sample, params, str(HUB_DIR / "looks" / f"{slug}.jpg")).result(timeout=120)
+        desc = {"ru": clean_text(data.get("desc_ru"), 140), "en": clean_text(data.get("desc_en"), 140)}
+        looks.append({"id": slug, "name": name, "by": by, "desc": desc, "p": params_json(params)})
+        tmp = HUB_DIR / "looks.tmp.json"
+        tmp.write_text(json.dumps(raw, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        os.replace(tmp, HUB_DIR / "looks.json")
+        run("UPDATE submissions SET status='approved' WHERE id=?", (sid,))
+        COMMUNITY["at"] = 0                                 # каталог перечитается сразу
     log.info("плёнка одобрена: %s", slug)
     return {"ok": True, "id": slug}
 
@@ -421,6 +472,21 @@ def try_look(uid, data):
     return FAST.submit(job_try, dict(ph), params, strength).result(timeout=120)
 
 
+PREVIEW_RATE = {}                 # пользователь -> времена отрисовок плёнок каталога на его кадрах
+PREVIEW_PER_MIN = 30
+
+
+def _preview_rate(uid):
+    """Плёнок в каталоге сотни, кадров тысячи: перебирать их скриптом — занять процессор сервера. Готовые (из кэша) не считаются."""
+    now = time.time()
+    with SUBMIT_LOCK:
+        ts = [t for t in PREVIEW_RATE.get(uid, []) if now - t < 60]
+        if len(ts) >= PREVIEW_PER_MIN:
+            raise RateLimit(L("слишком часто — подожди минуту", "too fast — wait a minute"))
+        ts.append(now)
+        PREVIEW_RATE[uid] = ts
+
+
 def community_preview(ph, cid, edge=420):
     """Плёнка каталога на кадре пользователя; файл-кэш на сутки."""
     from .pools import FAST
@@ -428,6 +494,7 @@ def community_preview(ph, cid, edge=420):
         if e["id"] == cid:
             path = PREVIEWS / f"{ph['id']}_cm{e['h']}_100{'' if edge == 420 else '_' + str(edge)}.jpg"
             if not path.exists():
+                _preview_rate(ph["owner"])
                 FAST.submit(job_try, dict(ph), e["p"], 100, str(path), edge).result(timeout=120)
             return path
     return None
@@ -440,6 +507,10 @@ def original_file(ph, edge):
     if not path.exists():
         FAST.submit(job_base, dict(ph), edge).result(timeout=120)
     return path
+
+
+IMAGE_MISS = {}                   # картинка каталога -> когда её не удалось скачать
+IMAGE_MISS_TTL = 600
 
 
 def community_image(name):
@@ -460,10 +531,10 @@ def community_image(name):
     if cached.exists():
         return cached
     remote = COMMUNITY_URL.rsplit("/", 1)[0] + "/looks/" if COMMUNITY_URL.startswith("https://") else ""
-    if remote:
+    if remote and time.time() - IMAGE_MISS.get(name, 0) > IMAGE_MISS_TTL:
+        IMAGE_MISS[name] = time.time()               # пока не скачалась — не спрашивать снова каждый показ
         try:
-            r = requests.get(f"{remote}{name}.jpg", timeout=8, stream=True)
-            data = r.raw.read(1_500_001, decode_content=True) if r.status_code == 200 else b""
+            code, data = _fetch_limited(f"{remote}{name}.jpg", 1_500_000)
             if 0 < len(data) <= 1_500_000:
                 im = Image.open(io.BytesIO(data))
                 if im.format == "JPEG" and max(im.size) <= 2400:           # чужой файл: только небольшой JPEG
@@ -472,6 +543,7 @@ def community_image(name):
                     for old in cache.glob(f"{name}.*.jpg"):
                         remove(str(old))
                     cached.write_bytes(data)
+                    IMAGE_MISS.pop(name, None)
                     return cached
         except (requests.RequestException, OSError, ValueError):
             pass

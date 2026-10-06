@@ -436,7 +436,8 @@ def parse_cube(data):
 
 def user_lut(owner, key):
     path = str(lut_dir(owner) / f"{key}.npy")
-    mtime = os.path.getmtime(path)                  # нет файла — OSError, кадр рисуется без LUT
+    st = os.stat(path)                              # нет файла — OSError, кадр рисуется без LUT
+    mtime = (st.st_mtime_ns, st.st_size)            # не только время: на FAT и т. п. оно грубое, две правки за секунду
     with LUT_LOCK:
         hit = USER_LUT_CACHE.get(path)
         if hit and hit[0] == mtime:
@@ -462,7 +463,7 @@ LOOK_FIELDS = {                    # поле -> (сколько чисел, м�
     "mix": (6, -0.5, 0.5), "hue": (6, -40.0, 40.0), "bsat": (6, 0.4, 1.8), "grain_shadow": (1, 0.0, 1.0), "linear": (1, 0.0, 1.0),
 }
 LOOK_CODE_PREFIX = "proyavka-look:1:"
-LOOK_META_CACHE = {}               # путь -> (mtime, параметры или None) — в процессах-работниках
+LOOK_META_CACHE = {}               # путь -> (содержимое файла, параметры или None) — в процессах-работниках
 
 
 def clean_params(d):
@@ -485,7 +486,7 @@ def clean_params(d):
                 if not all(math.isfinite(float(x)) for x in v):
                     raise ValueError
                 out[k] = tuple(round(min(hi, max(lo, float(x))), 4) for x in v)
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):          # OverflowError: целое из 400 цифр в JSON
             raise ValueError(L(f"неверное значение «{k}»", f"invalid value for \"{k}\""))
     bw = d.get("bw")
     if bw:
@@ -493,9 +494,11 @@ def clean_params(d):
             if len(bw) != 3 or not all(math.isfinite(float(x)) for x in bw):
                 raise ValueError
             w = [min(1.0, max(0.0, float(x))) for x in bw]
-            s = sum(w) or 1.0
+            s = sum(w)
+            if s <= 0:                                         # все нули — сплошной чёрный кадр
+                raise ValueError
             out["bw"] = tuple(round(x / s, 4) for x in w)      # веса каналов в сумме дают 1
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):
             raise ValueError(L("неверные веса ч/б", "invalid b&w weights"))
     else:
         out["bw"] = None
@@ -511,20 +514,20 @@ def look_params(owner, key):
     """Параметры своей плёнки или None, если это обычный LUT. Читается в процессах-работниках: без базы, по файлу."""
     path = str(lut_dir(owner) / f"{key}.json")
     try:
-        mtime = os.path.getmtime(path)
+        data = Path(path).read_bytes()          # файл — сотня байт; сверяем содержимое, а не время (оно бывает грубым)
     except OSError:
         return None
     with LUT_LOCK:
         hit = LOOK_META_CACHE.get(path)
-        if hit and hit[0] == mtime:
+        if hit and hit[0] == data:
             return hit[1]
     try:
-        raw = json.loads(Path(path).read_text(encoding="utf-8")).get("params")
+        raw = json.loads(data.decode("utf-8")).get("params")
         p = clean_params(raw) if raw else None
-    except (OSError, ValueError, AttributeError):
+    except (ValueError, AttributeError, OverflowError):
         p = None
     with LUT_LOCK:
-        LOOK_META_CACHE[path] = (mtime, p)
+        LOOK_META_CACHE[path] = (data, p)
         while len(LOOK_META_CACHE) > 64:
             LOOK_META_CACHE.pop(next(iter(LOOK_META_CACHE)))
     return p
@@ -552,7 +555,7 @@ def parse_look_code(code):
         else:
             data = json.loads(code)
         return clean_text(data.get("name"), 32) or "Look", clean_text(data.get("by"), 40), clean_params(data.get("p"))
-    except (ValueError, TypeError, AttributeError):
+    except (ValueError, TypeError, AttributeError, OverflowError):
         raise ValueError(L("это не код плёнки Проявки", "this is not a Proyavka film code"))
 
 
@@ -599,7 +602,9 @@ def film(img, key, strength=100, seed=0, p=None):
         if p["grain_shadow"] > 0:       # у негатива в тенях зерно крупнее и заметнее: второй проход тем же шумом, только по теням
             gs = p["grain_shadow"]
             mask = a.convert("L").point([int(255 * min(1.0, gs * (1 - i / 255) ** 1.5)) for i in range(256)])
-            a = ImageChops.soft_light(a, Image.composite(g, Image.new("RGB", (w, h), (128, 128, 128)), mask))
+            # смешиваем готовый второй проход с кадром по маске, а не шум с серым: soft_light(x, 128) в целых числах
+            # не тождество (на 1 темнее в 169 уровнях из 256), и света бы чуть темнели там, где маска нулевая
+            a = Image.composite(ImageChops.soft_light(a, g), a, mask)
     if p["vignette"] > 0:
         a = ImageChops.multiply(a, vignette_layer(w, h, p["vignette"] * min(k, 1.5)))
     return a

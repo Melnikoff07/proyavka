@@ -15,17 +15,18 @@ from urllib.parse import parse_qs, urlparse
 
 from . import config
 from .config import COMMUNITY_BUNDLED, LANG, PREVIEWS, STRENGTHS, TMP, UPLOAD_MAX, WEB_BASE, WEB_PORT, log
-from .i18n import L, tr, user_lang, _CTX
+from .i18n import L, tr, _CTX
 from .util import disposition, download_name, qr_svg, remove
 from .film import LUT_MAX_BYTES, PRESETS, canon, clean_params, params_json, parse_look_code, pname
 from .imaging import LEAKS, auto_reason, crop_tag, fingerprint, has, parse_crop
 from .pwa import CSP, SW_JS, app_icon, manifest
 from .database import get, q, run, upd
-from .users import ADMIN, DAILY_LIMIT, INVITE_DAYS, USERS, set_user, user, user_luts, valid_look
+from .users import ADMIN, DAILY_LIMIT, INVITE_DAYS, USERS, set_user, user, user_lang, user_luts, valid_look
 from .jobs import BASE_EDGES, job_full, job_preview, job_source
 from .telegram import safe, uid_of_tg
 from .sessions import (
-    DEV_COOKIE, SESSIONS, SESSION_DEV, SESSION_TTL, media_token, media_uid, note_fail, too_many_fails,
+    DEV_COOKIE, SESSIONS, SESSION_DEV, SESSION_TTL, file_token, file_uid, media_token, media_uid, note_fail,
+    too_many_fails,
 )
 from .push import LAST_POLL, push_key, push_subscribe
 from .scheduler import (
@@ -394,8 +395,15 @@ class Handler(BaseHTTPRequestHandler):
                         if (d / parts[2]).is_file():
                             return self.send(200, (d / parts[2]).read_bytes(), "image/jpeg", "public, max-age=3600")
                 return self.err(404, L("не найдено", "not found"))
-            files = parts[:1] == ["img"] or parts == ["api", "zip"] or (parts[:2] == ["api", "camera"] and len(parts) == 3)
-            uid = self.authed(qs, media=files)
+            # config.txt камеры несёт ключ для загрузки кадров — его по токену «только смотреть» не отдаём, только по ссылке
+            # на этот один файл (живёт 5 минут); корневой сертификат — публичный
+            if parts == ["api", "camera", "config.txt"] and not self.headers.get("X-Token"):
+                uid = file_uid((qs.get("d") or [""])[0], "camera/config.txt")
+                if uid:
+                    _CTX.lang = user_lang(uid)
+            else:
+                files = parts[:1] == ["img"] or parts == ["api", "zip"] or parts == ["api", "camera", "cacert.pem"]
+                uid = self.authed(qs, media=files)
             if not uid:
                 return self.err(401, L("нужна авторизация через Telegram", "Telegram authorization required"))
             if parts == ["api", "presets"]:
@@ -450,6 +458,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self.js({"photos": [photo_json(r) for r in rows]})
             if parts == ["api", "camera"]:
                 return self.js(camera_json(uid))
+            if parts == ["api", "camera", "link"]:            # ссылка на config.txt для <a download>
+                return self.js({"url": f"/api/camera/config.txt?d={file_token(uid, 'camera/config.txt')}"})
             if parts in (["api", "camera", "config.txt"], ["api", "camera", "cacert.pem"]):
                 if parts[2] == "cacert.pem":
                     body = FTP_ROOT_CERT.read_bytes() if FTP_ROOT_CERT.exists() else None
@@ -521,6 +531,8 @@ class Handler(BaseHTTPRequestHandler):
             return self.err(404, L("не найдено", "not found"))
         except (BrokenPipeError, ConnectionResetError):
             pass
+        except RateLimit as e:
+            self.err(429, str(e))
         except (ValueError, RuntimeError) as e:
             self.err(400, str(e))
         except Exception as e:
@@ -729,6 +741,34 @@ def backfill_views():
     for r in q("SELECT id FROM photos WHERE view IS NULL AND work IS NOT NULL AND hidden=0 ORDER BY id DESC"):
         run("UPDATE photos SET rev=rev+1 WHERE id=?", (r["id"],))
         schedule_view(r["id"], prio=2, chat=False)   # только картинка для «Проявки», в чате всё уже есть
+
+
+FILMS_VERSION = "2"        # 2 — встроенные плёнки перенастроены (полосы цвета, зерно в тенях); 1 — bot/films_v1.json
+
+
+def refilm_builtin():
+    """Встроенные плёнки перенастроили: кадры с ними перерисовать в фоне, иначе в ленте — прежний вид, а «Скачать»,
+    альбом и любая правка рисуют уже новый. Один раз после обновления; в чате Telegram остаются прежние картинки."""
+    from .config import BASE
+    mark = BASE / "films.version"
+    try:
+        if mark.read_text(encoding="utf-8").strip() == FILMS_VERSION:
+            return 0
+    except OSError:
+        pass
+    keys = list(PRESETS)
+    marks = ",".join("?" * len(keys))
+    rows = q(f"SELECT id, owner FROM photos WHERE hidden=0 AND work IS NOT NULL AND preset IN ({marks}) ORDER BY id DESC", keys)
+    for f in PREVIEWS.iterdir():                 # превью — кэш, в нём старый вид плёнок
+        if f.is_file():
+            remove(str(f))
+    for r in rows:
+        run("UPDATE photos SET rev=rev+1, updated=? WHERE id=?", (time.time(), r["id"]))
+        schedule_view(r["id"], prio=2, chat=False, uid=r["owner"])
+    mark.write_text(FILMS_VERSION + "\n", encoding="utf-8")
+    if rows:
+        log.info("плёнки обновлены: перерисовываю %d кадров в фоне", len(rows))
+    return len(rows)
 
 
 def start_web():

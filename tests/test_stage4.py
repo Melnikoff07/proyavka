@@ -132,6 +132,10 @@ if __name__ == "__main__":
     check("/lang: администратор теперь en", users.user(ADMIN)["lang"] == "en")
     with i18n.speak(ADMIN):
         botui.on_text("/lang", ADMIN)
+    check("/lang ещё раз: снова ru (язык берётся у пользователя, а не у сервера)", users.user(ADMIN)["lang"] == "ru")
+    from proyavka import camera, devices, looks, web
+    check("модули выше users видят настоящий user_lang, а не заглушку i18n",
+          all(m.user_lang is users.user_lang for m in (botui, camera, devices, looks, web)))
 
     # --- камера Боба
     t4 = time.time()
@@ -201,4 +205,18 @@ if __name__ == "__main__":
           hb.get("/api/photos?offset=0&limit=5").get("_status") == 401)
     check("Бобу сказали по-английски", any("access" in m["text"] for m in sent(h, t6, BOB)))
     check("кадры администратора на месте", len([p for p in h.photos() if p["owner"] == ADMIN and not p["hidden"]]) == 9)
+
+    # --- встроенные плёнки перенастроены: после обновления кадры с ними перерисовываются один раз (в ленте — новый вид) ---
+    from proyavka.film import PRESETS
+    before = {r["id"]: r for r in database.q("SELECT id, preset, rev FROM photos WHERE hidden=0 AND work IS NOT NULL")}
+    n = web.refilm_builtin()
+    after = {r["id"]: r["rev"] for r in database.q("SELECT id, rev FROM photos")}
+    builtin = [i for i, r in before.items() if r["preset"] in PRESETS]
+    check(f"перерисовка встроенных плёнок поставлена: {n} кадров", n == len(builtin) > 0
+          and all(after[i] == before[i]["rev"] + 1 for i in builtin)
+          and all(after[i] == r["rev"] for i, r in before.items() if r["preset"] not in PRESETS))
+    check("второй раз не повторяется", web.refilm_builtin() == 0 and (config.BASE / "films.version").read_text().strip() == web.FILMS_VERSION)
+    drawn = lambda: all(p["rev"] == p["rendered_rev"] for p in h.photos() if p["id"] in builtin)
+    h.wait(drawn, timeout=240)
+    check("и дорисовалась", drawn())
     harness.done()

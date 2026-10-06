@@ -6,6 +6,7 @@ import hmac
 import json
 import os
 import secrets
+import threading
 import time
 from urllib.parse import parse_qsl
 
@@ -58,41 +59,70 @@ SESSION_TTL = 12 * 3600
 MEDIA_KEY = None
 
 
+MEDIA_KEY_LOCK = threading.Lock()
+
+
 def media_secret():
     global MEDIA_KEY
-    if MEDIA_KEY is None:
-        path = BASE / "media.key"
-        try:
-            MEDIA_KEY = path.read_bytes()
-        except OSError:
-            MEDIA_KEY = secrets.token_bytes(32)
-            path.write_bytes(MEDIA_KEY)
-            try:
-                os.chmod(path, 0o600)
-            except OSError:
-                pass
+    with MEDIA_KEY_LOCK:
+        if MEDIA_KEY is None:
+            path = BASE / "media.key"
+            try:                            # создаётся сразу с правами 600 и только один раз (O_EXCL)
+                fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_BINARY", 0), 0o600)
+            except FileExistsError:
+                MEDIA_KEY = path.read_bytes()
+            else:
+                key = secrets.token_bytes(32)
+                with os.fdopen(fd, "wb") as f:
+                    f.write(key)
+                MEDIA_KEY = key
     return MEDIA_KEY
 
 
-def _media_sig(uid, exp):
-    return base64.urlsafe_b64encode(hmac.new(media_secret(), f"{uid}.{exp}".encode(), hashlib.sha256).digest()[:16]).decode().rstrip("=")
+def media_epoch(uid):
+    """Поколение токенов пользователя: отвязал устройство — растёт, и все прежние ссылки на картинки перестают работать."""
+    return int((USERS.get(uid) or {}).get("media_epoch") or 0)
+
+
+def _media_sig(uid, exp, scope="", epoch=0):
+    msg = f"{uid}.{exp}" + (f".{epoch}" if epoch else "") + (f".{scope}" if scope else "")
+    return base64.urlsafe_b64encode(hmac.new(media_secret(), msg.encode(), hashlib.sha256).digest()[:16]).decode().rstrip("=")
 
 
 def media_token(uid):
     exp = (int(time.time() // 86400) + 2) * 86400
-    return f"{uid}.{exp}.{_media_sig(uid, exp)}"
+    return f"{uid}.{exp}.{_media_sig(uid, exp, epoch=media_epoch(uid))}"
+
+
+def _check(tok, scope=""):
+    try:
+        uid, exp, sig = str(tok).split(".")
+        uid, exp = int(uid), int(exp)
+        sig = sig.encode("ascii")
+    except (ValueError, UnicodeEncodeError):
+        return None
+    if exp <= time.time() or uid not in USERS:
+        return None
+    want = _media_sig(uid, exp, scope, media_epoch(uid)).encode()
+    return uid if hmac.compare_digest(sig, want) else None
 
 
 def media_uid(tok):
     """Пользователь по токену для картинок или None."""
-    try:
-        uid, exp, sig = str(tok).split(".")
-        uid, exp = int(uid), int(exp)
-    except ValueError:
-        return None
-    if exp <= time.time() or uid not in USERS or not hmac.compare_digest(sig, _media_sig(uid, exp)):
-        return None
-    return uid
+    return _check(tok)
+
+
+FILE_TTL = 300
+
+
+def file_token(uid, name):
+    """Ссылка на один файл (настройки камеры: в них ключ для загрузки кадров) — живёт 5 минут и годится только для него."""
+    exp = int(time.time()) + FILE_TTL
+    return f"{uid}.{exp}.{_media_sig(uid, exp, 'file:' + name, media_epoch(uid))}"
+
+
+def file_uid(tok, name):
+    return _check(tok, "file:" + name)
 
 
 def check_init_data(init_data):

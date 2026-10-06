@@ -1,6 +1,7 @@
 """Приёмник плёнок: любой может прислать плёнку без входа, она попадает в очередь, администратор одобряет в приложении,
 одобренная появляется в каталоге (и отдаётся другим серверам), всё проверяется и ограничивается."""
 import io
+import time
 from pathlib import Path
 from PIL import Image
 import harness
@@ -33,6 +34,7 @@ if __name__ == "__main__":
     check("такая же повторно не копится", pub.post("/api/community/submit", {"name": "x", "p": params(sat=1.3)}, auth=False).get("again"))
     check("битые параметры — 400", pub.post("/api/community/submit", {"name": "x", "p": {"sat": "много"}}, auth=False).get("_status") == 400)
     check("не плёнка — 400", pub.post("/api/community/submit", {"привет": 1}, auth=False).get("_status") == 400)
+    check("число из 400 цифр — 400, а не 500", pub.post("/api/community/submit", {"name": "x", "p": {"contrast": 10 ** 400}}, auth=False).get("_status") == 400)
     check("огромная заявка — 400", pub.post("/api/community/submit", {"name": "x" * 20000, "p": params()}, auth=False).get("_status") == 400)
     codes = [pub.post("/api/community/submit", {"name": f"n{i}", "p": params(contrast=0.1 + i / 50)}, auth=False).get("_status", 200) for i in range(8)]
     check(f"лимит отправок с одного адреса: {codes}", 429 in codes and codes.count(200) == 4)          # 1 уже было из 5 в час
@@ -75,6 +77,32 @@ if __name__ == "__main__":
     nxt = h.get("/api/community/pending")["items"][0]
     check("отклонить", h.post(f"/api/community/pending/{nxt['id']}", {"action": "reject"}).get("ok")
           and all(i["id"] != nxt["id"] for i in h.get("/api/community/pending")["items"]))
+
+    # --- два одобрения одновременно (двойной тап, две вкладки): обе плёнки в каталоге, ни одна не затёрта ---
+    import threading
+    left = h.get("/api/community/pending")["items"][:2]
+    names = ["Sample", "Ночь before"]                 # «sample» и «…-before» заняты картинками каталога
+    res = [None, None]
+    ts = [threading.Thread(target=lambda i=i: res.__setitem__(i, h.post(f"/api/community/pending/{left[i]['id']}", {"action": "approve", "name": names[i]})))
+          for i in range(2)]
+    [t.start() for t in ts]
+    [t.join() for t in ts]
+    ids = [r.get("id") for r in res]
+    pubcat = pub.get("/community/looks.json", auth=False)
+    check(f"два одновременных одобрения — обе в каталоге: {ids}", all(ids) and all(any(e["id"] == i for e in pubcat["looks"]) for i in ids))
+    check(f"адреса не заняли служебные имена: {ids}", "sample" not in ids and not any(i.endswith("-before") for i in ids))
+    check("картинка «Sample» — её собственная, а не общий образец",
+          h.get(f"/img/cm/{ids[0]}") != h.get("/img/cm/sample") and isinstance(h.get(f"/img/cm/{ids[0]}"), bytes))
+    check("одобрить ту же заявку дважды подряд нельзя",
+          h.post(f"/api/community/pending/{left[0]['id']}", {"action": "approve"}).get("_status") == 400)
+
+    # --- старые заявки уходят из очереди: забитая очередь не держится вечно ---
+    from proyavka import database
+    looks.SUBMITS.clear()
+    database.run("INSERT INTO submissions(name, by, params, h, created, ip, status) VALUES ('Давняя', '', '{}', 'old0000000', ?, '1.2.3.4', 'new')",
+                 (time.time() - 40 * 86400,))
+    pub.post("/api/community/submit", {"name": "Свежая", "p": params(contrast=0.66)}, auth=False)
+    check("заявка старше 30 дней убрана из очереди", all(i["name"] != "Давняя" for i in h.get("/api/community/pending")["items"]))
 
     # --- отправка из приложения: на этот же сервер и по сети ---
     looks.SUBMITS.clear()

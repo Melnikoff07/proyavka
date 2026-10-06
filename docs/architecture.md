@@ -21,3 +21,5 @@ Things worth knowing before you change something:
 - **Settings that change at run time** (`BOT_TOKEN`, `STORAGE_GB`) are always read and written as `config.NAME`. The other settings are imported by name.
 - **Names that tests replace** (`telegram.tg_send`, `sessions.check_init_data`, `ingest.fetch_from_vps`, `camera.cam_helper`, `push.webpush`, `config.WEBAPP_HTML`, the `COMMUNITY_*` switches...) are imported inside functions, so the current value is always seen. Replace them in the module that defines them.
 - **Tests** are in `tests/` (`python tests/run_all.py`). They run the whole bot with Telegram mocked and synthetic frames. Import the package modules in a test only after `harness.start()`: `config` reads the environment when it is imported.
+
+The user's language: modules above `users` import `user_lang` from `users`, not from `i18n` (there it is a stub that `users` replaces on import; only `speak()` relies on that).

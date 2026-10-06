@@ -9,8 +9,8 @@ import subprocess
 from pathlib import Path
 
 from .config import PROJECT_URL, log, remote
-from .i18n import L, cur_lang, speak, user_lang
-from .users import ADMIN, set_user, user
+from .i18n import L, cur_lang, speak
+from .users import ADMIN, set_user, user, user_lang
 from .telegram import safe, tg
 from .ingest import VPS_WATCH_RESTART
 from .devices import save_config

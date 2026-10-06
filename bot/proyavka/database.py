@@ -52,8 +52,11 @@ def init_db():
             id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, by TEXT, params TEXT, h TEXT, created REAL, ip TEXT, status TEXT)""")
         db.execute("""CREATE TABLE IF NOT EXISTS invites(
             code TEXT PRIMARY KEY, created REAL, by INTEGER, used_by INTEGER, used_at REAL)""")
-        if "tg" not in {r[1] for r in db.execute("PRAGMA table_info(users)")}:
+        ucols = {r[1] for r in db.execute("PRAGMA table_info(users)")}
+        if "tg" not in ucols:
             db.execute("ALTER TABLE users ADD COLUMN tg INTEGER")       # чат в Telegram (пусто — без Telegram)
+        if "media_epoch" not in ucols:                                   # растёт при отвязке устройства: старые ссылки на картинки гаснут
+            db.execute("ALTER TABLE users ADD COLUMN media_epoch INTEGER DEFAULT 0")
         db.execute("""CREATE TABLE IF NOT EXISTS pairs(
             code TEXT PRIMARY KEY, uid INTEGER, exp REAL, kind TEXT)""")
         db.execute("""CREATE TABLE IF NOT EXISTS push_subs(

@@ -32,8 +32,15 @@ if __name__ == "__main__":
         check(f"{what} открывается по токену из адреса", isinstance(r, bytes) and r[:3] == b"\xff\xd8\xff")
     z = h.req(f"/api/zip?ids={pid}&m={media}", auth=False)
     check("архив скачивается по токену из адреса", isinstance(z, bytes) and z[:2] == b"PK")
+    # config.txt камеры несёт ключ для загрузки кадров: по токену «только смотреть» его не отдать
     cam = h.req(f"/api/camera/config.txt?m={media}", auth=False)
-    check("файл настройки камеры тоже", isinstance(cam, bytes) or cam.get("_status") != 401)
+    check("файл настройки камеры по токену картинок — 401", isinstance(cam, dict) and cam.get("_status") == 401)
+    link = h.get("/api/camera/link")["url"]
+    cam = h.req(link, auth=False)
+    check(f"по своей ссылке на 5 минут — отдаётся ({link.split('?')[0]})", isinstance(cam, bytes) or cam.get("_status") not in (401, 403))
+    dtok = link.split("d=", 1)[1]
+    check("ссылка на файл не открывает картинки", h.req(f"/img/thumb/{pid}?m={dtok}", auth=False).get("_status") == 401)
+    check("ссылку без входа не получить", h.req(f"/api/camera/link?m={media}", auth=False).get("_status") == 401)
 
     # токен для картинок — не ключ от всего
     for what, path in (("лента", "/api/photos"), ("настройки", "/api/me"), ("устройства", "/api/devices"), ("опрос", "/api/updates?since=0"),
@@ -47,7 +54,7 @@ if __name__ == "__main__":
     # подделка и срок
     uid, exp, sig = media.split(".")
     bad = {"подпись испорчена": f"{uid}.{exp}.{sig[:-1]}{'B' if sig[-1] != 'B' else 'C'}", "чужой пользователь": f"2.{exp}.{sig}", "срок продлён": f"{uid}.{int(exp) + 86400}.{sig}",
-           "мусор": "abc", "пусто": ""}
+           "мусор": "abc", "пусто": "", "не ASCII в подписи": f"{uid}.{exp}.%D0%96%D0%96"}
     for why, tok in bad.items():
         r = h.req(f"/img/thumb/{pid}?m={tok}", auth=False)
         check(f"{why}: 401", isinstance(r, dict) and r.get("_status") == 401)
@@ -71,4 +78,14 @@ if __name__ == "__main__":
     key = (config.BASE / "media.key").read_bytes()
     sessions.MEDIA_KEY = None
     check("ключ хранится в файле и после перезапуска тот же", sessions.media_token(1) == media and (config.BASE / "media.key").read_bytes() == key)
+
+    # отвязал устройство — прежние ссылки на картинки (история браузера, журналы) больше не открываются
+    code = h.post("/api/devices/new", {})["code"]
+    dev = h.post("/api/pair", {"code": code, "name": "Старый ноутбук"}, auth=False)
+    did = [d for d in h.get("/api/devices")["devices"] if d["name"] == "Старый ноутбук"][0]["id"]
+    check("с устройства картинки открываются", isinstance(h.req(f"/img/thumb/{pid}?m={dev['media']}", auth=False), bytes))
+    h.post(f"/api/device/{did}/delete", {})
+    check("после отвязки его токен картинок — 401", h.req(f"/img/thumb/{pid}?m={dev['media']}", auth=False).get("_status") == 401)
+    fresh = h.get("/api/updates?since=0")["media"]
+    check("остальные получают новый токен с опросом, и он работает", fresh != media and isinstance(h.req(f"/img/thumb/{pid}?m={fresh}", auth=False), bytes))
     harness.done()

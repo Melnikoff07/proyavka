@@ -34,9 +34,11 @@ USERS_LOCK = threading.Lock()
 
 def load_users():
     rows = q("SELECT * FROM users")
-    with USERS_LOCK:
-        USERS.clear()
-        USERS.update({r["id"]: r for r in rows})
+    new = {r["id"]: r for r in rows}
+    with USERS_LOCK:                 # без мгновения «пусто»: параллельный запрос не должен счесть человека чужим
+        USERS.update(new)
+        for k in [k for k in USERS if k not in new]:
+            USERS.pop(k, None)
 
 
 def user(uid):
@@ -56,11 +58,13 @@ def set_user(uid, **kw):
 
 def load_luts():
     rows = q("SELECT id, owner, name FROM luts")
-    LUT_NAMES.clear()
-    LUT_OWNER.clear()
-    for r in rows:
-        LUT_NAMES[f"lut{r['id']}"] = r["name"]
-        LUT_OWNER[f"lut{r['id']}"] = r["owner"]
+    names = {f"lut{r['id']}": r["name"] for r in rows}
+    owners = {f"lut{r['id']}": r["owner"] for r in rows}
+    with USERS_LOCK:
+        for d, new in ((LUT_NAMES, names), (LUT_OWNER, owners)):
+            d.update(new)
+            for k in [k for k in d if k not in new]:
+                d.pop(k, None)
 
 
 def user_luts(uid):

@@ -11,11 +11,11 @@ from pathlib import Path
 
 from . import config
 from .config import CONTACT_TG, ORIG_DAYS, PROJECT_URL, WEBAPP_URL, WEB_BASE, log
-from .i18n import L, cur_lang, speak, user_lang
+from .i18n import L, cur_lang, speak
 from .util import html_esc, key_hash, qr_png, segno
 from .film import canon
 from .database import DB_LOCK, q, run, run_count
-from .users import ADMIN, USERS, set_user, storage_limit, user, valid_look
+from .users import ADMIN, USERS, set_user, storage_limit, user, user_lang, valid_look
 from .telegram import btn, safe, tg
 from .sessions import SESSIONS, SESSION_DEV
 from .storage import user_usage
@@ -109,6 +109,9 @@ def drop_device(uid, did):
     n = run_count("DELETE FROM devices WHERE id=? AND owner=?", (did, uid))
     if n:
         run("DELETE FROM push_subs WHERE device=?", (did,))
+        # ссылки на картинки с отвязанного устройства (в истории, журналах) больше не открываются; остальные устройства
+        # получат новый токен со следующим опросом
+        set_user(uid, media_epoch=int((user(uid) or {}).get("media_epoch") or 0) + 1)
     for tok in [t for t, d in SESSION_DEV.items() if d == did]:
         SESSION_DEV.pop(tok, None)
         SESSIONS.pop(tok, None)

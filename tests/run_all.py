@@ -1,5 +1,5 @@
-"""Все тесты подряд: python tests/run_all.py [имя ...]. Тесты печатают OK/FAIL и сами завершаются os._exit(0),
-поэтому итог считаем по строкам FAIL. Сети не нужно: Telegram подменён, каталог сообщества берётся из репозитория."""
+"""Все тесты подряд: python tests/run_all.py [имя ...]. Тесты печатают OK/FAIL и завершаются harness.done() (гасит
+процессы-работники и выходит), поэтому итог считаем по строкам FAIL и коду выхода. Сети не нужно: Telegram подменён, каталог сообщества берётся из репозитория."""
 import os
 import subprocess
 import sys
@@ -30,6 +30,10 @@ def run(name):
 
 
 if __name__ == "__main__":
+    try:                                    # консоль Windows (cp1251) не должна падать на «→» в выводе упавшего теста
+        sys.stdout.reconfigure(errors="replace")
+    except AttributeError:
+        pass
     sys.path.insert(0, str(HERE))
     import synth
     synth.ensure()

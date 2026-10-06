@@ -945,8 +945,8 @@ async function loadMore() {
     if (!j.photos.length || photos.length >= total) finished = true;
     if (start === 0) rebuildFeed(); else { appendPhotos(photos.slice(start), start); renderHeader(); }
   } catch (e) {
-    $("feed").innerHTML = T(`<div class="state"><strong>Лента не загрузилась</strong><p>${e.message}</p></div>`,
-      `<div class="state"><strong>Feed did not load</strong><p>${e.message}</p></div>`);
+    $("feed").innerHTML = T(`<div class="state"><strong>Лента не загрузилась</strong><p>${esc(e.message)}</p></div>`,
+      `<div class="state"><strong>Feed did not load</strong><p>${esc(e.message)}</p></div>`);
   } finally { loading = false; }
 }
 
@@ -1480,7 +1480,8 @@ $("stCamBtn").onclick = async () => {
       try { await api("/api/camera/password", {}); $("stCam").hidden = true; $("stCamBtn").click(); toast(T("Пароль сменён", "Password changed")); haptic("success"); }
       catch (e) { toast(e.message); }
     });
-  if ($("camConf")) $("camConf").onclick = () => download(url("/api/camera/config.txt"));
+  // в config.txt ключ для загрузки кадров: ссылка на него — отдельная, на 5 минут (токен картинок его не открывает)
+  if ($("camConf")) $("camConf").onclick = async () => { try { download((await api("/api/camera/link")).url); } catch (e) { toast(e.message); } };
   if ($("camCert")) $("camCert").onclick = () => download(url("/api/camera/cacert.pem"));
   box.hidden = false;
 };
@@ -2736,7 +2737,7 @@ async function uploadAll(files) {
     strengths = pj.strengths;
     since = (await api("/api/updates?since=9e12")).now;   // точка отсчёта для опроса
   } catch (e) {
-    $("feed").innerHTML = T(`<div class="state"><strong>Нет доступа</strong><p>${e.message}</p></div>`, `<div class="state"><strong>No access</strong><p>${e.message}</p></div>`);
+    $("feed").innerHTML = T(`<div class="state"><strong>Нет доступа</strong><p>${esc(e.message)}</p></div>`, `<div class="state"><strong>No access</strong><p>${esc(e.message)}</p></div>`);
     return;
   }
   new IntersectionObserver((es) => { if (es[0].isIntersecting) loadMore(); }, { rootMargin: "800px" }).observe($("sentinel"));

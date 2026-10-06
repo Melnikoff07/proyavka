@@ -63,28 +63,32 @@ if __name__ == "__main__":
     v1 = json.loads((HERE.parent / "bot" / "films_v1.json").read_text(encoding="utf-8"))["films"]
     scene = synth.scene(7, 1500, 1000)
     sample = Image.open(HERE.parent / "community" / "sample.jpg").convert("RGB")
-    worst_lut, worst_img = 0.0, 0
-    for key in ("street_neg", "night800", "vivid50", "across100", "expired"):
+    worst_lut, worst_img, mean_img = 0.0, 0, 0.0
+    for key in v1:                                   # все 12 (5 эталонов нарисованы прежним движком, 7 — этим, см. make_film_ref.py)
         params = film.clean_params(v1[key]["params"])
         t = np.asarray(film._bake(params).table, dtype=np.float32)[::97]
         worst_lut = max(worst_lut, float(np.abs(t - ref[f"{key}_lut"]).max()))
         for name, img in (("scene", scene), ("sample", sample)):
             r = np.asarray(film.film(img.copy(), "custom", 100, 3, params).resize((96, 64), Image.BOX), dtype=np.int16)
-            worst_img = max(worst_img, int(np.abs(r - ref[f"{key}_{name}"].astype(np.int16)).max()))
+            d = np.abs(r - ref[f"{key}_{name}"].astype(np.int16))
+            worst_img, mean_img = max(worst_img, int(d.max())), max(mean_img, float(d.mean()))
     check(f"таблицы цвета старых плёнок воспроизводятся (расхождение {worst_lut:.6f})", worst_lut < 1e-5)
-    check(f"готовые кадры старых плёнок воспроизводятся (расхождение {worst_img} из 255)", worst_img <= 6)    # запас на версии Pillow
+    # запас на версии Pillow — по отдельным точкам; в среднем кадр должен совпадать почти точно
+    check(f"готовые кадры старых плёнок воспроизводятся (расхождение {worst_img} из 255, в среднем {mean_img:.2f})", worst_img <= 6 and mean_img < 0.5)
     check("снимок старых плёнок полный: 12 штук", len(v1) == 12 and set(v1) == set(film.PRESETS))
 
     # --- встроенные плёнки после настройки под полосы: вид закреплён эталоном, а от старого они отличаются ---
     cur = np.load(HERE / "film_ref.npz")
-    wl, wi = 0.0, 0
-    for key in ("street_neg", "night800", "vivid50", "across100", "expired", "portrait400"):
+    wl, wi, wm = 0.0, 0, 0.0
+    for key in film.PRESETS:
         t = np.asarray(film.preset_lut(key).table, dtype=np.float32)[::97]
         wl = max(wl, float(np.abs(t - cur[f"{key}_lut"]).max()))
         for name, img in (("scene", scene), ("sample", sample)):
             r = np.asarray(film.film(img.copy(), key, 100, 3).resize((96, 64), Image.BOX), dtype=np.int16)
-            wi = max(wi, int(np.abs(r - cur[f"{key}_{name}"].astype(np.int16)).max()))
-    check(f"встроенные плёнки выглядят как закреплено в эталоне (таблицы {wl:.6f}, кадры {wi} из 255)", wl < 1e-5 and wi <= 6)
+            d = np.abs(r - cur[f"{key}_{name}"].astype(np.int16))
+            wi, wm = max(wi, int(d.max())), max(wm, float(d.mean()))
+    check(f"все 12 встроенных плёнок выглядят как закреплено в эталоне (таблицы {wl:.6f}, кадры {wi} из 255, в среднем {wm:.2f})",
+          wl < 1e-5 and wi <= 6 and wm < 0.5)
     chart = Image.new("RGB", (6, 1))
     chart.putdata([(214, 126, 44), (87, 108, 67), (98, 122, 157), (194, 150, 130), (70, 148, 73), (80, 91, 166)])      # оранжевый, листва, небо, кожа, зелёный, синий
     quiet = dict(grain=0.0, halation=0.0, bloom=0.0, vignette=0.0, soften=0.0, hue=(0,) * 6, bsat=(1,) * 6, grain_shadow=0.0, linear=0.0)
@@ -181,6 +185,18 @@ if __name__ == "__main__":
     check("без свечения в линейном режиме кадр не меняется", np.array_equal(np.asarray(film.film(night.copy(), "custom", 100, 1, flat(linear=1))), np.asarray(film.film(night.copy(), "custom", 100, 1, flat()))))
     sample_big = Image.open(HERE / "testdata" / "a6300_DSC00266.JPG").convert("RGB")
     check("на полном кадре 6000×4000 линейный режим отрабатывает", film.film(sample_big, "custom", 100, 1, film.clean_params(dict(film.params_json(film.clean_params(film.PRESETS["night800"])), linear=1))).size == (6000, 4000))
+
+    # --- чужие данные: огромные числа и пустые веса ч/б ---
+    huge = 10 ** 400                                   # целое из 400 цифр JSON разбирает, а float() на нём — OverflowError
+    check("огромное число в параметрах — обычная ошибка, а не падение",
+          all(_raises(lambda b=b: film.clean_params(b)) for b in ({"contrast": huge}, {"hue": [huge, 0, 0, 0, 0, 0]}, {"bw": [huge, 1, 1]})))
+    check("и в коде плёнки тоже", _raises(lambda: film.parse_look_code('{"p":{"contrast":' + "9" * 400 + '}}')))
+    check("ч/б с нулевыми весами (сплошной чёрный) отклоняется", _raises(lambda: film.clean_params({"bw": [0, 0, 0]})))
+    # --- зерно в тенях не трогает света: где маска нулевая, кадр тот же, что без него ---
+    bright = Image.new("RGB", (400, 300), (235, 235, 235))
+    g0 = np.asarray(film.film(bright.copy(), "custom", 100, 2, flat(grain=0.03, grain_shadow=0.0)), dtype=np.int16)
+    g1 = np.asarray(film.film(bright.copy(), "custom", 100, 2, flat(grain=0.03, grain_shadow=1.0)), dtype=np.int16)
+    check(f"зерно в тенях: в светах ни одного сдвига (расхождение {int(np.abs(g0 - g1).max())})", int(np.abs(g0 - g1).max()) == 0)
 
     # --- встроенные плёнки по-прежнему отдаются редактору целиком ---
     check("у встроенных плёнок в параметрах есть и новые поля", all({"hue", "bsat", "grain_shadow", "linear"} <= set(film.params_json(film.clean_params(v))) for v in film.PRESETS.values()))
