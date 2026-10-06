@@ -2,7 +2,7 @@
 
 English first, [по-русски — ниже](#журнал-изменений).
 
-## Unreleased (1.4)
+## 1.4 — 2026-10-06
 
 ### Your own films and the community
 - **Film editor.** A film is a set of numbers (contrast, fade, shadow and highlight tints, red halation, bloom, softness, grain, vignette…). Build one with sliders and a live preview on your own frame, start from any built-in film, edit it later — frames using it are redrawn. On phones the settings are tabs under a big preview (Colour, Shadows, Highlights, Glow, Grain, Bands, Channels); on a computer the frame is on the left and all sliders on the right, previewed at 1000 px.
@@ -67,7 +67,7 @@ English first, [по-русски — ниже](#журнал-изменений
 
 # Журнал изменений
 
-## Не выпущено (1.4)
+## 1.4 — 2026-10-06
 
 ### Свои плёнки и сообщество
 - **Редактор плёнок.** Плёнка — набор чисел (контраст, выцветание, оттенки теней и светов, красное свечение, дымка, мягкость, зерно, виньетка…). Собирается ползунками с живым просмотром на своём кадре, можно начать с любой встроенной и потом поправить — кадры с ней перерисуются. На телефоне настройки — вкладки под крупным превью (Цвет, Тени, Света, Свечение, Зерно, Полосы, Каналы), на компьютере — кадр слева, все ползунки справа, просмотр в 1000 px.
