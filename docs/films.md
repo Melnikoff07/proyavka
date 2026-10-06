@@ -60,6 +60,7 @@ Colour is applied in this order: saturation → gamma → contrast → highlight
 | `vignette` | `0.2` | corner darkening | 0 … 0.3 |
 | `hue` | `(0, 0, 0, 0, 0, 0)` | hue shift in degrees for six colour bands: red, yellow, green, cyan, blue, magenta; the other bands and greys stay put | `(0, 0, -22, 0, 0, 0)` — greens lean yellow, the classic "film green" |
 | `bsat` | `(1, 1, 1, 1, 1, 1)` | saturation multiplier for the same six bands | `(1, 1, 0.8, 1, 1.25, 1)` — calmer greens, richer blues |
+| `mix` | `(0, 0, 0, 0, 0, 0)` | channel mixing, six numbers: how much red takes from green and from blue, green from red and from blue, blue from red and from green. The diagonal is adjusted so greys stay grey | `(0, 0.06, 0, -0.05, 0.04, 0)` — a cross-processed cast |
 | `grain_shadow` | `0` | extra grain in the shadows, like a negative; 0 — as before | 0.3 … 0.8 |
 | `linear` | `0` | 1 — halation and bloom are computed in linear light: a wider, softer glow proportional to how bright the source is; slower on full-size exports | 0 or 1 |
 

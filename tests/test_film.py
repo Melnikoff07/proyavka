@@ -37,6 +37,14 @@ def sat_of(rgb):
     return 0 if mx == 0 else (mx - mn) / mx
 
 
+def _raises(fn):
+    try:
+        fn()
+        return False
+    except ValueError:
+        return True
+
+
 FLAT = dict(contrast=0.0, lift=(0, 0, 0), top=1.0, shoulder=0.95, sat=1.0, grain=0.0, halation=0.0, bloom=0.0, soften=0.0, vignette=0.0)
 
 
@@ -107,6 +115,20 @@ if __name__ == "__main__":
     check("между полосами сдвиг плавный", 120 < hue_of(mix) < 165 and abs(hue_of(mix) - hue_of((0.1, 0.55, 0.45))) < 25)
     bwp = fb.clean_params(dict(fb.params_json(flat()), bw=(0.3, 0.55, 0.15), hue=(0, 0, 30, 0, 0, 0)))
     check("в чёрно-белой плёнке полосы ни на что не влияют", hue_of(lut_apply(bwp, green)) is None)
+
+    # --- смешивание каналов ---
+    check("матрица без перетеканий — единичная", np.allclose(fb.mix_matrix((0,) * 6), np.eye(3)))
+    check("в любой матрице сумма строк — 1 (серое не красится)", all(np.allclose(fb.mix_matrix(m).sum(axis=1), 1) for m in ((0.3, -0.2, 0.1, 0.4, -0.5, 0.25), (0.5,) * 6, (-0.5,) * 6)))
+    mixed = flat(mix=(0.3, 0.1, -0.2, 0.2, 0.15, -0.3))
+    check("серые тона после смешивания не меняются", all(np.allclose(lut_apply(mixed, (g, g, g)), lut_apply(flat(), (g, g, g)), atol=1e-3) for g in (0.1, 0.5, 0.9)))
+    rg = flat(mix=(0.3, 0, 0, 0, 0, 0))
+    check("зелёный в красный: зелень уходит к жёлтому", hue_of(lut_apply(rg, green)) < hue_of(lut_apply(flat(), green)) - 10)
+    check("красный канал красного не меняется, если он не участвует", np.allclose(lut_apply(rg, (0.8, 0.0, 0.0))[1:], lut_apply(flat(), (0.8, 0.0, 0.0))[1:], atol=1e-3))
+    check("в чёрно-белой плёнке смешивание ничего не меняет", np.allclose(lut_apply(fb.clean_params(dict(fb.params_json(flat()), bw=(0.3, 0.55, 0.15), mix=(0.4,) * 6)), green),
+                                                                     lut_apply(fb.clean_params(dict(fb.params_json(flat()), bw=(0.3, 0.55, 0.15))), green)))
+    check("mix ограничен допустимым и битый отклоняется", fb.clean_params({"mix": [9, -9, 0, 0, 0, 0]})["mix"][:2] == (0.5, -0.5)
+          and all(_raises(lambda b=b: fb.clean_params({"mix": b})) for b in ([1, 2, 3], "abc")))
+    check("код с перетеканием проходит без потерь", fb.parse_look_code(fb.look_code("Микс", "A", fb.clean_params({"mix": [0.1, 0, 0, -0.1, 0, 0]})))[2]["mix"][3] == -0.1)
 
     # --- параметры и коды ---
     p = fb.clean_params({"hue": [90, -90, 0, 0, 0, 0], "bsat": [5, 0, 1, 1, 1, 1], "grain_shadow": 3, "linear": 7})

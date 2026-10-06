@@ -177,6 +177,7 @@ DEFAULTS = dict(
     gamma=(1.0, 1.0, 1.0), shadow_tint=(0, 0, 0), high_tint=(0, 0, 0),
     halation=0.3, hal_thr=0.72, bloom=0.08, soften=0.5,
     grain=0.04, grain_size=1.6, grain_color=0.3, vignette=0.2, bw=None,
+    mix=(0.0,) * 6,                        # перетекание каналов: R←G, R←B, G←R, G←B, B←R, B←G (диагональ подбирается: серое остаётся серым)
     hue=(0.0,) * 6, bsat=(1.0,) * 6,       # сдвиг оттенка (°) и множитель насыщенности по полосам R, Y, G, C, B, M
     grain_shadow=0.0,                      # насколько крупнее и заметнее зерно в тенях (0 — как раньше)
     linear=0.0,                            # 1 — свечение и дымка считаются в линейном свете (физичнее), 0 — как раньше
@@ -264,7 +265,7 @@ PRESETS = {
         contrast=0.25, lift=(0.07, 0.05, 0.06), top=0.93, sat=0.75, gamma=(0.95, 1.02, 1.05),
         shadow_tint=(0.02, -0.01, 0.03), high_tint=(0.04, 0.03, -0.03),
         halation=0.45, bloom=0.14, grain=0.07, grain_size=2.0, grain_color=0.5, vignette=0.3,
-        hue=(0, 0, -22, 8, 16, 0), bsat=(1.0, 1.0, 0.9, 0.9, 1.15, 1.2), grain_shadow=0.6),
+        mix=(0.05, 0.09, -0.03, -0.07, 0.06, 0.03), hue=(0, 0, -22, 8, 16, 0), bsat=(1.0, 1.0, 0.9, 0.9, 1.15, 1.2), grain_shadow=0.6),
 }
 for k in PRESETS:
     PRESETS[k] = {**DEFAULTS, **PRESETS[k]}
@@ -350,12 +351,20 @@ def band_adjust(a, hue, bsat):
     return out + (mx - c)[:, None]
 
 
+def mix_matrix(v):
+    """Матрица 3×3 из шести «перетеканий»; сумма каждой строки — 1, поэтому нейтральные тона не меняют цвет."""
+    rg, rb, gr, gb, br, bg = v
+    return np.array([[1 - rg - rb, rg, rb], [gr, 1 - gr - gb, gb], [br, bg, 1 - br - bg]], dtype=np.float32)
+
+
 def color_fn(a, p):
     """Цвет плёнки для массива пикселей (N,3). Запекается в 3D-LUT."""
     if p["bw"]:
         g = a @ v3(p["bw"])
         a = np.repeat(g[:, None], 3, axis=1)
     else:
+        if any(p["mix"]):                                            # без смешивания — ровно прежний результат
+            a = np.clip(a @ mix_matrix(p["mix"]).T, 0, 1)
         l = a @ LUMA
         a = l[:, None] + (a - l[:, None]) * p["sat"]
         if any(p["hue"]) or any(x != 1.0 for x in p["bsat"]):        # без полос — ровно прежний результат
@@ -607,7 +616,7 @@ LOOK_FIELDS = {                    # поле -> (сколько чисел, м�
     "sat": (1, 0.0, 2.0), "gamma": (3, 0.7, 1.3), "shadow_tint": (3, -0.1, 0.1), "high_tint": (3, -0.1, 0.1),
     "halation": (1, 0.0, 1.2), "hal_thr": (1, 0.4, 0.95), "bloom": (1, 0.0, 0.3), "soften": (1, 0.0, 1.5),
     "grain": (1, 0.0, 0.12), "grain_size": (1, 1.0, 3.0), "grain_color": (1, 0.0, 1.0), "vignette": (1, 0.0, 0.5),
-    "hue": (6, -40.0, 40.0), "bsat": (6, 0.4, 1.8), "grain_shadow": (1, 0.0, 1.0), "linear": (1, 0.0, 1.0),
+    "mix": (6, -0.5, 0.5), "hue": (6, -40.0, 40.0), "bsat": (6, 0.4, 1.8), "grain_shadow": (1, 0.0, 1.0), "linear": (1, 0.0, 1.0),
 }
 LOOK_CODE_PREFIX = "proyavka-look:1:"
 LOOK_META_CACHE = {}               # путь -> (mtime, параметры или None) — в процессах-работниках

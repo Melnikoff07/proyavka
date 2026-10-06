@@ -1914,6 +1914,10 @@ const bandSliders = () => BANDS.flatMap(([ru, en], i) => [
     get: (P) => P.hue[i], set: (P, v) => { P.hue = P.hue.map((x, j) => (j === i ? v : x)); } },
   { n: [`${ru}: насыщенность`, `${en}: saturation`], min: -60, max: 80, step: 1, fmt: sgn,
     get: (P) => (P.bsat[i] - 1) * 100, set: (P, v) => { P.bsat = P.bsat.map((x, j) => (j === i ? 1 + v / 100 : x)); } }]);
+const MIXES = [["Зелёный в красный", "Green into red"], ["Синий в красный", "Blue into red"], ["Красный в зелёный", "Red into green"],
+               ["Синий в зелёный", "Blue into green"], ["Красный в синий", "Red into blue"], ["Зелёный в синий", "Green into blue"]];
+const mixSliders = () => MIXES.map((n, i) => ({ n, min: -50, max: 50, step: 1, fmt: (v) => `${sgn(v)}%`,
+  get: (P) => P.mix[i] * 100, set: (P, v) => { P.mix = P.mix.map((x, j) => (j === i ? v / 100 : x)); } }));
 const ED_SECTIONS = [
   { h: ["Цвет", "Colour"], s: [simple("sat", "Насыщенность", "Saturation", 0, 2, 0.01), simple("contrast", "Контраст", "Contrast", 0, 1, 0.01),
     { n: ["Выцветание", "Fade"], min: 0, max: 0.15, step: 0.005, get: (P) => mean3(P.lift), set: (P, v) => { const d = v - mean3(P.lift); P.lift = P.lift.map((x) => clamp(x + d, 0, 0.15)); } },
@@ -1926,6 +1930,7 @@ const ED_SECTIONS = [
     simple("grain_shadow", "Зерно в тенях", "Grain in shadows", 0, 1, 0.02),
     simple("grain_color", "Цветность зерна", "Grain colour", 0, 1, 0.02), simple("vignette", "Виньетка", "Vignette", 0, 0.5, 0.01)] },
   { h: ["Цвета по полосам", "Colour bands"], fold: true, s: bandSliders() },
+  { h: ["Смешивание каналов", "Channel mixing"], fold: true, s: mixSliders() },
 ];
 const pctOf = (s, v) => (s.fmt ? s.fmt(v) : Math.round(s.min < 0 ? (v / s.max) * 100 : ((v - s.min) / (s.max - s.min)) * 100));
 const lookRev = {};         // ключ плёнки -> метка правки: превью в ленте берутся заново, а не из кэша браузера
