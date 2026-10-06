@@ -92,6 +92,7 @@ final class Cam {
             if (!dirs.contains(d)) dirs.add(d);
         }
         StringBuilder where = new StringBuilder();
+        String seen = "";
         for (File d : dirs) {
             if (where.length() > 0) where.append(", ");
             where.append(d.getPath());
@@ -100,8 +101,18 @@ final class Cam {
             for (String want : new String[] {"config.txt", "config.txt.txt", "config"}) {
                 for (File f : list) if (f.isFile() && f.getName().equalsIgnoreCase(want)) { configWhere = where.toString(); return f; }
             }
+            // камеры на Android 2.3 видят карту только в коротких именах DOS 8.3: config.txt.txt там — CONFIG~1.TXT
+            for (File f : list) {
+                String n = f.getName().toUpperCase(java.util.Locale.US);
+                if (f.isFile() && n.startsWith("CONFIG") && n.endsWith(".TXT")) { configWhere = where.toString(); return f; }
+            }
+            if (seen.length() == 0) {
+                StringBuilder s = new StringBuilder();
+                for (File f : list) s.append(s.length() > 0 ? ", " : "").append(f.getName());
+                seen = d.getPath() + ": " + (s.length() > 0 ? s.toString() : "—");
+            }
         }
-        configWhere = where.toString();
+        configWhere = where.toString() + (seen.length() > 0 ? "; files in " + seen : "");
         return null;
     }
 

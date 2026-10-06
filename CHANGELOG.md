@@ -2,6 +2,9 @@
 
 English first, [по-русски — ниже](#журнал-изменений).
 
+## 1.5.2 — 2026-10-07
+- Camera app 1.4.2: cameras on Android 2.3 (a6000 and others) see the card only in short DOS names (8.3), so `config.txt.txt` shows up there as `CONFIG~1.TXT`. The app now accepts any `CONFIG*.TXT`. If the file still isn't found, the screen and the log list the files in the folder.
+
 ## 1.5.1 — 2026-10-07
 - Camera app 1.4.1: finds `PROYAVKA/config.txt` however it was saved — any letter case, `config.txt.txt` (Windows with hidden extensions), UTF-8 with or without BOM, UTF-16 (Notepad "Unicode") — and also looks in other card paths of older cameras.
 - If the settings still can't be read, the camera says exactly why: where it looked, or which keys the file has; the hint points to Settings → Camera in the app, not only to the bot.
@@ -98,6 +101,9 @@ English first, [по-русски — ниже](#журнал-изменений
 ---
 
 # Журнал изменений
+
+## 1.5.2 — 2026-10-07
+- Приложение камеры 1.4.2: камеры на Android 2.3 (a6000 и другие) видят карту только в коротких именах DOS (8.3), и `config.txt.txt` там выглядит как `CONFIG~1.TXT`. Теперь подходит любой `CONFIG*.TXT`. Если файл всё же не нашёлся — на экране и в журнале список файлов в папке.
 
 ## 1.5.1 — 2026-10-07
 - Приложение камеры 1.4.1: находит `PROYAVKA/config.txt`, как бы его ни сохранили — в любом регистре букв, как `config.txt.txt` (Windows со скрытыми расширениями), в UTF-8 с меткой BOM и без, в UTF-16 («Юникод» в Блокноте), — и ищет его и по другим путям к карте на старых камерах.
