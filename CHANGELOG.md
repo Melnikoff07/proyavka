@@ -2,6 +2,15 @@
 
 English first, [по-русски — ниже](#журнал-изменений).
 
+## Unreleased
+
+### Films reworked
+- **Ten built-in films were rebuilt from scratch** (Super 400 and Portrait 400 stay as they were). Measured on a ColorChecker chart, grey ramps, a landscape and a night scene: the old films had nearly straight tone curves (they all looked like one film), one saturation multiplier for every colour, and a wide red halation veil that turned blue skies and night scenes purple. The new ones have their own curves and colour, modelled on Ultramax, Classic Chrome/Kodachrome, Gold, Velvia, Vision3 250D printed on 2383, CineStill 800T, Acros and Tri-X.
+- **Halation like film** (`halo`): an orange ring right at very bright sources and a red glow further out, only against a dark background. A bright sky gets none, so blues no longer turn purple.
+- **Colour density** (`dens`): saturated dark colours get deeper, light ones more pastel, as with film dyes; greys untouched.
+- Both are new sliders in the film editor. Old film codes and your own films look exactly as before; the previous built-in values are kept in `bot/films_v2.json` (and `films_v1.json`), and the engine still reproduces them.
+- After the update, frames with built-in films are redrawn once in the background.
+
 ## 1.4 — 2026-10-06
 
 ### Your own films and the community
@@ -66,6 +75,15 @@ English first, [по-русски — ниже](#журнал-изменений
 ---
 
 # Журнал изменений
+
+## Не выпущено
+
+### Плёнки заново
+- **Десять встроенных плёнок собраны заново** (Super 400 и Portrait 400 — как были). Замеры на мишени ColorChecker, серых шкалах, пейзаже и ночной сцене показали: у прежних тональные кривые были почти прямыми (все плёнки по тону — одна и та же), насыщенность менялась одним множителем на все цвета, а широкая красная вуаль халяции уводила голубое небо и ночь в фиолетовый. У новых — свои кривые и цвет; прототипы — Ultramax, Classic Chrome/Kodachrome, Gold, Velvia, Vision3 250D с печатью на 2383, CineStill 800T, Acros и Tri-X.
+- **Халяция как у плёнки** (`halo`): оранжевое кольцо у самого яркого источника и красное свечение дальше, только на тёмном фоне. Яркое небо её не получает — голубое больше не уходит в фиолетовый.
+- **Плотность цвета** (`dens`): насыщенные тёмные цвета глубже, светлые — пастельнее, как у красителей плёнки; серое не трогается.
+- Оба — новые ползунки в редакторе. Старые коды плёнок и свои плёнки выглядят точно как раньше; прежние значения встроенных — в `bot/films_v2.json` (и `films_v1.json`), движок их по-прежнему воспроизводит.
+- После обновления кадры со встроенными плёнками один раз перерисуются в фоне.
 
 ## 1.4 — 2026-10-06
 

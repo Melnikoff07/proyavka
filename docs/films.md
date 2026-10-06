@@ -63,6 +63,8 @@ Colour is applied in this order: saturation → gamma → contrast → highlight
 | `mix` | `(0, 0, 0, 0, 0, 0)` | channel mixing, six numbers: how much red takes from green and from blue, green from red and from blue, blue from red and from green. The diagonal is adjusted so greys stay grey | `(0, 0.06, 0, -0.05, 0.04, 0)` — a cross-processed cast |
 | `grain_shadow` | `0` | extra grain in the shadows, like a negative; 0 — as before | 0.3 … 0.8 |
 | `linear` | `0` | 1 — halation and bloom are computed in linear light: a wider, softer glow proportional to how bright the source is; slower on full-size exports | 0 or 1 |
+| `halo` | `0` | 1 — film-like halation: an orange ring right at very bright sources and a red glow further out, only against a dark background; a bright sky or wall gets none, so blues don't turn purple. 0 — the old wide red veil | 1 for new films |
+| `dens` | `0` | colour density, as with dyes: saturated dark colours get deeper and darker, light ones more pastel; greys untouched | 0.3 … 0.8 |
 
 The **Strength** buttons (25–150 %) blend the film with the original; grain and vignette scale with it too.
 

@@ -2166,7 +2166,8 @@ const mixSliders = () => MIXES.map((n, i) => ({ n, min: -50, max: 50, step: 1, f
 const ED_SECTIONS = [
   { h: ["Цвет", "Colour"], s: [simple("sat", "Насыщенность", "Saturation", 0, 2, 0.01), simple("contrast", "Контраст", "Contrast", 0, 1, 0.01),
     { n: ["Выцветание", "Fade"], min: 0, max: 0.15, step: 0.005, get: (P) => mean3(P.lift), set: (P, v) => { const d = v - mean3(P.lift); P.lift = P.lift.map((x) => clamp(x + d, 0, 0.15)); } },
-    simple("top", "Яркость светов", "Highlight level", 0.8, 1, 0.005)] },
+    simple("top", "Яркость светов", "Highlight level", 0.8, 1, 0.005),
+    simple("dens", "Плотность цвета", "Colour density", 0, 1, 0.02)] },
   { h: ["Тени", "Shadows"], s: tintSliders("shadow_tint") },
   { h: ["Света", "Highlights"], s: tintSliders("high_tint") },
   { h: ["Свечение", "Glow"], s: [simple("halation", "Красное свечение огней", "Red halation", 0, 1.2, 0.01), simple("bloom", "Дымка", "Bloom", 0, 0.3, 0.005),
@@ -2270,19 +2271,23 @@ async function openEditor({ key } = {}) {
   bw.style.flexDirection = "column";
   bw.style.alignItems = "flex-start";
   bw.style.gap = "6px";
-  bw.innerHTML = `<button class="tog" aria-pressed="false"></button><button class="tog" aria-pressed="false"></button>`;
+  bw.innerHTML = `<button class="tog" aria-pressed="false"></button><button class="tog" aria-pressed="false"></button><button class="tog" aria-pressed="false"></button>`;
   bw.className = "ed-sec ed-sl";
   bw.children[0].textContent = T("Чёрно-белая", "Black & white");
   bw.children[0].onclick = () => { ed.P.bw = ed.P.bw ? null : [0.3, 0.55, 0.15]; edSync(); edPreview(); };
   bw.children[1].textContent = T("Свечение в линейном свете (мягче и шире)", "Glow in linear light (softer, wider)");
   bw.children[1].onclick = () => { ed.P.linear = ed.P.linear > 0.5 ? 0 : 1; edSync(); edPreview(); };
+  bw.children[2].textContent = T("Халяция только у огней (как у плёнки)", "Halation only around lights (film-like)");
+  bw.children[2].onclick = () => { ed.P.halo = ed.P.halo > 0.5 ? 0 : 1; edSync(); edPreview(); };
   ed.bwBtn = bw.children[0];
   ed.linBtn = bw.children[1];
+  ed.haloBtn = bw.children[2];
   frag.appendChild(bw);
   // «Ч/б» и «линейное свечение» — вместе с цветом и свечением: переносим переключатели в их категории
-  const lin = bw.children[1];
+  const lin = bw.children[1], halo = bw.children[2];
   secs[0].appendChild(Object.assign(document.createElement("div"), { className: "ed-sl" })).appendChild(bw.children[0]);
   const glowSec = ED_SECTIONS.findIndex((s) => s.h[1] === "Glow");
+  secs[glowSec >= 0 ? glowSec : 0].appendChild(Object.assign(document.createElement("div"), { className: "ed-sl" })).appendChild(halo);
   secs[glowSec >= 0 ? glowSec : 0].appendChild(Object.assign(document.createElement("div"), { className: "ed-sl" })).appendChild(lin);
   bw.remove();
   $("edBody").replaceChildren(frag);
@@ -2296,6 +2301,7 @@ function edSync() {
   for (const { s, input, vEl } of ed.rows) { const v = s.get(ed.P); input.value = v; vEl.textContent = pctOf(s, v); }
   ed.bwBtn.setAttribute("aria-pressed", String(!!ed.P.bw));
   ed.linBtn.setAttribute("aria-pressed", String(ed.P.linear > 0.5));
+  ed.haloBtn.setAttribute("aria-pressed", String(ed.P.halo > 0.5));
 }
 // широкий экран — живой просмотр крупнее (1000 px), телефон — 420 px: так быстрее
 function edEdge() { return $("edPic").clientWidth > 520 ? 1000 : 420; }

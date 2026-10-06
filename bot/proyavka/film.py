@@ -24,44 +24,46 @@ DEFAULTS = dict(
     hue=(0.0,) * 6, bsat=(1.0,) * 6,       # сдвиг оттенка (°) и множитель насыщенности по полосам R, Y, G, C, B, M
     grain_shadow=0.0,                      # насколько крупнее и заметнее зерно в тенях (0 — как раньше)
     linear=0.0,                            # 1 — свечение и дымка считаются в линейном свете (физичнее), 0 — как раньше
+    dens=0.0,                              # плотность цвета: тёмные насыщенные цвета глубже, светлые — пастельнее (как у плёнки)
+    halo=0.0,                              # 1 — халяция как у плёнки: только у ярких источников на тёмном фоне (0 — прежняя вуаль)
 )
 
 PRESETS = {
     "street_neg": dict(
         name="Street Neg", when=L("улица, город", "street, city"),
-        desc=L("жёсткие тени с бирюзой, тёплые света, приглушённый цвет", "hard teal shadows, warm highlights, muted colour"),
-        contrast=0.5, lift=(0.02, 0.035, 0.04), sat=0.8,
-        shadow_tint=(-0.03, 0.01, 0.02), high_tint=(0.035, 0.005, -0.01),
-        halation=0.35, grain=0.045,
-        hue=(5, 0, -8, -10, -5, 0), bsat=(1.0, 0.95, 0.85, 1.08, 0.88, 1.0), grain_shadow=0.35),
+        desc=L("бирюзовые тени, тёплые света, плотный цвет — как уличная Ultramax", "teal shadows, warm highlights, dense colour — like a street Ultramax"),
+        contrast=0.6, lift=(0.03, 0.03, 0.035), top=0.965, shoulder=0.75, sat=0.95, gamma=(0.98, 1, 1.04),
+        shadow_tint=(-0.015, 0.006, 0.016), high_tint=(0.02, 0.012, -0.012), halation=0.3, hal_thr=0.8, halo=1, bloom=0.05,
+        soften=0.5, grain=0.045, grain_size=1.6, grain_color=0.3, grain_shadow=0.35, vignette=0.18, hue=(4, 0, -8, -6, -4, 0),
+        bsat=(1.05, 1.05, 0.9, 0.95, 0.92, 0.95), dens=0.45),
     "muted_chrome": dict(
         name="Muted Chrome", when=L("пасмурно, документалка", "overcast, documentary"),
-        desc=L("сдержанный цвет, плотные тени, приглушённое небо", "restrained colour, dense shadows, muted sky"),
-        contrast=0.45, lift=(0.025, 0.025, 0.03), sat=0.7, gamma=(1.0, 1.0, 1.05),
-        shadow_tint=(-0.01, 0.0, 0.01), high_tint=(0.015, 0.01, -0.005),
-        halation=0.25, grain=0.04,
-        hue=(0, 0, -12, 0, -4, 0), bsat=(0.9, 0.88, 0.72, 0.88, 0.8, 0.92), grain_shadow=0.2),
+        desc=L("сдержанный цвет, глубокие тени, оливковая зелень, бирюзовое небо", "restrained colour, deep shadows, olive greens, cyan sky"),
+        contrast=0.7, lift=(0.015, 0.015, 0.02), top=0.96, shoulder=0.8, sat=0.78, gamma=(1, 1, 1.02),
+        shadow_tint=(-0.008, 0, 0.008), high_tint=(0.012, 0.008, -0.004), halation=0.12, hal_thr=0.82, halo=1, bloom=0.03,
+        soften=0.5, grain=0.035, grain_size=1.5, grain_color=0.25, grain_shadow=0.25, vignette=0.2, hue=(6, -4, -14, -6, -8, 0),
+        bsat=(0.95, 0.85, 0.7, 0.85, 0.8, 0.8), dens=0.6),
     "amber_neg": dict(
         name="Amber Neg", when=L("золотой час, закат", "golden hour, sunset"),
-        desc=L("янтарные света, мягкие тени, тёплая ностальгия", "amber highlights, soft shadows, warm nostalgia"),
-        contrast=0.3, lift=(0.05, 0.035, 0.02), sat=0.95,
-        shadow_tint=(0.01, 0.0, -0.01), high_tint=(0.05, 0.025, -0.04),
-        halation=0.45, bloom=0.14, grain=0.045,
-        hue=(6, 4, -14, 0, 4, 0), bsat=(1.08, 1.12, 0.9, 0.9, 0.8, 1.0), grain_shadow=0.3),
+        desc=L("янтарные света, мягкий контраст, тёплые тени", "amber highlights, soft contrast, warm shadows"),
+        contrast=0.4, lift=(0.05, 0.035, 0.02), top=0.96, shoulder=0.72, sat=0.9, gamma=(0.96, 1, 1.08),
+        shadow_tint=(0.005, 0, -0.01), high_tint=(0.045, 0.02, -0.04), halation=0.4, hal_thr=0.75, halo=1, bloom=0.12,
+        soften=0.6, grain=0.045, grain_size=1.6, grain_color=0.3, grain_shadow=0.3, vignette=0.2, hue=(3, 5, -12, 0, -4, 0),
+        bsat=(1, 1.1, 0.88, 0.85, 0.8, 0.9), dens=0.4),
     "vivid50": dict(
         name="Vivid 50", when=L("пейзаж, природа", "landscape, nature"),
-        desc=L("сочный цвет, глубокое небо, яркая зелень", "rich colour, deep sky, vivid greens"),
-        contrast=0.55, lift=(0.015, 0.015, 0.02), sat=1.35, gamma=(1.0, 0.97, 0.98),
-        shadow_tint=(0.0, 0.0, 0.01), high_tint=(0.01, 0.005, -0.01),
-        halation=0.2, bloom=0.05, grain=0.025, grain_size=1.3, vignette=0.25,
-        hue=(-3, 0, 6, 0, 0, -3), bsat=(1.15, 1.08, 1.12, 1.05, 1.18, 1.12), grain_shadow=0.1),
+        desc=L("слайдовая плотность: глубокие чёрные, сочная зелень и небо без фиолетового", "slide-film density: deep blacks, rich greens, a sky without purple"),
+        contrast=0.85, lift=(0.008, 0.008, 0.012), top=0.97, shoulder=0.8, sat=1.08, gamma=(1.02, 1, 1),
+        shadow_tint=(0, 0, 0.006), high_tint=(0.006, 0.004, -0.006), halation=0.08, hal_thr=0.85, halo=1, bloom=0.04, soften=0.4,
+        grain=0.022, grain_size=1.2, grain_color=0.2, grain_shadow=0.1, vignette=0.22, hue=(-2, 0, 4, -4, -10, -3),
+        bsat=(1.12, 1.05, 1.22, 1.05, 0.95, 1), dens=0.7),
     "cine250": dict(
         name="Cine 250D", when=L("кино, настроение", "cinema, mood"),
-        desc=L("плоский кинолук, мало цвета, бирюзовый оттенок", "flat cine look, low colour, teal cast"),
-        contrast=0.2, lift=(0.04, 0.045, 0.05), shoulder=0.7, sat=0.65,
-        shadow_tint=(-0.02, 0.01, 0.02), high_tint=(0.02, 0.012, -0.005),
-        halation=0.35, bloom=0.12, grain=0.035,
-        hue=(0, -3, 10, 5, -5, 0), bsat=(0.88, 0.82, 0.88, 1.0, 0.93, 0.88), grain_shadow=0.25),
+        desc=L("кинонегатив на кинопечати: бирюзовые тени, тёплая кожа, мягкие света", "cine negative printed for cinema: teal shadows, warm skin, soft highlights"),
+        contrast=0.65, lift=(0.02, 0.025, 0.03), top=0.95, shoulder=0.7, sat=0.9, gamma=(0.98, 1, 1.02),
+        shadow_tint=(-0.03, 0.005, 0.025), high_tint=(0.035, 0.015, -0.02), halation=0.25, hal_thr=0.78, halo=1, bloom=0.08,
+        soften=0.6, grain=0.03, grain_size=1.5, grain_color=0.25, grain_shadow=0.25, vignette=0.15, hue=(4, 2, -6, -4, -6, 0),
+        bsat=(1.05, 1, 0.88, 0.95, 0.85, 0.9), dens=0.6),
     "portrait400": dict(
         name="Portrait 400", when=L("люди, портреты", "people, portraits"),
         desc=L("тёплая кожа, мягкий контраст, пастель", "warm skin, soft contrast, pastel"),
@@ -71,11 +73,11 @@ PRESETS = {
         hue=(9, 4, -10, -5, -9, 0), bsat=(0.95, 0.95, 0.72, 0.88, 0.78, 0.95), grain_shadow=0.2),
     "golden200": dict(
         name="Golden 200", when=L("солнце, лето", "sun, summer"),
-        desc=L("тёплый, насыщенный, отпускной", "warm, saturated, holiday feel"),
-        contrast=0.4, lift=(0.035, 0.03, 0.02), sat=1.1,
-        shadow_tint=(0.005, 0.0, -0.015), high_tint=(0.045, 0.022, -0.04),
-        halation=0.35, grain=0.045,
-        hue=(6, 5, -12, 0, 2, 0), bsat=(1.1, 1.15, 0.95, 0.9, 0.85, 1.0), grain_shadow=0.3),
+        desc=L("тёплый жёлтый, сочные красные и жёлтые — как Gold 200", "warm yellow, rich reds and yellows — like Gold 200"),
+        contrast=0.5, lift=(0.035, 0.032, 0.02), top=0.965, shoulder=0.76, sat=1, gamma=(0.97, 0.99, 1.06),
+        shadow_tint=(0.004, 0.006, -0.01), high_tint=(0.035, 0.025, -0.035), halation=0.3, hal_thr=0.78, halo=1, bloom=0.06,
+        soften=0.5, grain=0.045, grain_size=1.6, grain_color=0.3, grain_shadow=0.3, vignette=0.18, hue=(4, 4, -10, 0, -2, 0),
+        bsat=(1.02, 1.15, 0.95, 0.88, 0.85, 0.95), dens=0.45),
     "super400": dict(
         name="Super 400", when=L("повседневка, нулевые", "everyday, 2000s"),
         desc=L("зеленоватые тени, бодрый цвет мыльницы", "greenish shadows, punchy point-and-shoot colour"),
@@ -85,30 +87,28 @@ PRESETS = {
         hue=(0, -3, 5, 3, 2, -4), bsat=(1.05, 1.0, 1.15, 1.1, 1.05, 1.0), grain_shadow=0.35),
     "night800": dict(
         name="Night 800T", when=L("ночь, огни", "night, lights"),
-        desc=L("холодные тени, сильное красное свечение вокруг огней", "cold shadows, strong red glow around lights"),
-        contrast=0.45, lift=(0.02, 0.03, 0.05), sat=0.95,
-        shadow_tint=(-0.025, 0.01, 0.045), high_tint=(0.02, 0.0, -0.005),
-        halation=0.9, hal_thr=0.62, bloom=0.14, grain=0.055, grain_size=1.8, vignette=0.25,
-        hue=(0, 0, 0, -10, -14, 0), bsat=(1.1, 1.0, 0.9, 1.15, 1.05, 1.0), grain_shadow=0.5, linear=1.0),
+        desc=L("холодные тени, красно-оранжевые ореолы только вокруг огней", "cold shadows, red-orange halos only around lights"),
+        contrast=0.55, lift=(0.02, 0.028, 0.045), top=0.965, shoulder=0.75, sat=0.95, gamma=(1.04, 1, 0.95),
+        shadow_tint=(-0.02, 0.005, 0.03), high_tint=(0.01, 0, -0.005), halation=1.2, hal_thr=0.68, halo=1, bloom=0.1, soften=0.5,
+        linear=1, grain=0.055, grain_size=1.8, grain_color=0.3, grain_shadow=0.5, vignette=0.2, hue=(0, 0, -6, -6, -6, 0),
+        bsat=(1.1, 1, 0.9, 1.1, 1, 0.9), dens=0.4),
     "across100": dict(
         name="Across 100", when=L("ч/б, мягко", "b&w, soft"),
-        desc=L("гладкая ч/б, тонкое зерно, богатые полутона", "smooth b&w, fine grain, rich midtones"),
-        bw=(0.25, 0.6, 0.15), contrast=0.45, lift=(0.02, 0.02, 0.02),
-        halation=0.15, grain=0.035, grain_size=1.3, grain_color=0.0, vignette=0.2,
-        grain_shadow=0.15),
+        desc=L("гладкая ч/б, тонкое зерно, длинные полутона, красное темнее", "smooth b&w, fine grain, long midtones, reds darker"),
+        bw=(0.22, 0.6, 0.18), contrast=0.5, lift=(0.015, 0.015, 0.015), top=0.97, shoulder=0.82, halation=0, bloom=0.04,
+        soften=0.4, grain=0.03, grain_size=1.2, grain_color=0, grain_shadow=0.15, vignette=0.15),
     "grainx400": dict(
         name="Grain X 400", when=L("ч/б, улица, жёстко", "b&w, street, gritty"),
-        desc=L("контрастная ч/б с крупным зерном", "contrasty b&w with coarse grain"),
-        bw=(0.45, 0.45, 0.10), contrast=0.7, lift=(0.025, 0.025, 0.025),
-        halation=0.15, grain=0.08, grain_size=2.0, grain_color=0.0, vignette=0.28,
-        grain_shadow=0.45),
+        desc=L("контрастная ч/б с крупным зерном и глубокими чёрными", "contrasty b&w with coarse grain and deep blacks"),
+        bw=(0.4, 0.48, 0.12), contrast=0.85, lift=(0.02, 0.02, 0.02), top=0.975, shoulder=0.85, halation=0.1, hal_thr=0.85,
+        halo=1, bloom=0.03, soften=0.5, grain=0.085, grain_size=2.1, grain_color=0, grain_shadow=0.5, vignette=0.25),
     "expired": dict(
         name="Expired", when=L("эксперимент", "experiment"),
-        desc=L("выцветший цвет, сдвиг оттенков, много зерна", "faded colour, shifted hues, lots of grain"),
-        contrast=0.25, lift=(0.07, 0.05, 0.06), top=0.93, sat=0.75, gamma=(0.95, 1.02, 1.05),
-        shadow_tint=(0.02, -0.01, 0.03), high_tint=(0.04, 0.03, -0.03),
-        halation=0.45, bloom=0.14, grain=0.07, grain_size=2.0, grain_color=0.5, vignette=0.3,
-        mix=(0.05, 0.09, -0.03, -0.07, 0.06, 0.03), hue=(0, 0, -22, 8, 16, 0), bsat=(1.0, 1.0, 0.9, 0.9, 1.15, 1.2), grain_shadow=0.6),
+        desc=L("выцветший цвет, зеленоватые тени, тёплые света, много зерна", "faded colour, greenish shadows, warm highlights, lots of grain"),
+        contrast=0.3, lift=(0.05, 0.06, 0.055), top=0.93, shoulder=0.7, sat=0.78, gamma=(0.97, 1, 1.03),
+        shadow_tint=(-0.015, 0.015, 0), high_tint=(0.04, 0.03, -0.03), halation=0.3, hal_thr=0.75, halo=1, bloom=0.12,
+        soften=0.6, grain=0.07, grain_size=2, grain_color=0.5, grain_shadow=0.6, vignette=0.3, mix=(0.03, 0, 0.02, 0, 0, 0.02),
+        hue=(4, 0, -10, -6, -6, 0), bsat=(1, 1.05, 0.85, 0.9, 0.85, 0.8), dens=0.3),
 }
 for k in PRESETS:
     PRESETS[k] = {**DEFAULTS, **PRESETS[k]}
@@ -194,6 +194,17 @@ def band_adjust(a, hue, bsat):
     return out + (mx - c)[:, None]
 
 
+def color_density(a, d):
+    """Плотность цвета, как у плёнки, где цвет — это краситель: насыщенный цвет темнее и глубже, в тенях цвета плотнее,
+    в светах — пастельнее. Серое не трогается. a — (N,3), 0..1; d — 0..1."""
+    l = a @ LUMA
+    c = a - l[:, None]
+    chroma = np.abs(c).max(axis=1)
+    k = np.clip(1.0 + d * 1.2 * (0.55 - l), 0.6, 1.6)               # тени — насыщеннее, света — мягче
+    l2 = l - d * 0.22 * chroma * (0.4 + l)                           # краситель «съедает» свет у насыщенных цветов
+    return l2[:, None] + c * k[:, None]
+
+
 def mix_matrix(v):
     """Матрица 3×3 из шести «перетеканий»; сумма каждой строки — 1, поэтому нейтральные тона не меняют цвет."""
     rg, rb, gr, gb, br, bg = v
@@ -212,6 +223,8 @@ def color_fn(a, p):
         a = l[:, None] + (a - l[:, None]) * p["sat"]
         if any(p["hue"]) or any(x != 1.0 for x in p["bsat"]):        # без полос — ровно прежний результат
             a = band_adjust(np.clip(a, 0, 1), p["hue"], p["bsat"])
+        if p["dens"] > 0:                                            # без плотности — ровно прежний результат
+            a = color_density(np.clip(a, 0, 1), p["dens"])
     a = np.clip(a, 0, 1) ** v3(p["gamma"])
     s = a * a * (3 - 2 * a)
     a = a + p["contrast"] * (s - a)
@@ -300,7 +313,9 @@ def fx_linear(img, p):
     sw, sh = max(1, w // f), max(1, h // f)
     sl = to_linear(np.asarray(img.resize((sw, sh), Image.BOX), dtype=np.float32) / 255.0)
     acc = np.zeros((sh, sw, 3), dtype=np.float32)
-    if p["halation"] > 0:
+    if p["halation"] > 0 and p["halo"] > 0.5:
+        acc += halo_layer(sl, p, max(w, h) / f)
+    elif p["halation"] > 0:
         thr = float(to_linear(np.float32(p["hal_thr"])))
         m = np.clip(((sl @ LUMA) - thr) / (1 - thr), 0, 1)
         r = max(w, h) * 0.008 / f
@@ -313,6 +328,21 @@ def fx_linear(img, p):
         blur = np.stack([blur_mask(sl[..., c], sig) for c in range(3)], axis=-1)
         acc += blur * blur * (p["bloom"] * 0.6)
     return acc
+
+
+def halo_layer(sl, p, size):
+    """Халяция как у плёнки (свет прошёл эмульсию, отразился от основы и засветил красный слой): источник — только очень яркое,
+    у самого источника ореол оранжевый, дальше — красный; виден на тёмном фоне, а на светлом (небо, стена) почти не заметен,
+    поэтому голубое не уходит в фиолетовый. sl — уменьшенный кадр в линейном свете, size — длинная сторона в его пикселях."""
+    y = sl @ LUMA
+    thr = float(to_linear(np.float32(p["hal_thr"])))
+    src = np.clip((y - thr) / max(1e-3, 1 - thr), 0, 1) ** 1.5
+    r = size * 0.012                                                  # ~1–4 % кадра, как у 35 мм
+    near = 1 - np.exp(-blur_mask(src, r) * 6)                         # плотное кольцо у источника
+    far = 1 - np.exp(-blur_mask(src, r * 3.5) * 12)                  # шире и слабее
+    halo = near[..., None] * v3((1.0, 0.40, 0.10)) * 0.6 + far[..., None] * v3((1.0, 0.12, 0.03)) * 0.4
+    dark = np.clip(1.0 - blur_mask(y, r) * 2.5, 0, 1) ** 1.5         # «фон» в линейном свете: на ярком (небо) ореола не видно
+    return halo * (dark * (1 - src))[..., None] * (p["halation"] * 0.5)
 
 
 def apply_fx_linear(img, acc, strip=256):
@@ -461,6 +491,7 @@ LOOK_FIELDS = {                    # поле -> (сколько чисел, м�
     "halation": (1, 0.0, 1.2), "hal_thr": (1, 0.4, 0.95), "bloom": (1, 0.0, 0.3), "soften": (1, 0.0, 1.5),
     "grain": (1, 0.0, 0.12), "grain_size": (1, 1.0, 3.0), "grain_color": (1, 0.0, 1.0), "vignette": (1, 0.0, 0.5),
     "mix": (6, -0.5, 0.5), "hue": (6, -40.0, 40.0), "bsat": (6, 0.4, 1.8), "grain_shadow": (1, 0.0, 1.0), "linear": (1, 0.0, 1.0),
+    "dens": (1, 0.0, 1.0), "halo": (1, 0.0, 1.0),
 }
 LOOK_CODE_PREFIX = "proyavka-look:1:"
 LOOK_META_CACHE = {}               # путь -> (содержимое файла, параметры или None) — в процессах-работниках
@@ -586,7 +617,7 @@ def film(img, key, strength=100, seed=0, p=None):
     if soft >= 0.6:  # убираем цифровую «звонкость»; на малых размерах эффект невидим
         img = img.filter(ImageFilter.GaussianBlur(soft))
     orig = img
-    if p["linear"] > 0.5:
+    if p["linear"] > 0.5 or p["halo"] > 0.5:       # новая халяция считается в линейном свете
         acc = fx_linear(img, p)
         a = apply_fx_linear(img, acc) if acc is not None else img
     else:

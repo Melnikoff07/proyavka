@@ -32,6 +32,10 @@ def hue_of(rgb):
     return h * 60
 
 
+def lab_l(rgb):
+    return float(np.dot(rgb, [0.2126, 0.7152, 0.0722]))
+
+
 def sat_of(rgb):
     mx, mn = max(rgb), min(rgb)
     return 0 if mx == 0 else (mx - mn) / mx
@@ -77,7 +81,22 @@ if __name__ == "__main__":
     check(f"готовые кадры старых плёнок воспроизводятся (расхождение {worst_img} из 255, в среднем {mean_img:.2f})", worst_img <= 6 and mean_img < 0.5)
     check("снимок старых плёнок полный: 12 штук", len(v1) == 12 and set(v1) == set(film.PRESETS))
 
-    # --- встроенные плёнки после настройки под полосы: вид закреплён эталоном, а от старого они отличаются ---
+    # --- плёнки v2 (1.4: полосы, зерно в тенях, линейное свечение) движок тоже воспроизводит точь-в-точь ---
+    ref2 = np.load(HERE / "film_ref_v2.npz")
+    v2 = json.loads((HERE.parent / "bot" / "films_v2.json").read_text(encoding="utf-8"))["films"]
+    wl2, wi2, wm2 = 0.0, 0, 0.0
+    for key in v2:
+        params = film.clean_params(v2[key]["params"])
+        wl2 = max(wl2, float(np.abs(np.asarray(film._bake(params).table, dtype=np.float32)[::97] - ref2[f"{key}_lut"]).max()))
+        for name, img in (("scene", scene), ("sample", sample)):
+            r = np.asarray(film.film(img.copy(), "custom", 100, 3, params).resize((96, 64), Image.BOX), dtype=np.int16)
+            d = np.abs(r - ref2[f"{key}_{name}"].astype(np.int16))
+            wi2, wm2 = max(wi2, int(d.max())), max(wm2, float(d.mean()))
+    check(f"плёнки v2 воспроизводятся (таблицы {wl2:.6f}, кадры {wi2} из 255, в среднем {wm2:.2f})", wl2 < 1e-5 and wi2 <= 6 and wm2 < 0.5)
+    check("Super 400 и Portrait 400 остались как в v2", all({f: v for f, v in film.params_json(film.clean_params(film.PRESETS[k])).items() if f in v2[k]["params"]}
+                                                              == v2[k]["params"] for k in ("super400", "portrait400")))
+
+    # --- встроенные плёнки сейчас: вид закреплён эталоном ---
     cur = np.load(HERE / "film_ref.npz")
     wl, wi, wm = 0.0, 0, 0.0
     for key in film.PRESETS:
@@ -99,7 +118,9 @@ if __name__ == "__main__":
         diffs[key] = float(np.abs(np.asarray(film.film(chart.copy(), "custom", 100, 1, new_p), dtype=np.float32) - np.asarray(film.film(chart.copy(), "custom", 100, 1, old_p), dtype=np.float32)).max())
     colour = [k for k in v1 if not v1[k]["params"]["bw"]]
     check(f"у всех цветных плёнок есть свои цветовые полосы (сдвиг цвета от {min(diffs[k] for k in colour):.0f} до {max(diffs[k] for k in colour):.0f} из 255)", all(diffs[k] > 4 for k in colour))
-    check("у чёрно-белых цвет не сдвигается, только зерно в тенях", all(diffs[k] < 1 and film.PRESETS[k]["grain_shadow"] > 0 for k in v1 if v1[k]["params"]["bw"]))
+    bwk = [k for k in v1 if v1[k]["params"]["bw"]]
+    check("чёрно-белые остаются без цвета, с зерном в тенях", all(film.PRESETS[k]["bw"] and film.PRESETS[k]["grain_shadow"] > 0 and
+          float(np.ptp(np.asarray(film.film(chart.copy(), k, 100, 1)).astype(int), axis=-1).max()) <= 2 for k in bwk))
 
     # --- цветовые полосы ---
     rng = np.random.default_rng(1)
@@ -198,6 +219,25 @@ if __name__ == "__main__":
     g1 = np.asarray(film.film(bright.copy(), "custom", 100, 2, flat(grain=0.03, grain_shadow=1.0)), dtype=np.int16)
     check(f"зерно в тенях: в светах ни одного сдвига (расхождение {int(np.abs(g0 - g1).max())})", int(np.abs(g0 - g1).max()) == 0)
 
+    # --- халяция «как у плёнки»: ореол только у ярких источников на тёмном, голубое небо не краснеет ---
+    sky = Image.new("RGB", (600, 400), (120, 170, 230))
+    hp = flat(halation=1.2, hal_thr=0.7, halo=1)
+    d_sky = np.asarray(film.film(sky.copy(), "custom", 100, 1, hp), np.int16) - np.asarray(film.film(sky.copy(), "custom", 100, 1, flat()), np.int16)
+    check(f"на ярком небе ореола нет (сдвиг красного {int(np.abs(d_sky[..., 0]).max())})", int(np.abs(d_sky).max()) <= 2)
+    lamp = np.zeros((400, 600, 3), np.uint8)
+    lamp[(yy[:400, :600] - 200) ** 2 + (xx[:400, :600] - 300) ** 2 < 15 ** 2] = 255
+    lamp = Image.fromarray(lamp)
+    d_l = np.asarray(film.film(lamp.copy(), "custom", 100, 1, hp), np.float32) - np.asarray(film.film(lamp.copy(), "custom", 100, 1, flat()), np.float32)
+    ring = d_l[200, 300 + 25:300 + 60].mean(axis=0)
+    check(f"у огня на тёмном — красно-оранжевый ореол (R/G/B {ring.round(1).tolist()})", ring[0] > 8 and ring[0] > ring[1] > ring[2])
+    # --- плотность цвета: серое не трогает, насыщенное тёмное — глубже ---
+    dn = flat(dens=0.8)
+    check("плотность цвета не трогает серое", all(np.allclose(lut_apply(dn, (g, g, g)), lut_apply(flat(), (g, g, g)), atol=1e-3) for g in (0.1, 0.5, 0.9)))
+    deep_red = (0.6, 0.12, 0.12)
+    check("насыщенный тёмный цвет становится темнее и насыщеннее",
+          lab_l(lut_apply(dn, deep_red)) < lab_l(lut_apply(flat(), deep_red)) and sat_of(lut_apply(dn, deep_red)) >= sat_of(lut_apply(flat(), deep_red)) - 0.01)
+    check("старые коды без новых полей — прежняя халяция и без плотности", film.clean_params({})["halo"] == 0.0 and film.clean_params({})["dens"] == 0.0)
+
     # --- встроенные плёнки по-прежнему отдаются редактору целиком ---
-    check("у встроенных плёнок в параметрах есть и новые поля", all({"hue", "bsat", "grain_shadow", "linear"} <= set(film.params_json(film.clean_params(v))) for v in film.PRESETS.values()))
+    check("у встроенных плёнок в параметрах есть и новые поля", all({"hue", "bsat", "grain_shadow", "linear", "dens", "halo"} <= set(film.params_json(film.clean_params(v))) for v in film.PRESETS.values()))
     os._exit(0)

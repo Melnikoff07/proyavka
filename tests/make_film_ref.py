@@ -1,7 +1,7 @@
-"""Эталоны вида плёнок для test_film.py: python tests/make_film_ref.py [--v1] [--new].
+"""Эталоны вида плёнок для test_film.py: python tests/make_film_ref.py [--v1] [--v2] [--new].
 
 --new  перезаписать film_ref.npz (встроенные плёнки как сейчас) — только когда вид меняют сознательно;
---v1   дописать в film_ref_v1.npz недостающие плёнки из bot/films_v1.json. Записи, что уже есть, не трогаются:
+--v1, --v2   дописать в film_ref_vN.npz недостающие плёнки из bot/films_vN.json. Записи, что уже есть, не трогаются:
        их рисовал ещё прежний движок, по ним и видно, что новый воспроизводит старые плёнки.
 Таблица цвета — каждая 97-я точка 3D-LUT, кадры — синтетическая сцена и общий образец, уменьшенные до 96×64."""
 import json
@@ -44,10 +44,10 @@ def make_new():
     print("film_ref.npz:", len(film.PRESETS), "плёнок")
 
 
-def add_v1():
-    path = HERE / "film_ref_v1.npz"
+def add_v1(n=1):
+    path = HERE / f"film_ref_v{n}.npz"
     out = dict(np.load(path)) if path.exists() else {}
-    v1 = json.loads((HERE.parent / "bot" / "films_v1.json").read_text(encoding="utf-8"))["films"]
+    v1 = json.loads((HERE.parent / "bot" / f"films_v{n}.json").read_text(encoding="utf-8"))["films"]
     added = []
     for key, v in v1.items():
         if f"{key}_lut" in out:
@@ -58,13 +58,14 @@ def add_v1():
             out[f"{key}_{name}"] = shot(img, "custom", params)
         added.append(key)
     np.savez_compressed(path, **out)
-    print("film_ref_v1.npz: добавлены", ", ".join(added) or "—")
+    print(f"film_ref_v{n}.npz: добавлены", ", ".join(added) or "—")
 
 
 if __name__ == "__main__":
     if "--new" in sys.argv:
         make_new()
-    if "--v1" in sys.argv:
-        add_v1()
-    if not {"--new", "--v1"} & set(sys.argv):
+    for n in (1, 2):
+        if f"--v{n}" in sys.argv:
+            add_v1(n)
+    if not {"--new", "--v1", "--v2"} & set(sys.argv):
         sys.exit(__doc__)
