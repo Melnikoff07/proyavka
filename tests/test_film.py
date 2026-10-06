@@ -67,6 +67,28 @@ if __name__ == "__main__":
     check(f"готовые кадры старых плёнок воспроизводятся (расхождение {worst_img} из 255)", worst_img <= 6)    # запас на версии Pillow
     check("снимок старых плёнок полный: 12 штук", len(v1) == 12 and set(v1) == set(fb.PRESETS))
 
+    # --- встроенные плёнки после настройки под полосы: вид закреплён эталоном, а от старого они отличаются ---
+    cur = np.load(HERE / "film_ref.npz")
+    wl, wi = 0.0, 0
+    for key in ("street_neg", "night800", "vivid50", "across100", "expired", "portrait400"):
+        t = np.asarray(fb.preset_lut(key).table, dtype=np.float32)[::97]
+        wl = max(wl, float(np.abs(t - cur[f"{key}_lut"]).max()))
+        for name, img in (("scene", scene), ("sample", sample)):
+            r = np.asarray(fb.film(img.copy(), key, 100, 3).resize((96, 64), Image.BOX), dtype=np.int16)
+            wi = max(wi, int(np.abs(r - cur[f"{key}_{name}"].astype(np.int16)).max()))
+    check(f"встроенные плёнки выглядят как закреплено в эталоне (таблицы {wl:.6f}, кадры {wi} из 255)", wl < 1e-5 and wi <= 6)
+    chart = Image.new("RGB", (6, 1))
+    chart.putdata([(214, 126, 44), (87, 108, 67), (98, 122, 157), (194, 150, 130), (70, 148, 73), (80, 91, 166)])      # оранжевый, листва, небо, кожа, зелёный, синий
+    quiet = dict(grain=0.0, halation=0.0, bloom=0.0, vignette=0.0, soften=0.0, hue=(0,) * 6, bsat=(1,) * 6, grain_shadow=0.0, linear=0.0)
+    diffs = {}
+    for key, v in v1.items():
+        old_p = fb.clean_params(dict(v["params"], **quiet))
+        new_p = fb.clean_params(dict(fb.params_json(fb.clean_params(fb.PRESETS[key])), **dict(quiet, hue=fb.PRESETS[key]["hue"], bsat=fb.PRESETS[key]["bsat"])))
+        diffs[key] = float(np.abs(np.asarray(fb.film(chart.copy(), "custom", 100, 1, new_p), dtype=np.float32) - np.asarray(fb.film(chart.copy(), "custom", 100, 1, old_p), dtype=np.float32)).max())
+    colour = [k for k in v1 if not v1[k]["params"]["bw"]]
+    check(f"у всех цветных плёнок есть свои цветовые полосы (сдвиг цвета от {min(diffs[k] for k in colour):.0f} до {max(diffs[k] for k in colour):.0f} из 255)", all(diffs[k] > 4 for k in colour))
+    check("у чёрно-белых цвет не сдвигается, только зерно в тенях", all(diffs[k] < 1 and fb.PRESETS[k]["grain_shadow"] > 0 for k in v1 if v1[k]["params"]["bw"]))
+
     # --- цветовые полосы ---
     rng = np.random.default_rng(1)
     rnd = rng.random((2000, 3)).astype(np.float32)
@@ -99,7 +121,7 @@ if __name__ == "__main__":
     old_code = "proyavka-look:1:" + base64.urlsafe_b64encode(json.dumps({"name": "Старая", "p": {"contrast": 0.3}}).encode()).decode()
     name, by, op = fb.parse_look_code(old_code)
     check("код, сделанный до этих параметров, читается; новые поля — по умолчанию", op["hue"] == (0.0,) * 6 and op["bsat"] == (1.0,) * 6 and op["linear"] == 0.0)
-    plain = fb.look_code("Обычная", "A", fb.clean_params(fb.PRESETS["vivid50"]))
+    plain = fb.look_code("Обычная", "A", fb.clean_params({"contrast": 0.3, "sat": 1.1}))
     rich = fb.look_code("С полосами", "A", fb.clean_params(dict(fb.params_json(fb.clean_params(fb.PRESETS["vivid50"])), hue=[0, 0, -20, 0, 0, 0], linear=1)))
     dec = lambda c: json.loads(base64.urlsafe_b64decode(c[len(fb.LOOK_CODE_PREFIX):] + "==").decode())["p"]
     check("в коде нет полей по умолчанию (он короче и совместим со старыми серверами)", not ({"hue", "bsat", "grain_shadow", "linear"} & set(dec(plain))) and "hue" in dec(rich))
