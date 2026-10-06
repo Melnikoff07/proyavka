@@ -65,20 +65,75 @@ final class Cam {
 
     // ---------- настройки ----------
 
+    /** Где искали config.txt и что нашли — для сообщения на экране, если настроек нет. */
+    static String configWhere = "";
+    static File configFound = null;
+
     static Properties config(Context ctx) throws IOException {
         Properties cfg = new Properties();
         try {   // config.properties в APK — для личной сборки, в общей его нет
             InputStream in = ctx.getAssets().open("config.properties");
             try { cfg.load(in); } finally { in.close(); }
         } catch (IOException e) { /* нет — и ладно */ }
-        load(cfg, new File(dir(), "config.txt"));
+        configFound = findConfig();
+        if (configFound != null) load(cfg, configFound);
         return cfg;
     }
 
+    /**
+     * config.txt на карте: без учёта регистра букв (камеры на Android 2.3 пишут имена как CONFIG.TXT), а также config.txt.txt —
+     * так файл сохраняет Windows со скрытыми расширениями. Кроме основной папки — запасные пути к карте на старых прошивках.
+     */
+    static File findConfig() {
+        List<File> dirs = new ArrayList<File>();
+        dirs.add(dir());
+        for (String root : new String[] {"/mnt/sdcard", "/sdcard", "/storage/sdcard0", "/mnt/extSdCard", "/mnt/sdcard/external_sd"}) {
+            File d = new File(root, "PROYAVKA");
+            if (!dirs.contains(d)) dirs.add(d);
+        }
+        StringBuilder where = new StringBuilder();
+        for (File d : dirs) {
+            if (where.length() > 0) where.append(", ");
+            where.append(d.getPath());
+            File[] list = d.listFiles();
+            if (list == null) continue;
+            for (String want : new String[] {"config.txt", "config.txt.txt", "config"}) {
+                for (File f : list) if (f.isFile() && f.getName().equalsIgnoreCase(want)) { configWhere = where.toString(); return f; }
+            }
+        }
+        configWhere = where.toString();
+        return null;
+    }
+
     private static void load(Properties p, File f) throws IOException {
-        if (!f.exists()) return;
+        if (!f.exists()) {
+            for (File g : f.getParentFile() == null || f.getParentFile().listFiles() == null ? new File[0] : f.getParentFile().listFiles())
+                if (g.getName().equalsIgnoreCase(f.getName())) { f = g; break; }   // WIFI.TXT вместо wifi.txt
+            if (!f.exists()) return;
+        }
+        byte[] b = readAll(f);
+        p.load(new java.io.StringReader(decode(b)));
+    }
+
+    private static byte[] readAll(File f) throws IOException {
         InputStream in = new FileInputStream(f);
-        try { p.load(new InputStreamReader(in, "UTF-8")); } finally { in.close(); }
+        try {
+            java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
+            byte[] buf = new byte[4096];
+            for (int n; (n = in.read(buf)) > 0; ) out.write(buf, 0, n);
+            return out.toByteArray();
+        } finally { in.close(); }
+    }
+
+    /** Текст в любой из кодировок, в которых его сохраняют блокноты: UTF-8 (с меткой BOM и без), UTF-16 LE/BE. */
+    static String decode(byte[] b) throws IOException {
+        if (b.length >= 2 && (b[0] & 0xff) == 0xff && (b[1] & 0xff) == 0xfe) return new String(b, 2, b.length - 2, "UTF-16LE");
+        if (b.length >= 2 && (b[0] & 0xff) == 0xfe && (b[1] & 0xff) == 0xff) return new String(b, 2, b.length - 2, "UTF-16BE");
+        int zeros = 0;
+        for (int i = 1; i < Math.min(b.length, 200); i += 2) if (b[i] == 0) zeros++;
+        if (b.length > 4 && zeros > Math.min(b.length, 200) / 4) return new String(b, "UTF-16LE");    // UTF-16 без метки
+        String s = new String(b, "UTF-8");
+        return s.length() > 0 && s.charAt(0) == '\uFEFF' ? s.substring(1) : s;
     }
 
     static List<InputStream> certs(Context ctx) throws IOException {

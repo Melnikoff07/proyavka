@@ -182,8 +182,7 @@ public class MainActivity extends Activity {
             Uploader u = uploader(cfg);
             if (u == null) {
                 st = Cam.L("Нет настроек сервера", "No server settings");
-                dt = Cam.L("Положи на карту файл PROYAVKA/config.txt — его пришлёт бот по команде /camera",
-                        "Put PROYAVKA/config.txt on the card — the bot sends it with /camera");
+                dt = noConfig(cfg);
             } else {
                 int n = u.findNew(new File(Environment.getExternalStorageDirectory(), "DCIM")).size();
                 st = n == 0 ? Cam.L("Новых кадров нет", "No new frames") : Cam.L("Новых кадров: ", "New frames: ") + n;
@@ -205,6 +204,17 @@ public class MainActivity extends Activity {
         String model = android.os.Build.MODEL == null ? "" : android.os.Build.MODEL.replaceAll("[^A-Za-z0-9-]", "");
         return new Uploader(url, token, cfg.getProperty("prefix", model.length() > 0 ? model + "_" : "cam_").trim(),
                 Tls.factory(Cam.certs(this)), new File(Cam.dir(), "sent.txt"));
+    }
+
+    /** Почему нет настроек: файла нет (и где искали) или в нём нет адреса/токена (и что в нём нашлось). */
+    static String noConfig(Properties cfg) {
+        if (Cam.configFound == null)
+            return Cam.L("Не нашёл PROYAVKA/config.txt (искал: " + Cam.configWhere + "). Возьми файл в «Проявке»: «⋯» → «Настройки» → «Камера» (или /camera в боте)",
+                    "No PROYAVKA/config.txt found (looked in: " + Cam.configWhere + "). Get it in Proyavka: Settings → Camera (or /camera in the bot)");
+        List<String> keys = new ArrayList<String>();
+        for (Object k : cfg.keySet()) if (!String.valueOf(k).contains("pass")) keys.add(String.valueOf(k));
+        return Cam.L("Файл " + Cam.configFound.getName() + " есть, но в нём нет url и token (нашёл: " + Cam.join(keys) + "). Возьми свежий config.txt в «Проявке»: «Настройки» → «Камера» и не правь его",
+                "Found " + Cam.configFound.getName() + ", but it has no url and token (found: " + Cam.join(keys) + "). Download a fresh config.txt in Proyavka: Settings → Camera, and don't edit it");
     }
 
     /**
@@ -257,8 +267,7 @@ public class MainActivity extends Activity {
     private String send() throws Exception {
         Properties cfg = Cam.config(this);
         final Uploader u = uploader(cfg);
-        if (u == null) return Cam.L("Нет настроек. Положи на карту PROYAVKA/config.txt — его пришлёт бот по /camera",
-                "No settings. Put PROYAVKA/config.txt on the card — the bot sends it with /camera");
+        if (u == null) return noConfig(cfg);
         job = u;
 
         show(Cam.L("Ищу новые кадры", "Looking for new frames"), "", 0);
