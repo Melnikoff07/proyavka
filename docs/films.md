@@ -65,6 +65,9 @@ Colour is applied in this order: saturation → gamma → contrast → highlight
 | `linear` | `0` | 1 — halation and bloom are computed in linear light: a wider, softer glow proportional to how bright the source is; slower on full-size exports | 0 or 1 |
 | `halo` | `0` | 1 — film-like halation: an orange ring right at very bright sources and a red glow further out, only against a dark background; a bright sky or wall gets none, so blues don't turn purple. 0 — the old wide red veil | 1 for new films |
 | `dens` | `0` | colour density, as with dyes: saturated dark colours get deeper and darker, light ones more pastel; greys untouched | 0.3 … 0.8 |
+| `exposure` | `0` | exposure in stops, before the film (bright parts roll off softly instead of clipping) | −2 … 2 |
+| `highlights`, `shadows`, `whites`, `blacks` | `0` | brightness of that zone only, like in any photo editor | −1 … 1 |
+| `temp`, `tint` | `0` | white balance: warmer/cooler, magenta/green | −1 … 1 |
 
 The **Strength** buttons (25–150 %) blend the film with the original; grain and vignette scale with it too.
 

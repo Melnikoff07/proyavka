@@ -79,7 +79,7 @@ if __name__ == "__main__":
     check(f"таблицы цвета старых плёнок воспроизводятся (расхождение {worst_lut:.6f})", worst_lut < 1e-5)
     # запас на версии Pillow — по отдельным точкам; в среднем кадр должен совпадать почти точно
     check(f"готовые кадры старых плёнок воспроизводятся (расхождение {worst_img} из 255, в среднем {mean_img:.2f})", worst_img <= 6 and mean_img < 0.5)
-    check("снимок старых плёнок полный: 12 штук", len(v1) == 12 and set(v1) == set(film.PRESETS))
+    check(f"снимок старых плёнок полный: 12 штук, все среди встроенных ({len(film.PRESETS)})", len(v1) == 12 and set(v1) <= set(film.PRESETS))
 
     # --- плёнки v2 (1.4: полосы, зерно в тенях, линейное свечение) движок тоже воспроизводит точь-в-точь ---
     ref2 = np.load(HERE / "film_ref_v2.npz")
@@ -237,6 +237,20 @@ if __name__ == "__main__":
     check("насыщенный тёмный цвет становится темнее и насыщеннее",
           lab_l(lut_apply(dn, deep_red)) < lab_l(lut_apply(flat(), deep_red)) and sat_of(lut_apply(dn, deep_red)) >= sat_of(lut_apply(flat(), deep_red)) - 0.01)
     check("старые коды без новых полей — прежняя халяция и без плотности", film.clean_params({})["halo"] == 0.0 and film.clean_params({})["dens"] == 0.0)
+
+    # --- основные ползунки: экспозиция, света/тени/белые/чёрные, баланс белого ---
+    g5 = np.array([[x, x, x] for x in (0.05, 0.25, 0.5, 0.75, 0.95)], np.float32)
+    fn = lambda **kw: film.color_fn(g5, flat(**kw))
+    b0 = fn()
+    check("основные по нулям — ровно прежний результат", np.array_equal(film.color_fn(g5, film.clean_params(dict(FLAT))), b0))
+    check("экспозиция +1 светлее, −1 темнее, белое не обрезается в 1",
+          (fn(exposure=1)[:, 0] > b0[:, 0] + 0.01).all() and (fn(exposure=-1)[:, 0] < b0[:, 0] - 0.01).all() and fn(exposure=2)[:, 0].max() < 1.0)
+    check("тени поднимают тёмное, света трогают светлое", fn(shadows=1)[1, 0] > b0[1, 0] + 0.1 and abs(fn(shadows=1)[4, 0] - b0[4, 0]) < 0.01
+          and fn(highlights=-1)[3, 0] < b0[3, 0] - 0.1 and abs(fn(highlights=-1)[0, 0] - b0[0, 0]) < 0.01)
+    check("чёрные поднимают самую тень, белые — самый свет", fn(blacks=1)[0, 0] > b0[0, 0] + 0.05 and fn(whites=-1)[4, 0] < b0[4, 0] - 0.05)
+    t = fn(temp=1)[2]
+    check(f"температура + теплее (R>G>B {t.round(2).tolist()}), оттенок + пурпурнее", t[0] > t[1] > t[2] and fn(tint=1)[2, 1] < b0[2, 1])
+    check("основные ползунки ограничены", film.clean_params({"exposure": 9, "shadows": -5})["exposure"] == 2.0 and film.clean_params({"shadows": -5})["shadows"] == -1.0)
 
     # --- встроенные плёнки по-прежнему отдаются редактору целиком ---
     check("у встроенных плёнок в параметрах есть и новые поля", all({"hue", "bsat", "grain_shadow", "linear", "dens", "halo"} <= set(film.params_json(film.clean_params(v))) for v in film.PRESETS.values()))

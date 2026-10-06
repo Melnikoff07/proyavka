@@ -11,6 +11,17 @@ English first, [по-русски — ниже](#журнал-изменений
 - Both are new sliders in the film editor. Old film codes and your own films look exactly as before; the previous built-in values are kept in `bot/films_v2.json` (and `films_v1.json`), and the engine still reproduces them.
 - After the update, frames with built-in films are redrawn once in the background.
 
+### Thirteen new films
+- Colour negative: **Pastel 160** (light, airy, pastel), **Mint 400H** (cool pastel, minty greens), **Punch 100** (punchy negative, deep blue sky).
+- Slide: **Chrome 100** (clean, neutral whites), **Classic 64** (warm reds and yellows, dense shadows).
+- Cinema: **Cine 50D** (clean daylight cine film, soft highlights).
+- Processes: **Hard Neg** (hard contrast, teal-green shadows), **Bleach Bypass** (high contrast, little colour), **Cross Process** (yellow-green highlights, blue shadows), **Instant** (milky shadows, soft focus).
+- Black and white: **Red Filter** (dark sky, light skin), **Sepia** (warm toned), **Push 3200** (heavy grain).
+- Tuned on real photos: night flash portraits, daylight, greenery, golden hour.
+
+### Film editor: the basics
+- A new first tab, **Basics**: exposure, contrast, highlights, shadows, whites, blacks, temperature and tint — applied before the film, like in any photo editor. Exposure rolls bright parts off softly instead of clipping.
+
 ## 1.4 — 2026-10-06
 
 ### Your own films and the community
@@ -84,6 +95,17 @@ English first, [по-русски — ниже](#журнал-изменений
 - **Плотность цвета** (`dens`): насыщенные тёмные цвета глубже, светлые — пастельнее, как у красителей плёнки; серое не трогается.
 - Оба — новые ползунки в редакторе. Старые коды плёнок и свои плёнки выглядят точно как раньше; прежние значения встроенных — в `bot/films_v2.json` (и `films_v1.json`), движок их по-прежнему воспроизводит.
 - После обновления кадры со встроенными плёнками один раз перерисуются в фоне.
+
+### Тринадцать новых плёнок
+- Цветной негатив: **Pastel 160** (светлая, воздушная, пастельная), **Mint 400H** (прохладная пастель, мятная зелень), **Punch 100** (сочный негатив, глубокое синее небо).
+- Слайд: **Chrome 100** (чистый цвет, нейтральные белые), **Classic 64** (тёплые красные и жёлтые, плотные тени).
+- Кино: **Cine 50D** (чистая дневная киноплёнка, мягкие света).
+- Процессы: **Hard Neg** (жёсткий контраст, бирюзово-зелёные тени), **Bleach Bypass** (высокий контраст, мало цвета), **Cross Process** (жёлто-зелёные света, синие тени), **Instant** (молочные тени, мягкий фокус).
+- Чёрно-белые: **Red Filter** (тёмное небо, светлая кожа), **Sepia** (тёплое тонирование), **Push 3200** (крупное зерно).
+- Подобраны на живых фото: ночные портреты со вспышкой, день, зелень, золотой час.
+
+### Редактор плёнки: основное
+- Новая первая вкладка **«Основное»**: экспозиция, контраст, света, тени, белые, чёрные, температура и оттенок — до плёнки, как в любом фоторедакторе. Экспозиция сжимает яркое мягко, а не обрезает.
 
 ## 1.4 — 2026-10-06
 

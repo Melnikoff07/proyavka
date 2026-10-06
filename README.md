@@ -89,18 +89,31 @@ Each user has their own feed and frames, default film, language, storage limit (
 
 | Film | When | Character |
 |---|---|---|
-| Street Neg | street, city | hard teal shadows, warm highlights, muted colour |
-| Muted Chrome | overcast, documentary | restrained colour, dense shadows, muted sky |
-| Amber Neg | golden hour, sunset | amber highlights, soft shadows |
-| Vivid 50 | landscape, nature | rich colour, deep sky, vivid greens |
-| Cine 250D | cinema, mood | flat cine look, low colour, teal cast |
+| Street Neg | street, city | teal shadows, warm highlights, dense colour |
+| Muted Chrome | overcast, documentary | restrained colour, deep shadows, olive greens, cyan sky |
+| Amber Neg | golden hour, sunset | amber highlights, soft contrast, warm shadows |
+| Vivid 50 | landscape, nature | slide-film density: deep blacks, rich greens, a sky without purple |
+| Cine 250D | cinema, mood | cine negative printed for cinema: teal shadows, warm skin, soft highlights |
 | Portrait 400 | people, portraits | warm skin, soft contrast, pastel |
-| Golden 200 | sun, summer | warm, saturated, holiday feel |
+| Golden 200 | sun, summer | warm yellow, rich reds and yellows |
 | Super 400 | everyday, 2000s | greenish shadows, punchy point-and-shoot colour |
-| Night 800T | night, lights | cold shadows, red glow around lights |
-| Across 100 | b&w, soft | smooth b&w, fine grain |
-| Grain X 400 | b&w, street, gritty | contrasty b&w with coarse grain |
-| Expired | experiment | faded colour, shifted hues, lots of grain |
+| Night 800T | night, lights | cold shadows, red-orange halos only around lights |
+| Across 100 | b&w, soft | smooth b&w, fine grain, long midtones, reds darker |
+| Grain X 400 | b&w, street, gritty | contrasty b&w with coarse grain and deep blacks |
+| Expired | experiment | faded colour, greenish shadows, warm highlights, lots of grain |
+| Pastel 160 | light, people, summer | light and airy: pastel colour, soft contrast, gentle skin |
+| Mint 400H | wedding, pastel, cool | cool pastel: minty greens, fair skin, clean sky |
+| Punch 100 | travel, bright day | punchy negative: rich reds and deep blue sky, fine grain |
+| Chrome 100 | landscape, architecture | clean slide: neutral whites, deep shadows, accurate colour |
+| Classic 64 | street, retro, sun | warm reds and yellows, dense shadows, soft greens |
+| Cine 50D | daylight, cinema | clean daylight cine film: soft highlights, fine grain, a light glow |
+| Hard Neg | street, everyday | hard contrast, teal-green shadows, muted greens |
+| Bleach Bypass | drama, cinema | high contrast, little colour |
+| Cross Process | experiment, summer | cross process: yellow-green highlights, blue shadows, loud colour |
+| Instant | party, nostalgia | instant photo: milky shadows, warm highlights, soft focus |
+| Red Filter | b&w, sky, drama | b&w through a red filter: dark sky, light skin, bold clouds |
+| Sepia | b&w, warm tone | toned b&w: warm shadows and highlights, soft grain |
+| Push 3200 | b&w, night, grain | pushed b&w: heavy grain, soft contrast |
 
 Every film is an original mathematical model (curves, shadow and highlight tints, saturation) turned into a 3D LUT on the fly. The names hint at genres and film character, not at specific products; the project is not affiliated with Kodak, Fujifilm, CineStill or Sony.
 

@@ -2163,8 +2163,15 @@ const MIXES = [["Зелёный в красный", "Green into red"], ["Син�
                ["Синий в зелёный", "Blue into green"], ["Красный в синий", "Red into blue"], ["Зелёный в синий", "Green into blue"]];
 const mixSliders = () => MIXES.map((n, i) => ({ n, min: -50, max: 50, step: 1, fmt: (v) => `${sgn(v)}%`,
   get: (P) => P.mix[i] * 100, set: (P, v) => { P.mix = P.mix.map((x, j) => (j === i ? v / 100 : x)); } }));
+const sgnPct = (v) => (v > 0 ? "+" : "") + Math.round(v * 100);
+const basic = (k, ru, en, min = -1, max = 1, step = 0.02, fmt = sgnPct) => ({ n: [ru, en], min, max, step, fmt, get: (P) => P[k] || 0, set: (P, v) => { P[k] = v; } });
 const ED_SECTIONS = [
-  { h: ["Цвет", "Colour"], s: [simple("sat", "Насыщенность", "Saturation", 0, 2, 0.01), simple("contrast", "Контраст", "Contrast", 0, 1, 0.01),
+  { h: ["Основное", "Basics"], s: [basic("exposure", "Экспозиция", "Exposure", -2, 2, 0.05, (v) => `${v > 0 ? "+" : ""}${v.toFixed(2)} EV`),
+    simple("contrast", "Контраст", "Contrast", 0, 1, 0.01),
+    basic("highlights", "Света", "Highlights"), basic("shadows", "Тени", "Shadows"),
+    basic("whites", "Белые", "Whites"), basic("blacks", "Чёрные", "Blacks"),
+    basic("temp", "Температура", "Temperature"), basic("tint", "Оттенок", "Tint")] },
+  { h: ["Цвет", "Colour"], s: [simple("sat", "Насыщенность", "Saturation", 0, 2, 0.01),
     { n: ["Выцветание", "Fade"], min: 0, max: 0.15, step: 0.005, get: (P) => mean3(P.lift), set: (P, v) => { const d = v - mean3(P.lift); P.lift = P.lift.map((x) => clamp(x + d, 0, 0.15)); } },
     simple("top", "Яркость светов", "Highlight level", 0.8, 1, 0.005),
     simple("dens", "Плотность цвета", "Colour density", 0, 1, 0.02)] },
