@@ -1018,6 +1018,8 @@ def init_db():
             storage_gb REAL, cam_token TEXT, ftp_pass TEXT, created REAL, invited_by INTEGER)""")
         db.execute("""CREATE TABLE IF NOT EXISTS luts(
             id INTEGER PRIMARY KEY AUTOINCREMENT, owner INTEGER, name TEXT, size INTEGER, created REAL)""")
+        db.execute("""CREATE TABLE IF NOT EXISTS submissions(
+            id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, by TEXT, params TEXT, h TEXT, created REAL, ip TEXT, status TEXT)""")
         db.execute("""CREATE TABLE IF NOT EXISTS invites(
             code TEXT PRIMARY KEY, created REAL, by INTEGER, used_by INTEGER, used_at REAL)""")
         if "tg" not in {r[1] for r in db.execute("PRAGMA table_info(users)")}:
@@ -1165,16 +1167,28 @@ def delete_lut(owner, key):
 COMMUNITY_URL = os.environ.get("COMMUNITY_URL", "https://raw.githubusercontent.com/Melnikoff07/proyavka/main/community/looks.json")
 COMMUNITY_REPO = os.environ.get("COMMUNITY_REPO", "Melnikoff07/proyavka")    # куда ведёт «Предложить в каталог»
 COMMUNITY_TTL = 3600
+# «Отправить автору» без GitHub и логинов: приложение шлёт плёнку на сервер-приёмник, автор одобряет её у себя в приложении.
+# Приёмником может быть любой сервер Проявки: COMMUNITY_HUB=1 включает приём, каталог по адресу /community/looks.json и вкладку
+# «На проверке» у администратора. COMMUNITY_SUBMIT_URL — куда шлёт остальные серверы (https://<приёмник>/api/community/submit);
+# пусто на приёмнике — плёнки пишутся прямо в его очередь, пусто на обычном сервере — «Отправить автору» уходит через Telegram/GitHub.
+COMMUNITY_HUB = os.environ.get("COMMUNITY_HUB", "0").strip() == "1"
+COMMUNITY_SUBMIT_URL = os.environ.get("COMMUNITY_SUBMIT_URL", "").strip()
+HUB_DIR = BASE / "community_hub"
+SUBMIT_PER_HOUR, SUBMIT_PER_DAY, SUBMIT_PENDING_MAX = 5, 20, 300
+SUBMITS = {}
+SUBMIT_LOCK = threading.Lock()
 COMMUNITY_MAX = 600
 COMMUNITY = {"at": 0.0, "looks": []}
 COMMUNITY_LOCK = threading.Lock()
 COMMUNITY_BUNDLED = Path(__file__).resolve().parent.parent / "community" / "looks.json"
 
 
-def _write_look(owner, key, name, params, author, src):
+def _write_look(owner, key, name, params, author, src, sent=0):
     d = lut_dir(owner)
     d.mkdir(parents=True, exist_ok=True)
     meta = {"name": name, "size": 0, "params": params_json(params), "author": author, "src": src}
+    if sent:
+        meta["sent"] = sent
     tmp = d / f"{key}.tmp.json"
     tmp.write_text(json.dumps(meta, ensure_ascii=False), encoding="utf-8")
     os.replace(tmp, d / f"{key}.json")
@@ -1231,7 +1245,8 @@ def look_share(uid, key):
     body = f"Author: {author or '—'}\nName: {cur['name']}\n\n```\n{code}\n```\n"
     url = (f"https://github.com/{COMMUNITY_REPO}/issues/new?title={quote('Look: ' + cur['name'])}&body={quote(body)}"
            if COMMUNITY_REPO else "")
-    return {"code": code, "suggest_url": url, "author": author, "contact": CONTACT_TG, "name": cur["name"]}
+    return {"code": code, "suggest_url": url, "author": author, "contact": CONTACT_TG, "name": cur["name"],
+            "submit": submit_info(), "sent": bool(lut_meta(uid, key).get("sent"))}
 
 
 def _community_entries(raw):
@@ -1261,6 +1276,10 @@ def community_catalog(force=False):
     """Каталог плёнок сообщества: из сети (кэш на час), иначе с диска, иначе копия из репозитория."""
     with COMMUNITY_LOCK:
         if not force and COMMUNITY["looks"] and time.time() - COMMUNITY["at"] < COMMUNITY_TTL:
+            return COMMUNITY["looks"]
+        if COMMUNITY_HUB:                                   # приёмник ведёт каталог сам
+            COMMUNITY["looks"] = _community_entries(hub_raw())
+            COMMUNITY["at"] = time.time()
             return COMMUNITY["looks"]
         cache = BASE / "community.json"
         raw = None
@@ -1303,7 +1322,10 @@ def community_json(uid):
         items.append({"id": e["id"], "name": e["name"], "by": e["by"], "h": e["h"], "bw": bool(e["p"]["bw"]),
                       "desc": (d.get("en") if en else d.get("ru")) or d.get("ru") or d.get("en") or "",
                       "installed": have.get(e["id"], "")})
-    return {"looks": items, "repo": COMMUNITY_REPO}
+    out = {"looks": items, "repo": COMMUNITY_REPO, "submit": submit_info()}
+    if COMMUNITY_HUB and uid == ADMIN:
+        out["hub"] = {"pending": q("SELECT COUNT(*) AS n FROM submissions WHERE status='new'")[0]["n"]}
+    return out
 
 
 def community_add(uid, cid):
@@ -1314,6 +1336,145 @@ def community_add(uid, cid):
                     return {"key": f"lut{r['id']}", "name": r["name"], "again": True}
             return add_look(uid, e["name"], e["p"], e["by"], cid)
     raise ValueError(L("в каталоге нет такой плёнки", "no such film in the catalog"))
+
+
+class RateLimit(ValueError):
+    pass
+
+
+def look_flags(uid, key):
+    m = lut_meta(uid, key)
+    return {"look": True, "community": bool(m.get("src")), "sent": bool(m.get("sent"))}
+
+
+def submit_info():
+    """Куда уходит «Отправить автору»: адрес приёмника или этот же сервер, если он приёмник."""
+    if COMMUNITY_SUBMIT_URL:
+        return {"on": True, "host": urlparse(COMMUNITY_SUBMIT_URL).hostname or ""}
+    if COMMUNITY_HUB:
+        return {"on": True, "host": urlparse(WEBAPP_URL).hostname or ""}
+    return {"on": False, "host": ""}
+
+
+def hub_raw():
+    try:
+        return json.loads((HUB_DIR / "looks.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        try:
+            return json.loads(COMMUNITY_BUNDLED.read_text(encoding="utf-8"))      # первый запуск: каталог из репозитория
+        except (OSError, ValueError):
+            return {"v": 1, "looks": []}
+
+
+def _submit_rate(key):
+    now = time.time()
+    with SUBMIT_LOCK:
+        ts = [t for t in SUBMITS.get(key, []) if now - t < 86400]
+        if len([t for t in ts if now - t < 3600]) >= SUBMIT_PER_HOUR or len(ts) >= SUBMIT_PER_DAY:
+            raise RateLimit(L("слишком много отправок — попробуй позже", "too many submissions — try again later"))
+        ts.append(now)
+        SUBMITS[key] = ts
+        while len(SUBMITS) > 5000:
+            SUBMITS.pop(next(iter(SUBMITS)))
+
+
+def hub_receive(payload, ip):
+    """Приём плёнки от кого угодно: всё проверяется и ограничивается, в каталог ничего не попадает без одобрения."""
+    if not isinstance(payload, dict) or len(json.dumps(payload, ensure_ascii=False)) > 8192:
+        raise ValueError(L("это не плёнка Проявки", "this is not a Proyavka film"))
+    params = clean_params(payload.get("p"))
+    name = clean_text(payload.get("name"), 32) or "Look"
+    by = clean_text(payload.get("by"), 40)
+    h = hashlib.sha1(json.dumps(params_json(params), sort_keys=True).encode()).hexdigest()[:10]
+    if q("SELECT 1 FROM submissions WHERE h=? AND status='new'", (h,)) or any(e["h"] == h for e in community_catalog()):
+        return {"ok": True, "again": True}                  # такая уже есть — повторно не копим
+    _submit_rate(ip or "?")
+    if q("SELECT COUNT(*) AS n FROM submissions WHERE status='new'")[0]["n"] >= SUBMIT_PENDING_MAX:
+        raise RateLimit(L("очередь на проверку переполнена — попробуй позже", "the review queue is full — try again later"))
+    run("INSERT INTO submissions(name, by, params, h, created, ip, status) VALUES (?,?,?,?,?,?, 'new')",
+        (name, by, json.dumps(params_json(params)), h, time.time(), ip or "", ))
+    log.info("плёнка на проверку: «%s» от «%s»", name, by)
+    return {"ok": True}
+
+
+def submit_look(uid, key):
+    """«Отправить автору»: своя плёнка уходит на сервер-приёмник (или в очередь этого сервера, если он приёмник)."""
+    cur = user_look(uid, key)
+    if cur["src"]:
+        raise ValueError(L("эта плёнка из каталога — предлагать её обратно не нужно", "this film came from the catalog — no need to suggest it back"))
+    params = clean_params(cur["params"])
+    payload = {"v": 1, "name": cur["name"], "by": clean_text((user(uid) or {}).get("name"), 40), "p": params_json(params)}
+    url = COMMUNITY_SUBMIT_URL
+    if url:
+        if not (url.startswith("https://") or re.match(r"http://(127\.0\.0\.1|localhost)[:/]", url)):
+            raise ValueError(L("адрес приёмника задан неверно", "the submission address is invalid"))
+        try:
+            r = requests.post(url, json=payload, timeout=10)
+        except requests.RequestException:
+            raise ValueError(L("не удалось связаться с сервером проекта — попробуй позже", "could not reach the project server — try again later"))
+        if r.status_code != 200:
+            try:
+                msg = r.json().get("error")
+            except ValueError:
+                msg = ""
+            raise ValueError(msg or L("сервер проекта не принял плёнку", "the project server did not accept the film"))
+    elif COMMUNITY_HUB:
+        hub_receive(payload, f"u{uid}")
+    else:
+        raise ValueError(L("отправка автору здесь не настроена", "sending to the author is not set up here"))
+    _write_look(uid, key, cur["name"], params, cur["author"], cur["src"], sent=time.time())
+    return {"ok": True}
+
+
+CYR = dict(zip("абвгдеёжзийклмнопрстуфхцчшщъыьэюя", "a b v g d e e zh z i y k l m n o p r s t u f h c ch sh sch _ y _ e yu ya".split()))
+
+
+def hub_pending():
+    return [{"id": r["id"], "name": r["name"], "by": r["by"], "created": r["created"], "h": r["h"],
+             "bw": bool(json.loads(r["params"]).get("bw"))} for r in q("SELECT * FROM submissions WHERE status='new' ORDER BY id")]
+
+
+def pending_preview(sid):
+    rows = q("SELECT * FROM submissions WHERE id=? AND status='new'", (sid,))
+    if not rows:
+        return None
+    path = PREVIEWS / f"pending_{sid}_{rows[0]['h']}.jpg"
+    if not path.exists():
+        FAST.submit(job_sample, clean_params(json.loads(rows[0]["params"])), str(path)).result(timeout=120)
+    return path
+
+
+def hub_decide(sid, data):
+    """Одобрить заявку (плёнка попадает в каталог вместе с превью на образце) или отклонить."""
+    rows = q("SELECT * FROM submissions WHERE id=? AND status='new'", (sid,))
+    if not rows:
+        raise ValueError(L("заявка уже обработана", "this submission was already handled"))
+    row = rows[0]
+    if data.get("action") == "reject":
+        run("UPDATE submissions SET status='rejected' WHERE id=?", (sid,))
+        return {"ok": True}
+    if data.get("action") != "approve":
+        raise ValueError("action")
+    params = clean_params(json.loads(row["params"]))
+    name = clean_text(data.get("name"), 32) or row["name"]
+    by = clean_text(data.get("by"), 40) if "by" in data else row["by"]
+    raw = hub_raw()
+    taken = {e["id"] for e in raw["looks"]}
+    base = re.sub(r"[^a-z0-9]+", "-", "".join(CYR.get(c, c) for c in name.lower())).strip("-")[:30] or "look"
+    slug, n = base, 2
+    while slug in taken:
+        slug, n = f"{base}-{n}", n + 1
+    (HUB_DIR / "looks").mkdir(parents=True, exist_ok=True)
+    FAST.submit(job_sample, params, str(HUB_DIR / "looks" / f"{slug}.jpg")).result(timeout=120)
+    desc = {"ru": clean_text(data.get("desc_ru"), 140), "en": clean_text(data.get("desc_en"), 140)}
+    raw.setdefault("looks", []).append({"id": slug, "name": name, "by": by, "desc": desc, "p": params_json(params)})
+    tmp = HUB_DIR / "looks.tmp.json"
+    tmp.write_text(json.dumps(raw, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    os.replace(tmp, HUB_DIR / "looks.json")
+    run("UPDATE submissions SET status='approved' WHERE id=?", (sid,))
+    COMMUNITY["at"] = 0                                     # каталог перечитается сразу
+    log.info("плёнка одобрена: %s", slug)
+    return {"ok": True, "id": slug}
 
 
 def try_look(uid, data):
@@ -1363,6 +1524,8 @@ def community_image(name):
     entry = next((e for e in community_catalog() if e["id"] == cid), None)
     if not entry:
         return None
+    if COMMUNITY_HUB and (HUB_DIR / "looks" / f"{name}.jpg").exists():
+        return HUB_DIR / "looks" / f"{name}.jpg"
     cache = BASE / "community"
     cached = cache / f"{name}.{entry['h']}.jpg"
     if cached.exists():
@@ -1847,6 +2010,14 @@ def job_preview(ph, key, strength, path, leak=""):
     if leak:
         out = light_leak(out, leak, leak_seed(ph))
     return save_atomic(out, path, 84)
+
+
+def job_sample(params, path, edge=900):
+    """Плёнка на общем образце каталога (превью заявки и одобренной плёнки)."""
+    im = Image.open(COMMUNITY_BUNDLED.parent / "sample.jpg").convert("RGB")
+    im.thumbnail((edge, edge), Image.LANCZOS)
+    img = film(im, "custom", 100, 1, params)
+    return save_atomic(img, path, 80)
 
 
 def job_try(ph, params, strength, path=None, edge=420):
@@ -4608,6 +4779,14 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send(200, app_icon(size), "image/png", "max-age=86400")
             if parts[0] == "a":
                 return self.album_get(parts[1:])
+            if parts[0] == "community" and COMMUNITY_HUB:          # каталог для остальных серверов: без входа, только чтение
+                if parts == ["community", "looks.json"]:
+                    return self.send(200, json.dumps(hub_raw(), ensure_ascii=False), "application/json; charset=utf-8", "public, max-age=300")
+                if len(parts) == 3 and parts[1] == "looks" and re.fullmatch(r"[a-z0-9][a-z0-9-]{0,50}\.jpg", parts[2]):
+                    for d in (HUB_DIR / "looks", COMMUNITY_BUNDLED.parent / "looks"):
+                        if (d / parts[2]).is_file():
+                            return self.send(200, (d / parts[2]).read_bytes(), "image/jpeg", "public, max-age=3600")
+                return self.err(404, L("не найдено", "not found"))
             files = parts[:1] == ["img"] or parts == ["api", "zip"] or (parts[:2] == ["api", "camera"] and len(parts) == 3)
             uid = self.authed(qs, media=files)
             if not uid:
@@ -4618,7 +4797,7 @@ class Handler(BaseHTTPRequestHandler):
                            "p": params_json(clean_params(p))} for k, p in PRESETS.items()]     # p — основа для редактора
                 items += [{"key": f"lut{r['id']}", "name": r["name"], "desc": "", "lut": True,
                            "when": f"LUT {r['size']}³" if r["size"] else L("Своя плёнка", "Your film"),
-                           **({"look": True, "community": bool(lut_meta(uid, f"lut{r['id']}").get("src"))} if not r["size"] else {})}
+                           **(look_flags(uid, f"lut{r['id']}") if not r["size"] else {})}
                           for r in user_luts(uid)]
                 leaks = [{"key": k, "name": tr(v[0]), "desc": tr(v[1])} for k, v in LEAKS.items()]
                 return self.js({"presets": items, "strengths": STRENGTHS, "leaks": leaks})
@@ -4642,6 +4821,15 @@ class Handler(BaseHTTPRequestHandler):
                 if not path:
                     return self.err(404, L("нет такой плёнки", "no such film"))
                 return self.file(str(path))
+            if len(parts) == 3 and parts[:2] == ["img", "pending"] and parts[2].isdigit():
+                path = pending_preview(int(parts[2])) if COMMUNITY_HUB and uid == ADMIN else None
+                if not path:
+                    return self.err(404, L("нет картинки", "no image"))
+                return self.file(str(path))
+            if parts == ["api", "community", "pending"]:
+                if not COMMUNITY_HUB or uid != ADMIN:
+                    return self.err(403, L("только для администратора приёмника", "receiver admin only"))
+                return self.js({"items": hub_pending()})
             if len(parts) == 3 and parts[:2] == ["img", "cm"]:
                 path = community_image(parts[2]) if re.fullmatch(r"[a-z0-9][a-z0-9-]{0,50}", parts[2]) else None
                 if not path:
@@ -4791,6 +4979,13 @@ class Handler(BaseHTTPRequestHandler):
                 if not uid or uid not in USERS:
                     return self.err(403, L("открой ленту из своего бота в Telegram", "open the feed from your bot in Telegram"))
                 return self.js({"token": self.new_session(uid, data.get("token")), "media": media_token(uid), "lang": user_lang(uid)})
+            if parts == ["api", "community", "submit"]:          # от других серверов, без входа
+                if not COMMUNITY_HUB:
+                    return self.err(404, L("не найдено", "not found"))
+                try:
+                    return self.js(hub_receive(data, self.ip()))
+                except RateLimit as e:
+                    return self.err(429, str(e))
             uid = self.authed(qs)
             if not uid:
                 return self.err(401, L("нужна авторизация через Telegram", "Telegram authorization required"))
@@ -4807,6 +5002,15 @@ class Handler(BaseHTTPRequestHandler):
             if parts == ["api", "look", "import"]:
                 name, by, params = parse_look_code(data.get("code"))
                 return self.js(add_look(uid, name, params, by))
+            if len(parts) == 4 and parts[:2] == ["api", "look"] and parts[3] == "submit":
+                try:
+                    return self.js(submit_look(uid, parts[2]))
+                except RateLimit as e:
+                    return self.err(429, str(e))
+            if len(parts) == 4 and parts[:3] == ["api", "community", "pending"] and parts[3].isdigit():
+                if not COMMUNITY_HUB or uid != ADMIN:
+                    return self.err(403, L("только для администратора приёмника", "receiver admin only"))
+                return self.js(hub_decide(int(parts[3]), data))
             if parts == ["api", "community", "add"]:
                 return self.js(community_add(uid, str(data.get("id") or "")))
             if parts == ["api", "albums"]:

@@ -254,6 +254,14 @@
   .ed-sl input[type=range] { width: 100%; margin: 6px 0 0; accent-color: var(--text); height: 28px; }
   .ed-h { padding: 22px var(--pad) 2px; }
   .layer3 { z-index: 14; }
+  .maintabs { display: flex; gap: 22px; padding: 0 var(--pad) 16px; }
+  .maintabs[hidden] { display: none; }
+  body.tab-community #bAdd, body.tab-community #total, body.tab-community #sub, body.tab-community #iosHint { display: none; }
+  #cmPane { padding-bottom: calc(40px + env(safe-area-inset-bottom, 0px)); }
+  .st-user.wrap { flex-wrap: wrap; row-gap: 4px; }
+  .st-user.wrap .dn { flex: 1 1 100%; }
+  .pd { padding: 16px var(--pad) 18px; border-top: 1px solid var(--rule); display: flex; flex-direction: column; gap: 8px; }
+  .pd img { width: 100%; max-width: 560px; }
   /* ползунок «до/после»: накладка ровно по готовой картинке; слева «до», справа «после», тянуть можно только за ручку */
   .cmp-ov { position: absolute; pointer-events: none; --p: 50%; }
   .cmp-ov[hidden] { display: none; }
@@ -305,8 +313,13 @@
   <p class="sub" id="sub"></p>
   <p class="sub" id="iosHint" hidden data-i18n="To install as an app: Share → Add to Home Screen.">Поставить как приложение: «Поделиться» → «На экран „Домой“».</p>
 </header>
+<nav class="maintabs cap" id="mainTabs" role="tablist" hidden>
+  <button class="tab" role="tab" data-main="gallery" aria-selected="true" data-i18n="Gallery">Галерея</button>
+  <button class="tab" role="tab" data-main="community" aria-selected="false" data-i18n="Community">Сообщество</button>
+</nav>
 <main id="feed"></main>
 <div id="sentinel"></div>
+<section id="cmPane" hidden aria-label="Сообщество" data-i18n-aria="Community"></section>
 
 <section class="viewer" id="viewer" hidden aria-label="Просмотр кадра" data-i18n-aria="Frame viewer">
   <div class="vbar cap"><span class="vleft"><button class="vback" id="vBack" hidden aria-label="Назад" data-i18n-aria="Back">←</button><span id="vnum"></span></span><span id="vtime" class="muted"></span><span id="vpos" class="muted"></span></div>
@@ -413,12 +426,6 @@
     <p class="muted st-p" id="stUsedNote"></p>
     <button class="st-link cap" id="stTrashBtn"></button>
     <div class="grid st-grid" id="stTrash" hidden></div>
-  </div>
-  <div class="st-sec">
-    <div class="st-h cap muted" data-i18n="My films">Мои плёнки</div>
-    <div id="stLooks"></div>
-    <div class="actions"><button class="btn" id="stLookNew" data-i18n="Create a film">Создать плёнку</button><button class="link cap" id="stCommunity" data-i18n="Community">Сообщество</button></div>
-    <p class="muted st-p" data-i18n="Build your own film from sliders, share it as a code, or take one from the community catalog.">Собери свою плёнку ползунками, поделись ею кодом или возьми готовую из каталога сообщества.</p>
   </div>
   <div class="st-sec">
     <div class="st-h cap muted" data-i18n="Albums by link">Альбомы по ссылке</div>
@@ -1314,7 +1321,6 @@ async function openSettings() {
   await renderMe();
   applyTheme();
   renderPush();
-  renderMyLooks();
   renderAlbums();
   renderDevices();
   if (me && me.admin) renderUsers();
@@ -1709,6 +1715,7 @@ $("dvInstall").onclick = async () => {
 function showPairing(msg) {
   $("bAdd").hidden = true;
   $("bMenu").hidden = true;
+  $("mainTabs").hidden = true;
   const iosBrowser = ios && !standalone;
   $("feed").innerHTML = `<div class="state"><strong>${T("Привяжи это устройство", "Link this device")}</strong>` +
     `<p>${T("Введи код: «⋯» → «Привязать устройство» в «Проявке» на другом устройстве, команда /link в боте или код приглашения. Свой первый код администратор видит в конце установки.",
@@ -1784,7 +1791,7 @@ async function reloadPresets() {
   const pj = await api("/api/presets");
   presets = pj.presets;
   if (photos[cur]) renderStrip(photos[cur]);
-  if (!$("settings").hidden) renderMyLooks();
+  if (!$("cmPane").hidden || !$("community").hidden) renderCommunity();
 }
 $("lutPicker").onchange = async () => {
   const f = $("lutPicker").files[0];
@@ -2056,124 +2063,96 @@ async function saveEditor(andShare) {
     else if (!fresh) { jobs = Math.max(jobs, 1); schedulePoll(); if (photos[cur]) renderStrip(photos[cur]); }
     toast(T(`Плёнка «${r.name}» сохранена`, `Film "${r.name}" saved`));
     haptic("success");
-    if (andShare) shareLook({ key: r.key, name: r.name });          // «Предложить в сообщество» — сохранить и сразу к отправке
+    if (andShare) sendToAuthor({ key: r.key, name: r.name });          // «Предложить в сообщество» — сохранить и сразу к отправке
   } catch (err) { toast(err.message); $("edSave").disabled = false; }
 }
 $("edSave").onclick = () => saveEditor(false);
 $("edShare").onclick = () => saveEditor(true);
-$("stLookNew").onclick = () => openEditor({});
+/* ---------- вкладка «Сообщество»: каталог, мои плёнки, проверка ---------- */
+// Одна и та же вкладка живёт в двух местах: на главном экране (cmPane) и поверх просмотра кадра (#community) — оттуда
+// плёнки примеряются на открытый кадр. cm.host — куда сейчас рисуем, cm.ctx — кадр для примерки (null — из вкладки).
+let cm = { looks: [], ctx: null, sub: "catalog", submit: { on: false, host: "" }, hub: null, host: null };
+let mainTab = "gallery";
 
-function renderMyLooks() {
-  const mine = presets.filter((f) => f.look);
-  $("stLooks").replaceChildren(...mine.map((f) => {
-    const row = document.createElement("div");
-    row.className = "st-user";
-    row.innerHTML = `<div class="dn"><span></span></div><button class="cap" data-act="edit">${T("Изменить", "Edit")}</button>` +
-      (f.community ? "" : `<button class="cap" data-act="share" style="color:var(--text)">${T("В сообщество", "To community")}</button>`) +
-      `<button class="cap" data-act="del">${T("Удалить", "Delete")}</button>`;
-    row.querySelector(".dn span").textContent = f.name;
-    row.querySelector('[data-act="edit"]').onclick = () => openEditor({ key: f.key });
-    const sh = row.querySelector('[data-act="share"]');
-    if (sh) sh.onclick = () => shareLook(f);
-    row.querySelector('[data-act="del"]').onclick = () => ask(T(`Удалить плёнку «${f.name}»? Кадры с ней перейдут на автоплёнку.`, `Delete the film "${f.name}"? Frames using it switch to their auto film.`),
-      async (ok) => { if (ok) try { await api(`/api/lut/${f.key}/delete`, {}); await reloadPresets(); jobs = Math.max(jobs, 1); schedulePoll(); toast(T("Удалено", "Deleted")); } catch (e) { toast(e.message); } });
-    return row;
-  }));
+async function loadCatalog() {
+  const j = await api("/api/community");
+  cm.looks = j.looks;
+  cm.submit = j.submit || { on: false, host: "" };
+  cm.hub = j.hub || null;
 }
+function setMainTab(t) {
+  if (t === mainTab) return;
+  if (selecting) exitSelect();
+  mainTab = t;
+  const com = t === "community";
+  document.querySelectorAll("[data-main]").forEach((b) => b.setAttribute("aria-selected", String(b.dataset.main === t)));
+  document.body.classList.toggle("tab-community", com);
+  $("feed").hidden = com;
+  $("sentinel").hidden = com;
+  $("cmPane").hidden = !com;
+  scrollTo(0, 0);
+  if (com) openCommunityPane();
+  haptic();
+}
+document.querySelectorAll("[data-main]").forEach((b) => { b.onclick = () => setMainTab(b.dataset.main); });
 
-async function shareLook(f) {
-  let j;
-  try { j = await api(`/api/look/${f.key}/share`); } catch (e) { return toast(e.message); }
-  const text = `${j.name} — ${j.author || "—"}\n${j.code}`;
-  openAlbumSheet(T("В сообщество", "To the community"),
-    `<div style="font-size:22px;font-weight:500;letter-spacing:-.025em"></div>` +
-    `<p class="muted" style="margin:6px 0 0" id="lkAbout"></p>` +
-    `<div class="actions al-acts">` +
-    (j.contact ? `<button class="btn" id="lkTg">${T("Отправить в Telegram", "Send via Telegram")}</button>` : "") +
-    (j.suggest_url ? `<button class="${j.contact ? "link cap" : "btn"}" id="lkGh">${T("Через GitHub", "Via GitHub")}</button>` : "") + `</div>` +
-    `<p class="muted" style="margin:12px 0 0">${T("Хочешь показать плёнку на своём кадре — приложи фото к сообщению (по желанию). Код ниже — это вся плёнка в одной строке: его можно отправить и другу, он вставит его в «Сообщество».",
-                                                    "Want to show the film on your own photo? Attach it to the message (optional). The code below is the whole film in one line: you can also send it to a friend, who pastes it into Community.")}</p>` +
-    `<textarea class="linkbox" id="lkCode" rows="3" readonly></textarea>` +
-    `<button class="link cap" id="lkCopy">${T("Копировать код", "Copy code")}</button>`);
-  $("alBody").firstChild.textContent = j.name;
-  const who = j.author ? T(`под именем «${j.author}»`, `as "${j.author}"`) : T("без имени", "without a name");
-  $("lkAbout").textContent = T(`Плёнка уйдёт автору проекта на проверку. Если подойдёт, её добавят в общий каталог — ${who}. `,
-                               `The film goes to the project author for review. If it fits, it is added to the shared catalog — ${who}. `);
-  const rename = document.createElement("button");
-  rename.className = "link cap";
-  rename.style.padding = "0";
-  rename.textContent = T("Изменить имя", "Change name");
-  rename.onclick = async () => {
-    const n = prompt(T("Под каким именем показать автора?", "What name should the author be shown under?"), j.author || "");
-    if (n === null) return;
-    if (await saveMe({ name: n.trim() })) shareLook(f);
-  };
-  $("lkAbout").appendChild(rename);
-  $("lkCode").value = j.code;
-  $("lkCode").onfocus = () => $("lkCode").select();
-  $("lkCopy").onclick = () => copyText(j.code, T("Код скопирован", "Code copied"));
-  if (j.contact) $("lkTg").onclick = () => {
-    // копирование начинаем до открытия чата: после перехода страница теряет фокус и буфер уже не дастся
-    navigator.clipboard.writeText(text).then(() => toast(T("Скопировано — вставь в чат и отправь", "Copied — paste into the chat and send")),
-                                             () => { $("lkCode").select(); toast(T("Скопируй код ниже вручную и вставь в чат", "Copy the code below and paste it into the chat")); });
-    openLink(`https://t.me/${j.contact}`);
-  };
-  if (j.suggest_url) $("lkGh").onclick = () => openExternal(j.suggest_url);
+async function openCommunityPane() {
+  cm.host = $("cmPane");
+  cm.ctx = null;
+  cm.sub = cm.sub === "pending" && !cm.hub ? "catalog" : cm.sub;
+  $("cmPane").innerHTML = `<p class="muted st-p">${T("Загружаю каталог…", "Loading the catalog…")}</p>`;
+  try { await loadCatalog(); } catch (e) { $("cmPane").innerHTML = ""; return toast(e.message); }
+  if (mainTab === "community") renderCommunity();
 }
-function pickMyLook() {
-  const mine = presets.filter((f) => f.look && !f.community);
-  if (!mine.length) { toast(T("Сначала создай свою плёнку", "Create your own film first")); closeCommunity(); openEditor({}); return; }
-  if (mine.length === 1) return shareLook(mine[0]);
-  openAlbumSheet(T("Какую плёнку предложить?", "Which film to suggest?"), mine.map((f, i) => `<button class="st-link cap" data-i="${i}" style="padding-left:0"></button>`).join(""));
-  $("alBody").querySelectorAll("button").forEach((b) => { b.textContent = mine[b.dataset.i].name; b.onclick = () => shareLook(mine[b.dataset.i]); });
-}
-
-let cm = null;              // { looks, ctx } — каталог и кадр, с которого его открыли (null — из настроек)
-async function openCommunity() {
+async function openCommunity() {                 // поверх просмотра кадра: плёнки примеряются на этот кадр
   const c = cur >= 0 ? photos[cur] : null;
-  cm = { looks: [], ctx: c && !c.archived && c.ready ? c : null };
+  cm.host = $("cmBody");
+  cm.ctx = c && !c.archived && c.ready ? c : null;
+  cm.sub = "catalog";
   $("cmBody").innerHTML = `<p class="muted st-p">${T("Загружаю каталог…", "Loading the catalog…")}</p>`;
   showLayer($("community"));
-  let j;
-  try { j = await api("/api/community"); } catch (e) { $("cmBody").innerHTML = ""; return toast(e.message); }
-  if ($("community").hidden) return;
-  cm.looks = j.looks;
-  renderCommunity();
+  try { await loadCatalog(); } catch (e) { $("cmBody").innerHTML = ""; return toast(e.message); }
+  if (!$("community").hidden) renderCommunity();
 }
-function renderCommunity() {
+function closeCommunity() { if (!$("community").hidden) hideLayer($("community")); }
+$("cmBack").onclick = () => onBack();
+
+async function renderCommunity() {
+  const host = cm.host;
+  if (!host || (host === $("cmBody") ? $("community").hidden : $("cmPane").hidden)) return;
+  const mine = presets.filter((f) => f.look);
+  // содержимое строим до вкладок: «На проверке» узнаёт своё число, только загрузив очередь
+  const content = cm.sub === "mine" ? mineView(mine) : cm.sub === "pending" ? await pendingView() : catalogView();
+  const subs = [["catalog", T("Каталог", "Catalog")], ["mine", T("Мои плёнки", "My films") + (mine.length ? ` · ${mine.length}` : "")]];
+  if (cm.hub) subs.push(["pending", T("На проверке", "Review") + (cm.hub.pending ? ` · ${cm.hub.pending}` : "")]);
+  const body = document.createDocumentFragment();
+  const nav = document.createElement("div");
+  nav.className = "tabs cap";
+  nav.setAttribute("role", "tablist");
+  for (const [k, name] of subs) {
+    const b = document.createElement("button");
+    b.className = "tab";
+    b.setAttribute("role", "tab");
+    b.setAttribute("aria-selected", String(cm.sub === k));
+    b.textContent = name;
+    b.onclick = () => { if (cm.sub !== k) { cm.sub = k; haptic(); renderCommunity(); } };
+    nav.appendChild(b);
+  }
+  body.appendChild(nav);
+  body.appendChild(content);
+  if (host === $("cmBody") ? !$("community").hidden : !$("cmPane").hidden) host.replaceChildren(body);
+}
+
+function catalogView() {
   const body = document.createDocumentFragment();
   const intro = document.createElement("p");
   intro.className = "muted st-p";
   intro.textContent = cm.ctx
     ? T("Плёнки, которые собрали и выложили люди. Нажми на плёнку — увидишь её на своём кадре с ползунком «до/после».",
         "Films that people made and shared. Tap one to see it on your frame with a before/after slider.")
-    : T("Плёнки, которые собрали и выложили люди. Нажми на плёнку, чтобы рассмотреть. Чтобы примерить на свой кадр, открой каталог из просмотра кадра.",
-        "Films that people made and shared. Tap one to look closer. To try it on your own frame, open the catalog from the frame viewer.");
+    : T("Плёнки, которые собрали и выложили люди. Нажми на плёнку, чтобы рассмотреть. Примерить на свой кадр можно из просмотра кадра: там же плитка «Сообщество».",
+        "Films that people made and shared. Tap one to look closer. To try it on your own frame, open it from the frame viewer: there is a Community tile too.");
   body.appendChild(intro);
-  const sug = document.createElement("div");
-  sug.className = "actions";
-  sug.style.paddingTop = "12px";
-  sug.innerHTML = `<button class="btn">${T("Предложить свою плёнку", "Suggest your own film")}</button>`;
-  sug.firstChild.onclick = pickMyLook;
-  body.appendChild(sug);
-  const imp = document.createElement("form");
-  imp.className = "cm-import";
-  imp.innerHTML = `<input autocomplete="off" spellcheck="false"><button class="btn" type="submit">${T("Добавить", "Add")}</button>`;
-  imp.firstChild.placeholder = T("Код плёнки: proyavka-look:1:…", "Film code: proyavka-look:1:…");
-  imp.onsubmit = async (e) => {
-    e.preventDefault();
-    const code = imp.firstChild.value.trim();
-    if (!code) return;
-    try {
-      const r = await api("/api/look/import", { code });
-      imp.firstChild.value = "";
-      lookRev[r.key] = Date.now();
-      await reloadPresets();
-      toast(T(`Плёнка «${r.name}» добавлена`, `Film "${r.name}" added`));
-      haptic("success");
-    } catch (err) { toast(err.message); }
-  };
-  body.appendChild(imp);
   const grid = document.createElement("div");
   grid.className = "cm-grid";
   if (!cm.looks.length) {
@@ -2197,15 +2176,191 @@ function renderCommunity() {
     grid.appendChild(card);
   });
   body.appendChild(grid);
-  const note = document.createElement("p");
-  note.className = "muted st-p";
-  note.textContent = T("Превью в каталоге нарисованы на общем образце. Свою плёнку можно предложить кнопкой вверху или из редактора.",
-                       "Catalog previews use a shared sample photo. You can suggest your own film with the button at the top or from the editor.");
-  body.appendChild(note);
-  $("cmBody").replaceChildren(body);
+  return body;
 }
-function closeCommunity() { if (!$("community").hidden) hideLayer($("community")); }
-$("cmBack").onclick = () => onBack();
+
+function mineView(mine) {
+  const body = document.createDocumentFragment();
+  const intro = document.createElement("p");
+  intro.className = "muted st-p";
+  intro.textContent = T("Плёнки, которые ты собрал сам. «Автору» — плёнку проверят и, если подойдёт, добавят в каталог для всех. «Другу» — код плёнки: он вставит его у себя.",
+                        "Films you made yourself. “Author” — the film is reviewed and, if it fits, added to the catalog for everyone. “Friend” — the film code, to paste on their side.");
+  body.appendChild(intro);
+  const act = document.createElement("div");
+  act.className = "actions";
+  act.style.paddingTop = "12px";
+  act.innerHTML = `<button class="btn">${T("Создать плёнку", "Create a film")}</button>`;
+  act.firstChild.onclick = () => { if (cm.host === $("cmBody")) closeCommunity(); openEditor({}); };
+  body.appendChild(act);
+  const imp = document.createElement("form");
+  imp.className = "cm-import";
+  imp.innerHTML = `<input autocomplete="off" spellcheck="false"><button class="btn" type="submit">${T("Добавить по коду", "Add by code")}</button>`;
+  imp.firstChild.placeholder = T("Код плёнки от друга: proyavka-look:1:…", "Film code from a friend: proyavka-look:1:…");
+  imp.onsubmit = async (e) => {
+    e.preventDefault();
+    const code = imp.firstChild.value.trim();
+    if (!code) return;
+    try {
+      const r = await api("/api/look/import", { code });
+      imp.firstChild.value = "";
+      lookRev[r.key] = Date.now();
+      await reloadPresets();
+      toast(T(`Плёнка «${r.name}» добавлена`, `Film "${r.name}" added`));
+      haptic("success");
+    } catch (err) { toast(err.message); }
+  };
+  body.appendChild(imp);
+  const list = document.createElement("div");
+  list.style.paddingTop = "10px";
+  if (!mine.length) {
+    const none = document.createElement("p");
+    none.className = "muted st-p";
+    none.textContent = T("Своих плёнок пока нет. Нажми «Создать плёнку»: ползунки и живой просмотр на твоём кадре.",
+                         "No films of your own yet. Tap “Create a film”: sliders with a live preview on your frame.");
+    list.appendChild(none);
+  }
+  for (const f of mine) {
+    const row = document.createElement("div");
+    row.className = "st-user wrap";
+    row.innerHTML = `<div class="dn"><span></span><span class="cap muted"></span></div>` +
+      `<button class="cap" data-act="edit">${T("Изменить", "Edit")}</button>` +
+      (f.community ? "" : `<button class="cap" data-act="author" style="color:var(--text)">${T("Автору", "Author")}</button>`) +
+      `<button class="cap" data-act="friend" style="color:var(--text)">${T("Другу", "Friend")}</button>` +
+      `<button class="cap" data-act="del">${T("Удалить", "Delete")}</button>`;
+    row.querySelector(".dn span").textContent = f.name;
+    row.querySelector(".dn .cap").textContent = f.community ? T("из каталога", "from the catalog") : f.sent ? T("отправлено автору", "sent to the author") : "";
+    row.querySelector('[data-act="edit"]').onclick = () => { if (cm.host === $("cmBody")) closeCommunity(); openEditor({ key: f.key }); };
+    const au = row.querySelector('[data-act="author"]');
+    if (au) au.onclick = () => sendToAuthor(f);
+    row.querySelector('[data-act="friend"]').onclick = () => sendToFriend(f);
+    row.querySelector('[data-act="del"]').onclick = () => ask(T(`Удалить плёнку «${f.name}»? Кадры с ней перейдут на автоплёнку.`, `Delete the film "${f.name}"? Frames using it switch to their auto film.`),
+      async (ok) => { if (ok) try { await api(`/api/lut/${f.key}/delete`, {}); await reloadPresets(); jobs = Math.max(jobs, 1); schedulePoll(); toast(T("Удалено", "Deleted")); } catch (e) { toast(e.message); } });
+    list.appendChild(row);
+  }
+  body.appendChild(list);
+  return body;
+}
+
+// администратор приёмника: плёнки, которые прислали люди. Одобрить — и плёнка сразу в каталоге у всех.
+async function pendingView() {
+  const body = document.createDocumentFragment();
+  let items = [];
+  try { items = (await api("/api/community/pending")).items; } catch (e) { toast(e.message); }
+  cm.hub = { pending: items.length };
+  const intro = document.createElement("p");
+  intro.className = "muted st-p";
+  intro.textContent = items.length
+    ? T("Плёнки, которые прислали люди. Превью нарисовано на общем образце. Можно поправить название и описание.", "Films people sent in. The preview is drawn on the shared sample. You can fix the name and description.")
+    : T("Новых плёнок нет.", "No new films.");
+  body.appendChild(intro);
+  for (const it of items) {
+    const card = document.createElement("div");
+    card.className = "pd";
+    card.innerHTML = `<img alt="" src="${esc(url(`/img/pending/${it.id}`, `&h=${it.h}`))}">` +
+      `<input class="al-name" data-f="name" maxlength="32"><input class="al-name" data-f="by" maxlength="40">` +
+      `<input class="al-name" data-f="desc_ru" maxlength="140"><input class="al-name" data-f="desc_en" maxlength="140">` +
+      `<div class="actions" style="padding:0"><button class="btn" data-a="approve">${T("Одобрить", "Approve")}</button><button class="link cap" data-a="reject">${T("Отклонить", "Reject")}</button></div>`;
+    const f = (k) => card.querySelector(`[data-f="${k}"]`);
+    f("name").value = it.name; f("by").value = it.by;
+    f("name").placeholder = T("Название", "Name"); f("by").placeholder = T("Автор", "Author");
+    f("desc_ru").placeholder = T("Описание по-русски", "Description in Russian"); f("desc_en").placeholder = T("Описание по-английски", "Description in English");
+    const decide = async (action) => {
+      card.querySelectorAll("button").forEach((b) => { b.disabled = true; });
+      try {
+        await api(`/api/community/pending/${it.id}`, { action, name: f("name").value, by: f("by").value, desc_ru: f("desc_ru").value, desc_en: f("desc_en").value });
+        toast(action === "approve" ? T("Плёнка в каталоге", "The film is in the catalog") : T("Отклонено", "Rejected"));
+        haptic("success");
+        await loadCatalog();
+        renderCommunity();
+      } catch (e) { toast(e.message); card.querySelectorAll("button").forEach((b) => { b.disabled = false; }); }
+    };
+    card.querySelector('[data-a="approve"]').onclick = () => decide("approve");
+    card.querySelector('[data-a="reject"]').onclick = () => decide("reject");
+    body.appendChild(card);
+  }
+  return body;
+}
+
+/* отправка: автору проекта (на сервер-приёмник, без GitHub и входа) и другу (код плёнки) */
+async function sendToAuthor(f) {
+  let j;
+  try { j = await api(`/api/look/${f.key}/share`); } catch (e) { return toast(e.message); }
+  const who = j.author ? T(`«${j.author}»`, `"${j.author}"`) : T("без имени", "without a name");
+  const rename = () => {
+    const b = document.createElement("button");
+    b.className = "link cap";
+    b.style.padding = "0";
+    b.textContent = T("Изменить имя", "Change name");
+    b.onclick = async () => {
+      const n = prompt(T("Под каким именем показать автора?", "What name should the author be shown under?"), j.author || "");
+      if (n === null) return;
+      if (await saveMe({ name: n.trim() })) sendToAuthor(f);
+    };
+    return b;
+  };
+  if (j.submit && j.submit.on) {
+    openAlbumSheet(T("Отправить автору", "Send to the author"),
+      `<div style="font-size:22px;font-weight:500;letter-spacing:-.025em"></div><p class="muted" style="margin:6px 0 0" id="lkAbout"></p>` +
+      `<div class="actions al-acts"><button class="btn" id="lkSend"></button></div>`);
+    $("alBody").firstChild.textContent = j.name;
+    $("lkAbout").textContent = T(`Плёнка и имя автора (${who}) уйдут на сервер проекта${j.submit.host ? ` (${j.submit.host})` : ""}. Автор проверит её, и если подойдёт — она появится в каталоге для всех. Больше ничего не отправляется. `,
+                                 `The film and the author name (${who}) are sent to the project server${j.submit.host ? ` (${j.submit.host})` : ""}. The author reviews it and, if it fits, it appears in the catalog for everyone. Nothing else is sent. `);
+    $("lkAbout").appendChild(rename());
+    $("lkSend").textContent = j.sent ? T("Отправить ещё раз", "Send again") : T("Отправить", "Send");
+    $("lkSend").onclick = async () => {
+      $("lkSend").disabled = true;
+      try {
+        await api(`/api/look/${f.key}/submit`, {});
+        closeAlbumSheet();
+        await reloadPresets();
+        toast(T("Отправлено автору. Спасибо!", "Sent to the author. Thank you!"));
+        haptic("success");
+      } catch (e) { toast(e.message); $("lkSend").disabled = false; }
+    };
+    return;
+  }
+  // приёмник не настроен: через Telegram (код копируется) или GitHub
+  const text = `${j.name} — ${j.author || "—"}\n${j.code}`;
+  openAlbumSheet(T("Отправить автору", "Send to the author"),
+    `<div style="font-size:22px;font-weight:500;letter-spacing:-.025em"></div><p class="muted" style="margin:6px 0 0" id="lkAbout"></p>` +
+    `<div class="actions al-acts">` +
+    (j.contact ? `<button class="btn" id="lkTg">${T("Отправить в Telegram", "Send via Telegram")}</button>` : "") +
+    (j.suggest_url ? `<button class="${j.contact ? "link cap" : "btn"}" id="lkGh">${T("Через GitHub", "Via GitHub")}</button>` : "") + `</div>` +
+    `<p class="muted" style="margin:12px 0 0">${T("Хочешь показать плёнку на своём кадре — приложи фото к сообщению (по желанию).", "Want to show the film on your own photo? Attach it to the message (optional).")}</p>` +
+    `<textarea class="linkbox" id="lkCode" rows="3" readonly></textarea>`);
+  $("alBody").firstChild.textContent = j.name;
+  $("lkAbout").textContent = T(`Плёнка уйдёт автору проекта на проверку. Если подойдёт, её добавят в общий каталог — ${who}. `,
+                               `The film goes to the project author for review. If it fits, it is added to the shared catalog — ${who}. `);
+  $("lkAbout").appendChild(rename());
+  $("lkCode").value = j.code;
+  $("lkCode").onfocus = () => $("lkCode").select();
+  if (j.contact) $("lkTg").onclick = () => {
+    // копирование начинаем до открытия чата: после перехода страница теряет фокус и буфер уже не дастся
+    navigator.clipboard.writeText(text).then(() => toast(T("Скопировано — вставь в чат и отправь", "Copied — paste into the chat and send")),
+                                             () => { $("lkCode").select(); toast(T("Скопируй код ниже вручную и вставь в чат", "Copy the code below and paste it into the chat")); });
+    openLink(`https://t.me/${j.contact}`);
+  };
+  if (j.suggest_url) $("lkGh").onclick = () => openExternal(j.suggest_url);
+}
+async function sendToFriend(f) {
+  let j;
+  try { j = await api(`/api/look/${f.key}/share`); } catch (e) { return toast(e.message); }
+  openAlbumSheet(T("Отправить другу", "Send to a friend"),
+    `<div style="font-size:22px;font-weight:500;letter-spacing:-.025em"></div>` +
+    `<p class="muted" style="margin:6px 0 0">${T("Код — это вся плёнка в одной строке. Друг вставит его во вкладке «Сообщество» → «Мои плёнки» → «Добавить по коду», и плёнка появится у него.",
+                                                   "The code is the whole film in one line. Your friend pastes it in Community → My films → Add by code, and the film appears on their side.")}</p>` +
+    `<div class="actions al-acts"><button class="btn" id="lkSend">${T("Отправить", "Send")}</button><button class="link cap" id="lkCopy">${T("Копировать код", "Copy code")}</button></div>` +
+    `<textarea class="linkbox" id="lkCode" rows="3" readonly></textarea>`);
+  $("alBody").firstChild.textContent = j.name;
+  $("lkCode").value = j.code;
+  $("lkCode").onfocus = () => $("lkCode").select();
+  $("lkCopy").onclick = () => copyText(j.code, T("Код скопирован", "Code copied"));
+  $("lkSend").onclick = async () => {
+    if (tg && tg.openTelegramLink) return tg.openTelegramLink(`https://t.me/share/url?url=${encodeURIComponent(" ")}&text=${encodeURIComponent(j.code)}`);
+    if (navigator.share) { try { await navigator.share({ title: j.name, text: j.code }); } catch (e) {} return; }
+    copyText(j.code, T("Код скопирован", "Code copied"));
+  };
+}
 
 /* экран плёнки: ползунок «до/после» на твоём кадре или на образце, потом «Добавить» / «Применить» */
 let lv = null;              // { i, src: "mine" | "sample" }
@@ -2294,7 +2449,7 @@ $("lvAdd").onclick = () => lvDo(false);
 $("lvBack").onclick = () => onBack();
 $("lvPrev").onclick = () => { if (lv && lv.i > 0) { lv.i--; renderLookView(); } };
 $("lvNext").onclick = () => { if (lv && lv.i < cm.looks.length - 1) { lv.i++; renderLookView(); } };
-$("stCommunity").onclick = openCommunity;
+
 
 /* ---------- кадрирование ---------- */
 // рамка в долях некадрированного кадра; ratio — ширина/высота в пикселях (0 — свободно)
@@ -2534,6 +2689,7 @@ async function uploadAll(files) {
     if (!a) return;
     $("bAdd").hidden = false;
     $("bMenu").hidden = false;
+    $("mainTabs").hidden = false;
     token = a.token;
     media = a.media || "";
     if (a.lang && a.lang !== LANG) { LANG = a.lang; translatePage(); }
