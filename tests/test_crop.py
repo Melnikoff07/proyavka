@@ -15,6 +15,7 @@ def check(name, ok):
 if __name__ == "__main__":
     h = harness.start(port=8105)
     h.auth()
+    MEDIA = h.post("/api/auth", {"initData": "test-1"}, auth=False)["media"]      # токен для адресов картинок
     h.drop(TD / "a6300_DSC00270.JPG")
     ph = h.wait(lambda: [p for p in h.photos() if p["msg_id"] and p["view"]], timeout=90)[0]
     pid = ph["id"]
@@ -42,10 +43,10 @@ if __name__ == "__main__":
     check("в чате фото обновлено", True)
 
     # превью плёнок по ссылке с рамкой
-    pv = h.get(f"/img/preview/{pid}/golden200?st=100&c={','.join(map(str, sq))}&s={h.token}")
+    pv = h.get(f"/img/preview/{pid}/golden200?st=100&c={','.join(map(str, sq))}&m={MEDIA}")
     pw, phh = Image.open(__import__("io").BytesIO(pv)).size
     check(f"превью плёнки кадрировано: {pw}×{phh}", abs(pw - phh) <= 2)
-    src = h.get(f"/img/source/{pid}?s={h.token}")
+    src = h.get(f"/img/source/{pid}?m={MEDIA}")
     sw, sh = Image.open(__import__("io").BytesIO(src)).size
     check(f"исходник для кадрирования некадрирован: {sw}×{sh}", abs(sw / sh - W0 / H0) < 0.01)
 

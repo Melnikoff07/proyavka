@@ -480,7 +480,7 @@ function fileLabel(p) {
   return ios ? T("Сохранить", "Save") : T("Скачать", "Download");
 }
 
-let token = "", photos = [], total = 0, loading = false, finished = false, jobs = 0;
+let token = "", media = "", photos = [], total = 0, loading = false, finished = false, jobs = 0;
 let presets = [], leaks = [], strengths = [25, 50, 75, 100, 125, 150], cur = -1, tab = "film";
 let groups = {};            // день -> { grid, count, n }
 let since = 0;              // метка времени сервера для опроса изменений
@@ -498,7 +498,7 @@ function toast(text) {
   clearTimeout(toast.h); toast.h = setTimeout(() => t.classList.remove("show"), 2200);
 }
 function haptic(kind) { try { tg.HapticFeedback.selectionChanged(); if (kind) tg.HapticFeedback.notificationOccurred(kind); } catch (e) {} }
-function url(path, extra) { return `${path}?s=${encodeURIComponent(token)}${extra || ""}`; }
+function url(path, extra) { return `${path}?m=${encodeURIComponent(media)}${extra || ""}`; }   // в адресе не сессия, а токен «только смотреть»
 const esc = (v) => String(v ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
 function presetName(key) { const f = presets.find((x) => x.key === key); return f ? f.name : key === "original" ? T("Оригинал", "Original") : key; }
 function prevUrl(p, film, leak) {
@@ -529,7 +529,9 @@ async function reauth() {
     r = await fetch("/api/auth", { method: "POST", headers: { "Content-Type": "application/json" },
                                         body: JSON.stringify(tg ? { initData: tg.initData, token } : { device: stored(DEV_KEY), cookie: 1, token }) });
     if (!r.ok) throw new Error();
-    token = (await r.json()).token;
+    const j = await r.json();
+    token = j.token;
+    media = j.media || media;
     return true;
   } catch (e) {
     if (!tg && r && r.status === 401) { stored(DEV_KEY, null); location.reload(); }
@@ -929,6 +931,7 @@ async function poll() {
   try {
     const j = await api(`/api/updates?since=${since}`);
     since = j.now;
+    if (j.media) media = j.media;            // токен для картинок обновляется сам (раз в сутки)
     total = j.total;
     jobs = j.jobs;
     const curId = cur >= 0 && photos[cur] ? photos[cur].id : null;
@@ -2296,6 +2299,7 @@ async function uploadAll(files) {
     $("bAdd").hidden = false;
     $("bMenu").hidden = false;
     token = a.token;
+    media = a.media || "";
     if (a.lang && a.lang !== LANG) { LANG = a.lang; translatePage(); }
     const pj = await api("/api/presets");
     presets = pj.presets;

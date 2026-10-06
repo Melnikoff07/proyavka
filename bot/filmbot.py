@@ -4079,6 +4079,48 @@ def full_file(ph):
 SESSIONS = {}          # token -> (срок годности, пользователь)
 SESSION_TTL = 12 * 3600
 
+# Картинки и файлы грузятся через <img src> и <a download>, туда не приложить заголовок, и токен приходилось класть в адрес —
+# а адреса попадают в журналы nginx и историю браузера. Поэтому в адрес идёт не сессия, а отдельный токен «только смотреть и
+# скачивать свои кадры»: подписан ключом сервера, живёт 1–2 суток и сутки остаётся тем же (кэш браузера работает).
+MEDIA_KEY = None
+
+
+def media_secret():
+    global MEDIA_KEY
+    if MEDIA_KEY is None:
+        path = BASE / "media.key"
+        try:
+            MEDIA_KEY = path.read_bytes()
+        except OSError:
+            MEDIA_KEY = secrets.token_bytes(32)
+            path.write_bytes(MEDIA_KEY)
+            try:
+                os.chmod(path, 0o600)
+            except OSError:
+                pass
+    return MEDIA_KEY
+
+
+def _media_sig(uid, exp):
+    return base64.urlsafe_b64encode(hmac.new(media_secret(), f"{uid}.{exp}".encode(), hashlib.sha256).digest()[:16]).decode().rstrip("=")
+
+
+def media_token(uid):
+    exp = (int(time.time() // 86400) + 2) * 86400
+    return f"{uid}.{exp}.{_media_sig(uid, exp)}"
+
+
+def media_uid(tok):
+    """Пользователь по токену для картинок или None."""
+    try:
+        uid, exp, sig = str(tok).split(".")
+        uid, exp = int(uid), int(exp)
+    except ValueError:
+        return None
+    if exp <= time.time() or uid not in USERS or not hmac.compare_digest(sig, _media_sig(uid, exp)):
+        return None
+    return uid
+
 
 def check_init_data(init_data):
     """Проверка подписи Telegram. Возвращает id пользователя Telegram (пускать ли его — решает список users)."""
@@ -4300,7 +4342,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def common_headers(self):
         self.send_header("X-Content-Type-Options", "nosniff")
-        self.send_header("Referrer-Policy", "no-referrer")       # токен сессии бывает в ссылках на картинки
+        self.send_header("Referrer-Policy", "no-referrer")       # токен для картинок бывает в ссылках
 
     def device_cookie(self, key):
         return {"Set-Cookie": f"{DEV_COOKIE}={key}; Path=/; Max-Age=31536000; HttpOnly; Secure; SameSite=Strict"}
@@ -4443,12 +4485,19 @@ class Handler(BaseHTTPRequestHandler):
     def err(self, code, text):
         self.js({"error": text}, code)
 
-    def authed(self, qs):
-        """Пользователь по токену сессии (или None). Заодно язык ответов — его."""
-        tok = self.headers.get("X-Token") or (qs.get("s") or [""])[0]
+    def authed(self, qs, media=False):
+        """Пользователь по токену сессии (или None). Заодно язык ответов — его.
+        Для картинок и файлов (media) годится и токен из адреса: ?m= — токен для картинок; ?s= — прежний вид (сессия
+        в адресе), оставлен на время перехода: открытые у людей страницы ещё присылают его. Убрать в следующей версии."""
+        tok = self.headers.get("X-Token") or ((qs.get("s") or [""])[0] if media else "")
         exp, uid = SESSIONS.get(tok) or (0, None)
         now = time.time()
         if not tok or exp <= now or uid not in USERS:
+            if media and not self.headers.get("X-Token"):
+                muid = media_uid((qs.get("m") or [""])[0])
+                if muid:
+                    _CTX.lang = user_lang(muid)
+                    return muid
             return None
         if exp - now < SESSION_TTL - 600:      # пока «Проявкой» пользуются, сессия продлевается сама
             SESSIONS[tok] = (now + SESSION_TTL, uid)
@@ -4502,7 +4551,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send(200, app_icon(size), "image/png", "max-age=86400")
             if parts[0] == "a":
                 return self.album_get(parts[1:])
-            uid = self.authed(qs)
+            files = parts[:1] == ["img"] or parts == ["api", "zip"] or (parts[:2] == ["api", "camera"] and len(parts) == 3)
+            uid = self.authed(qs, media=files)
             if not uid:
                 return self.err(401, L("нужна авторизация через Telegram", "Telegram authorization required"))
             if parts == ["api", "presets"]:
@@ -4573,7 +4623,7 @@ class Handler(BaseHTTPRequestHandler):
                 now = time.time()
                 rows = q("SELECT * FROM photos WHERE owner=? AND updated > ? ORDER BY id DESC LIMIT 500", (uid, since))
                 total = q("SELECT COUNT(*) AS n FROM photos WHERE owner=? AND hidden=0", (uid,))[0]["n"]
-                return self.js({"now": now, "total": total, "jobs": jobs_in_work(uid),
+                return self.js({"now": now, "total": total, "jobs": jobs_in_work(uid), "media": media_token(uid),
                                 "photos": [photo_json(r) for r in rows]})
             if parts == ["api", "photos"]:
                 off = int((qs.get("offset") or ["0"])[0])
@@ -4653,7 +4703,7 @@ class Handler(BaseHTTPRequestHandler):
                                            "the code is wrong, expired or already used — get a new one: /link in the bot "
                                            "or ⋯ → Link a device in Proyavka"))
                 key, uid, did = got
-                body = {"token": self.new_session(uid, did=did), "device": key, "lang": user_lang(uid)}
+                body = {"token": self.new_session(uid, did=did), "media": media_token(uid), "device": key, "lang": user_lang(uid)}
                 return self.send(200, json.dumps(body, ensure_ascii=False), headers=self.device_cookie(key))
             if parts == ["api", "auth"]:
                 key = data.get("device") or (self.cookie_key() if data.get("cookie") else "")
@@ -4664,7 +4714,8 @@ class Handler(BaseHTTPRequestHandler):
                     if not dev:
                         note_fail(self.ip())
                         return self.err(401, L("это устройство отключено — привяжи его заново", "this device was removed — link it again"))
-                    body = {"token": self.new_session(dev["owner"], data.get("token"), dev["id"]), "lang": user_lang(dev["owner"])}
+                    body = {"token": self.new_session(dev["owner"], data.get("token"), dev["id"]), "media": media_token(dev["owner"]),
+                            "lang": user_lang(dev["owner"])}
                     if not data.get("device"):
                         body["device"] = key        # пришёл по cookie (iPhone перенёс её в приложение) — ключ себе в localStorage
                     return self.send(200, json.dumps(body, ensure_ascii=False), headers=self.device_cookie(key))
@@ -4673,7 +4724,7 @@ class Handler(BaseHTTPRequestHandler):
                 uid = uid_of_tg(check_init_data(data.get("initData", "")))
                 if not uid or uid not in USERS:
                     return self.err(403, L("открой ленту из своего бота в Telegram", "open the feed from your bot in Telegram"))
-                return self.js({"token": self.new_session(uid, data.get("token")), "lang": user_lang(uid)})
+                return self.js({"token": self.new_session(uid, data.get("token")), "media": media_token(uid), "lang": user_lang(uid)})
             uid = self.authed(qs)
             if not uid:
                 return self.err(401, L("нужна авторизация через Telegram", "Telegram authorization required"))
