@@ -1,20 +1,24 @@
 """Планировщик: очереди отрисовки по срочности и по кругу между пользователями, пакеты, экспорт, очередь обновления сообщений в Telegram, применение правок."""
 
 import collections
+import hashlib
 import itertools
+import json
+import os
 import queue
+import shutil
 import threading
 import time
-from concurrent.futures import FIRST_COMPLETED, wait as futures_wait
+from concurrent.futures import FIRST_COMPLETED, Future, wait as futures_wait
 from pathlib import Path
 
-from .config import FAST_WORKERS, STRENGTHS, TMP, log
+from .config import FAST_WORKERS, PREVIEWS, STRENGTHS, TMP, log
 from .i18n import L, cur_lang, speak, _CTX
 from .util import plural_ru, remove
-from .film import canon
-from .imaging import LEAKS, has, parse_crop
+from .film import PRESETS, canon, clean_params, is_lut, lut_dir, params_json
+from .imaging import LEAKS, has, leak_seed, parse_crop
 from .database import EDIT_LOCK, get, q, run, upd
-from .users import udir, valid_look
+from .users import udir, user_lang, valid_look
 from .jobs import job_chat, job_full, job_view
 from .pools import NET
 from .telegram import caption, chat_of, main_kb, pace, safe, tg, touch
@@ -143,6 +147,91 @@ def _release(pid):
     batch_step(pid, "gone")
 
 
+# Уже нарисованные состояния кадра (плёнка, сила, засвет, кроп, дата, рамка) лежат в кэше превью: вернулся к плёнке,
+# которую только что смотрел, — экран кадра берётся из кэша, а не рисуется заново. Файл копируется вместе со временем
+# изменения, поэтому адрес картинки (?v=) тот же, что и в прошлый раз, и браузер показывает её из своего кэша сразу.
+VIEW_CACHE_KEEP = 8                    # состояний на кадр; кэш превью и так чистится раз в сутки
+
+
+_PRESETS_SIG = hashlib.sha1(json.dumps({k: params_json(clean_params(v)) for k, v in PRESETS.items()},
+                                       sort_keys=True).encode()).hexdigest()[:12]
+
+
+def _look_sig(ph):
+    """Версия плёнки кадра: у встроенных — их параметры, у своих — содержимое файла плёнки (правка меняет вид)."""
+    key = ph["preset"]
+    if not is_lut(key):
+        return _PRESETS_SIG
+    h = hashlib.sha1()
+    for ext in (".json", ".npy"):
+        try:
+            st = os.stat(lut_dir(ph["owner"]) / f"{key}{ext}")
+            h.update(f"{ext}{st.st_mtime_ns}.{st.st_size}".encode())
+        except OSError:
+            pass
+    try:
+        h.update((lut_dir(ph["owner"]) / f"{key}.json").read_bytes())
+    except OSError:
+        pass
+    return h.hexdigest()[:12]
+
+
+def view_state(ph):
+    """Всё, от чего зависит экран кадра в «Проявке», одной строкой."""
+    leak = bool(ph["leak"])
+    parts = [ph["work"], ph["preset"], _look_sig(ph), ph["strength"], ph.get("leak_kind") or "edge" if leak else "",
+             leak_seed(ph) if leak else 0, ph.get("crop") or "", bool(ph["stamp"]), ph["taken"] if ph["stamp"] else "",
+             bool(ph["frame"]), user_lang(ph["owner"]) if ph["frame"] else ""]
+    return hashlib.sha1(json.dumps(parts, default=str).encode()).hexdigest()[:16]
+
+
+def _cache_paths(pid, key):
+    return PREVIEWS / f"{pid}_vc_{key}.jpg", PREVIEWS / f"{pid}_tc_{key}.jpg"
+
+
+def _copy(src, dst):
+    """Жёсткая ссылка (без копирования; время изменения то же, а от него зависит адрес картинки), подменяется целиком.
+    Новая отрисовка пишет файл заново (save_atomic: новый файл и os.replace), так что кэш она не трогает."""
+    tmp = f"{dst}.{threading.get_ident()}.tmp"
+    remove(tmp)
+    try:
+        try:
+            os.link(src, tmp)
+        except OSError:                  # нет жёстких ссылок (редкие файловые системы) — обычная копия
+            shutil.copy2(src, tmp)
+        os.replace(tmp, dst)
+    finally:
+        remove(tmp)
+
+
+def _cache_store(pid, key, view, thumb):
+    vc, tc = _cache_paths(pid, key)
+    try:
+        if not (vc.exists() and tc.exists()):
+            _copy(view, vc)
+            _copy(thumb, tc)
+        old = sorted(PREVIEWS.glob(f"{pid}_vc_*.jpg"), key=lambda f: f.stat().st_ctime, reverse=True)[VIEW_CACHE_KEEP:]
+        for f in old:
+            remove(str(f))
+            remove(str(f.with_name(f.name.replace("_vc_", "_tc_", 1))))
+    except OSError as e:
+        log.warning("view cache #%d: %s", pid, e)
+
+
+def _cache_take(pid, key, view, thumb):
+    """Готовый экран этого состояния — на место текущего. True, если он был в кэше."""
+    vc, tc = _cache_paths(pid, key)
+    if not (vc.exists() and tc.exists()):
+        return False
+    try:
+        _copy(vc, view)
+        _copy(tc, thumb)
+        return True
+    except OSError as e:
+        log.warning("view cache #%d: %s", pid, e)
+        return False
+
+
 def _submit_view(pid):
     from .pools import FAST
     ph = get(pid)
@@ -153,25 +242,59 @@ def _submit_view(pid):
     rev = ph["rev"]
     with JOB_LOCK:
         chat = VIEW_CHAT.get(pid, True) and bool(ph["msg_id"] or not ph["file_id"])
+    view = str(udir(ph["owner"], "views") / f"{pid}.jpg")
+    thumb = str(udir(ph["owner"], "thumbs") / f"{pid}.jpg")
+    key = view_state(ph)
     chat_path = str(TMP / f"chat_{pid}_{rev}.jpg") if chat else None
-    fut = FAST.submit(job_view, ph, str(udir(ph["owner"], "views") / f"{pid}.jpg"),
-                      str(udir(ph["owner"], "thumbs") / f"{pid}.jpg"), chat_path)
-    fut.add_done_callback(lambda f: EVENTS.put((_view_done, (pid, rev, chat, f))))
+    if _cache_take(pid, key, view, thumb):
+        # это состояние уже рисовали: экран готов сразу (ответ на правку уже без «проявляется»). Версия для чата,
+        # если нужна, рисуется здесь же, в этом месте очереди: по кругу между пользователями, как и раньше
+        upd(pid, view=view, thumb=thumb, rendered_rev=rev, updated=time.time())
+        if chat_path:
+            # версия для чата рисуется отдельно и встаёт в процессы сейчас, в свою очередь по кругу; место в очереди
+            # экрана при этом свободно — следующее переключение плёнки не ждёт Telegram
+            with JOB_LOCK:
+                urgent = VIEW_PRIO.get(pid, 1) == 0
+            FAST.submit(job_chat, ph, chat_path).add_done_callback(
+                lambda f: EVENTS.put((_chat_done, (pid, rev, chat_path, urgent, f))))
+        out = Future()
+        out.set_result((view, thumb, "cached"))
+        EVENTS.put((_view_done, (pid, rev, False, out, key)))
+        return
+    fut = FAST.submit(job_view, ph, view, thumb, chat_path)
+    fut.add_done_callback(lambda f: EVENTS.put((_view_done, (pid, rev, chat, f, key))))
 
 
-def _view_done(pid, rev, chat, fut):
+def _chat_done(pid, rev, path, urgent, fut):
+    """Версия для чата к экрану, взятому из кэша."""
+    if fut.exception():
+        log.warning("chat render #%d: %s", pid, fut.exception())
+        remove(path)
+        return
+    cur = get(pid)
+    if not cur or cur["hidden"] or cur["rev"] != rev:     # уже поменяли — свежий вариант в очереди
+        remove(path)
+        return
+    queue_tg_update(pid, urgent=urgent)
+
+
+def _view_done(pid, rev, chat, fut, key=None):
     err = fut.exception()
     result = "fail"
     if err:
         log.warning("view #%d: %s", pid, err)
     else:
-        view, thumb = fut.result()
+        res = fut.result()
+        view, thumb, cached = res[0], res[1], len(res) > 2
+        if key and not cached:
+            _cache_store(pid, key, view, thumb)
         cur = get(pid)
         if not cur or cur["hidden"]:            # кадр убрали в корзину, пока он рисовался — в чат не слать
             remove(str(TMP / f"chat_{pid}_{rev}.jpg"))
             result = "gone"
         elif cur["rev"] == rev:
-            upd(pid, view=view, thumb=thumb, rendered_rev=rev, updated=time.time())
+            if not cached:
+                upd(pid, view=view, thumb=thumb, rendered_rev=rev, updated=time.time())
             result = "ok"
             if not cur.get("view") and (cur.get("created") or 0) > time.time() - 600:
                 push_soon(cur["owner"])          # новый кадр проявился впервые (не дорисовка старых)

@@ -8,7 +8,7 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 ORDER = ["test_stage0", "test_stage1", "test_stage2", "test_stage3", "test_crop", "test_stage4", "test_luts", "test_looks",
-         "test_guards", "test_raw", "test_devices", "test_web", "test_push", "test_albums", "test_media", "test_hub", "test_film"]
+         "test_guards", "test_raw", "test_devices", "test_web", "test_push", "test_albums", "test_media", "test_hub", "test_film", "test_viewcache"]
 TIMEOUT = 600
 
 

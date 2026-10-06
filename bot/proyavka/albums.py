@@ -122,7 +122,7 @@ def album_public(a):
     from .devices import ZIP_MAX
     rows = album_rows(a)
     return {"title": a["title"] or "", "zip_max": ZIP_MAX,
-            "photos": [{"id": r["id"], "taken": r["taken"], "v": int(os.path.getmtime(r["view"])) if has(r["view"]) else 0,
+            "photos": [{"id": r["id"], "taken": r["taken"], "v": int(os.path.getmtime(r["view"]) * 1000) if has(r["view"]) else 0,
                         "name": download_name(r)} for r in rows]}
 
 

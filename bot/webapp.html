@@ -554,6 +554,22 @@ function prevUrl(p, film, leak) {
 function previewUrl(p) { return prevUrl(p, p.preset, p.leak); }
 function leakName(key) { const l = leaks.find((x) => x.key === key); return l ? l.name : ""; }
 function viewUrl(p) { return url(`/img/view/${p.id}`, `&v=${p.v}`); }
+// уже показанные состояния кадра: плёнка/сила/засвет/кроп/дата/рамка -> версия картинки. Вернулся к плёнке, которую
+// только что смотрел, — картинка из кэша браузера сразу, не дожидаясь сервера (он тоже берёт её из своего кэша)
+const viewSeen = new Map();
+function viewState(p) {
+  return [p.preset, p.strength, p.leak || "", p.leak ? p.leak_seed || 0 : 0, p.crop ? p.crop.join(",") : "",
+          p.stamp ? 1 : 0, p.frame ? 1 : 0, lookRev[p.preset] || ""].join("|");
+}
+function seenView(p) { const m = viewSeen.get(p.id); return m ? m.get(viewState(p)) : 0; }
+function rememberView(p) {
+  if (p.pending || !p.v) return;
+  let m = viewSeen.get(p.id);
+  if (!m) { m = new Map(); viewSeen.set(p.id, m); }
+  m.delete(viewState(p));
+  m.set(viewState(p), p.v);
+  if (m.size > 8) m.delete(m.keys().next().value);          // как и на сервере: последние 8 состояний кадра
+}
 function indexOf(id) { return photos.findIndex((x) => x.id === id); }
 
 async function api(path, body, retried) {
@@ -1035,9 +1051,13 @@ function setImage(src) {
 function refreshViewerImage() {
   const p = photos[cur];
   if (!p || crop) return;                  // во время кадрирования на экране исходник
-  // пока кадр проявляется — показываем превью выбранной плёнки, потом подменяем чистовиком
-  if (p.pending || !p.v) setImage(previewUrl(p)); else setImage(viewUrl(p));
-  $("stage").classList.toggle("busy", !!p.pending);
+  // пока кадр проявляется — показываем превью выбранной плёнки, потом подменяем чистовиком;
+  // если это состояние уже видели — сразу чистовик из кэша
+  const seen = p.pending ? seenView(p) : 0;
+  if (seen) setImage(viewUrl(Object.assign({}, p, { v: seen })));
+  else if (p.pending || !p.v) setImage(previewUrl(p));
+  else { rememberView(p); setImage(viewUrl(p)); }
+  $("stage").classList.toggle("busy", !!p.pending && !seen);
   $("bFile").textContent = fileLabel(p);
   $("vname").textContent = p.preset_name;
   $("vwhen").textContent = p.leak ? T("Засвет", "Leak") + `: ${leakName(p.leak)}` : (p.auto_reason ? T("Авто", "Auto") + `: ${p.auto_reason}` : "");

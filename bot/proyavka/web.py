@@ -55,7 +55,7 @@ from .invites import (
 
 
 def photo_json(ph):
-    v = int(os.path.getmtime(ph["view"])) if has(ph.get("view")) else 0
+    v = int(os.path.getmtime(ph["view"]) * 1000) if has(ph.get("view")) else 0      # мс: два вида за секунду — разные адреса
     return {"id": ph["id"], "taken": ph["taken"], "iso": ph["iso"],
             "preset": ph["preset"], "preset_name": pname(ph["preset"], ph["owner"]),
             "auto_key": ph["auto_key"], "auto_reason": auto_reason(ph) if ph["auto_reason"] else "",
