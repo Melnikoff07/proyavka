@@ -179,8 +179,9 @@ if __name__ == "__main__":
     time.sleep(1)
     adm_ids = [p["id"] for p in h.photos() if p["owner"] == ADMIN and not p["hidden"]]
     t5 = time.time()
-    h.post("/api/batch", {"action": "edit", "ids": adm_ids, "changes": {"preset": "expired"}})
-    hb.post("/api/batch", {"action": "edit", "ids": [pb["id"]], "changes": {"preset": "super400"}})
+    # состояния, которых ещё не было (нет в кэше состояний кадра): проверяется очередь отрисовки, а не кэш
+    h.post("/api/batch", {"action": "edit", "ids": adm_ids, "changes": {"preset": "expired", "strength": 125}})
+    hb.post("/api/batch", {"action": "edit", "ids": [pb["id"]], "changes": {"preset": "super400", "strength": 125}})
     h.wait(lambda: len(h.calls("editMessageMedia", t5)) >= 10, timeout=120)
     order = [c[2]["chat_id"] for c in h.calls("editMessageMedia", t5)]
     check(f"кадр Боба не ждёт весь пакет администратора: место {order.index(BOB) + 1} из {len(order)}", order.index(BOB) <= 3)

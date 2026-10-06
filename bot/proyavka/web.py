@@ -32,7 +32,7 @@ from .push import LAST_POLL, push_key, push_subscribe
 from .scheduler import (
     EXPORTING, apply_changes, batch_step, batch_track, export_photo, jobs_in_work, schedule_view,
 )
-from .photos import delete_photos, hide_photo, restore_photo
+from .photos import delete_photos, hide_photo, purge_trash, restore_photo
 from .looks import (
     HUB_DIR, RateLimit, add_look, add_lut, community_add, community_image, community_json,
     community_preview, delete_lut, edit_look, hub_decide, hub_pending, hub_raw, hub_receive, look_flags,
@@ -642,6 +642,19 @@ class Handler(BaseHTTPRequestHandler):
                     return self.js({"ok": bool(delete_album(uid, int(parts[2])))})
                 if len(parts) == 3:
                     return self.js(edit_album(uid, int(parts[2]), data))
+            if parts == ["api", "trash", "purge"]:          # «Удалить навсегда»: ids — выбранные, all — вся корзина
+                if data.get("all") is True:
+                    n = purge_trash(uid)
+                else:
+                    ids = data.get("ids")
+                    if not isinstance(ids, list) or not ids or len(ids) > BATCH_MAX:
+                        raise ValueError(L("нет кадров", "no frames"))
+                    try:
+                        ids = [int(i) for i in ids]
+                    except (TypeError, ValueError):
+                        raise ValueError(L("неверный список кадров", "invalid frame list"))
+                    n = purge_trash(uid, ids)
+                return self.js({"ok": True, "purged": n})
             if len(parts) == 4 and parts[:2] == ["api", "photo"] and parts[3] == "restore":
                 ph = self.mine(parts[2], uid)
                 if not ph or not ph["hidden"]:

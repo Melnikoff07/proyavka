@@ -468,8 +468,9 @@ def try_look(uid, data):
         raise ValueError(L("кадр в архиве", "frame is archived"))
     if strength not in STRENGTHS:
         strength = 100
+    edge = data.get("edge") if data.get("edge") in (420, 1000) else 420     # 1000 — редактор на широком экране
     params = clean_params(data.get("params"))
-    return FAST.submit(job_try, dict(ph), params, strength).result(timeout=120)
+    return FAST.submit(job_try, dict(ph), params, strength, None, edge).result(timeout=120)
 
 
 PREVIEW_RATE = {}                 # пользователь -> времена отрисовок плёнок каталога на его кадрах

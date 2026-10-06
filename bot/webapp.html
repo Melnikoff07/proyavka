@@ -56,6 +56,18 @@
          display: inline-flex; align-items: center; justify-content: center; align-self: center; }
 
   .more { border: 0; font-size: 20px; letter-spacing: .05em; }
+  .add { width: auto; padding: 0 12px; font-size: 13px; font-weight: 500; letter-spacing: 0; white-space: nowrap; }
+  .hero-right { position: relative; }
+  .menu { position: absolute; right: 0; top: calc(100% + 8px); z-index: 20; min-width: 230px; background: var(--bg);
+          border: 1px solid var(--text); display: flex; flex-direction: column; padding: 6px 0; box-shadow: 0 8px 30px rgba(0,0,0,.18); }
+  .menu[hidden] { display: none; }
+  @media (max-width: 440px) {               /* телефон: название, «Добавить» и меню в одну строку */
+    .hero h1 { font-size: 36px; }
+    .hero .total { display: none; }
+    .hero-right { gap: 8px; }
+  }
+  .menu button { text-align: left; padding: 11px 16px; font-size: 15px; }
+  .menu button:hover, .menu button:focus-visible { background: var(--tile); outline: none; }
   .more[hidden], .add[hidden] { display: none; }
 
   /* загрузка своих фото: полоска внизу */
@@ -160,6 +172,29 @@
   .vtitle .name { font-size: 22px; font-weight: 500; letter-spacing: -.025em; }
 
   .tabs { display: flex; gap: 20px; padding: 0 var(--pad) 10px; }
+  /* вкладки кадра: крупные, как переключатель */
+  .tabs.seg { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0; padding: 0; margin: 0 var(--pad) 12px;
+              border: 1px solid var(--text); }
+  .seg .tab { color: var(--text); padding: 11px 4px; font-size: 14px; font-weight: 500; text-align: center; }
+  .seg .tab + .tab { border-left: 1px solid var(--text); }
+  .seg .tab[aria-selected="true"] { background: var(--btn-bg); color: var(--btn-text); text-decoration: none; }
+  .leakrow { padding: 12px var(--pad) 0; }
+  .leakrow[hidden] { display: none; }
+  .pill { border: 1px solid var(--text); padding: 9px 14px; font-size: 14px; font-weight: 500; }
+  .panel .opts.cap, .panel .line .label { font-size: 12px; }
+  /* зум кадра и стрелки между кадрами */
+  .stage { overflow: hidden; touch-action: none; }
+  .stage img { transform-origin: 0 0; will-change: transform; user-select: none; -webkit-user-select: none; }
+  .stage.zoomed img { transition: none; cursor: grab; }
+  .stage.zoomed.drag img { cursor: grabbing; }
+  .zreset { position: absolute; right: calc(var(--pad) + 6px); top: 8px; background: var(--btn-bg); color: var(--btn-text); padding: 7px 10px; z-index: 3; }
+  .zreset[hidden] { display: none; }
+  .vnav { position: absolute; top: 50%; transform: translateY(-50%); width: 44px; height: 64px; font-size: 34px; line-height: 1;
+          color: var(--text); background: color-mix(in srgb, var(--bg) 70%, transparent); z-index: 2; display: none; }
+  .vnav.prev { left: 0; }
+  .vnav.next { right: 0; }
+  .vnav:disabled { display: none !important; }
+  @media (hover: hover) and (pointer: fine) { .vnav { display: block; } .stage.zoomed .vnav, .stage.cropping .vnav { display: none; } }
   .tab { color: var(--muted); padding: 2px 0; }
   .tab[aria-selected="true"] { color: var(--text); text-decoration: underline; text-underline-offset: 3px; text-decoration-thickness: 1px; }
   .strip { display: flex; gap: 10px; overflow-x: auto; padding: 0 var(--pad) 2px; scrollbar-width: none; }
@@ -241,7 +276,14 @@
   .al-acts { padding: 16px 0 0; }
   /* редактор плёнки и сообщество: полноэкранные слои поверх настроек */
   .layer2 { z-index: 13; }
-  .ed-pic { position: sticky; top: 0; z-index: 2; background: var(--bg); height: 36vh; min-height: 170px; padding: 0 var(--pad) 10px;
+  .ed-stick { position: sticky; top: 0; z-index: 2; background: var(--bg); border-bottom: 1px solid var(--rule); }
+  .ed-cats { display: flex; gap: 8px; overflow-x: auto; padding: 0 var(--pad) 10px; scrollbar-width: none; }
+  .ed-cats::-webkit-scrollbar { display: none; }
+  .ed-cats button { flex: 0 0 auto; border: 1px solid var(--rule); padding: 8px 12px; font-size: 13px; white-space: nowrap; }
+  .ed-cats button[aria-selected="true"] { background: var(--btn-bg); color: var(--btn-text); border-color: var(--btn-bg); }
+  .ed-sec:not(.on) { display: none; }
+  .ed-sec > .ed-h { display: none; }
+  .ed-pic { height: min(50vh, calc((100vw - 2 * var(--pad)) * .8)); min-height: 200px; padding: 0 var(--pad) 10px;
             display: flex; align-items: center; justify-content: center; }
   .ed-pic img { max-width: 100%; max-height: 100%; object-fit: contain; transition: opacity .15s linear; }
   .ed-pic.busy img { opacity: .7; }
@@ -303,6 +345,29 @@
            background: var(--btn-bg); color: var(--btn-text); padding: 12px 14px; z-index: 20;
            opacity: 0; pointer-events: none; transition: opacity .15s linear; }
   .toast.show { opacity: 1; }
+  /* компьютер: кадр слева, всё управление справа одной колонкой */
+  @media (min-width: 900px) {
+    .viewer { display: grid; grid-template-columns: minmax(0, 1fr) 400px; grid-template-rows: auto minmax(0, 1fr); }
+    .viewer > .vbar { grid-column: 1 / -1; }
+    .viewer > .stage { grid-column: 1; grid-row: 2; padding: 0 24px 24px; }
+    .viewer > .panel { grid-column: 2; grid-row: 2; overflow-y: auto; border-left: 1px solid var(--rule); padding-top: 6px; }
+    .panel .strip { flex-wrap: wrap; overflow: visible; row-gap: 14px; }
+    #lookEd:not([hidden]) { display: grid; grid-template-columns: minmax(0, 1fr) 420px; align-content: start; }
+    #lookEd > .vbar { grid-column: 1 / -1; }
+    #lookEd > .ed-stick { grid-column: 1; grid-row: 2 / span 20; height: calc(100vh - 48px); border-bottom: 0; }
+    #lookEd > .ed-stick .ed-pic { height: 100%; padding: 0 24px 24px; }
+    #lookEd > .ed-stick .ed-cats { display: none; }
+    #lookEd > :not(.vbar):not(.ed-stick) { grid-column: 2; }
+    #lookEd > .ed-top, #lookEd > #edBody, #lookEd > .actions { border-left: 1px solid var(--rule); }
+    #lookEd .ed-sec { display: block; }
+    #lookEd .ed-sec > .ed-h { display: block; }
+    #settings > *, #community > * { max-width: 760px; margin-left: auto; margin-right: auto; }
+    .selbar > * { max-width: 760px; margin-left: auto; margin-right: auto; }
+  }
+  /* корзина: вернуть или удалить навсегда */
+  .tr-acts { display: flex; justify-content: space-between; gap: 8px; padding-top: 6px; }
+  .tr-acts button { padding: 6px 0; }
+  .danger { color: #ff5a4e; }
   @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
 </style>
 </head>
@@ -310,8 +375,16 @@
 <header class="hero">
   <div class="hero-row"><h1 id="appName">Проявка</h1>
     <div class="hero-right"><span class="total" id="total"></span>
-      <button class="add" id="bAdd" aria-label="Добавить фото" data-i18n-aria="Add photos">+</button>
-      <button class="more" id="bMenu" aria-label="Устройства" data-i18n-aria="Devices">⋯</button></div></div>
+      <button class="add" id="bAdd" data-i18n="+ Add">+ Добавить</button>
+      <button class="more" id="bMenu" aria-label="Меню" data-i18n-aria="Menu" aria-haspopup="menu" aria-expanded="false">☰</button>
+      <div class="menu" id="mainMenu" role="menu" hidden>
+        <button role="menuitem" data-m="add" data-i18n="Add photos">Добавить фото</button>
+        <button role="menuitem" data-m="select" data-i18n="Select frames">Выбрать кадры</button>
+        <button role="menuitem" data-m="look" data-i18n="Create your own film">Создать свою плёнку</button>
+        <button role="menuitem" data-m="community" data-i18n="Community films">Плёнки сообщества</button>
+        <button role="menuitem" data-m="trash" data-i18n="Trash">Корзина</button>
+        <button role="menuitem" data-m="settings" data-i18n="Settings">Настройки</button>
+      </div></div></div>
   <input type="file" id="picker" accept="image/*,.dng,.arw,.cr2,.cr3,.nef,.raf,.orf,.rw2,.pef,.srw" multiple hidden>
   <input type="file" id="lutPicker" accept=".cube" hidden>
   <p class="sub" id="sub"></p>
@@ -327,25 +400,30 @@
 
 <section class="viewer" id="viewer" hidden aria-label="Просмотр кадра" data-i18n-aria="Frame viewer">
   <div class="vbar cap"><span class="vleft"><button class="vback" id="vBack" hidden aria-label="Назад" data-i18n-aria="Back">←</button><span id="vnum"></span></span><span id="vtime" class="muted"></span><span id="vpos" class="muted"></span></div>
-  <div class="stage" id="stage"><div class="progress"></div><img id="vimg" alt="" decoding="async">
+  <div class="stage" id="stage"><div class="progress"></div><img id="vimg" alt="" decoding="async" draggable="false">
+    <button class="vnav prev" id="vPrev" aria-label="Предыдущий кадр" data-i18n-aria="Previous frame">‹</button>
+    <button class="vnav next" id="vNext" aria-label="Следующий кадр" data-i18n-aria="Next frame">›</button>
+    <button class="zreset cap" id="zReset" hidden></button>
     <div class="cropbox" id="cropbox" hidden><i data-h="nw"></i><i data-h="ne"></i><i data-h="sw"></i><i data-h="se"></i></div></div>
   <div class="panel">
     <div class="vtitle"><span class="name" id="vname"></span><span class="cap muted" id="vwhen"></span></div>
     <div id="vmain">
     <div id="controls">
-      <div class="tabs cap" role="tablist">
+      <div class="tabs seg" role="tablist">
         <button class="tab" role="tab" data-tab="film" aria-selected="true" data-i18n="Film">Плёнка</button>
-        <button class="tab" role="tab" data-tab="leak" aria-selected="false" data-i18n="Leak">Засвет</button>
-        <button class="tab" id="bCrop" data-i18n="Crop">Кадр</button>
+        <button class="tab" role="tab" data-tab="leak" aria-selected="false" data-i18n="Light leak">Засвет</button>
+        <button class="tab" id="bCrop" data-i18n="Crop">Кадрировать</button>
       </div>
       <div class="strip" id="strip" role="listbox" aria-label="Плёнка"></div>
+      <div class="leakrow" id="leakRow" hidden>
+        <button class="pill" id="bShift" data-i18n="↻ Another leak variant">↻ Другой вариант засвета</button>
+      </div>
       <div class="line"><span class="cap muted label" data-i18n="Strength">Сила</span><div class="opts cap" id="strength" role="group" aria-label="Сила эффекта" data-i18n-aria="Effect strength"></div></div>
       <div class="line"><span class="cap muted label" data-i18n="Look">Вид</span>
         <div class="opts cap">
           <button class="tog" data-toggle="stamp" aria-pressed="false" data-i18n="Date">Дата</button>
           <button class="tog" data-toggle="frame" aria-pressed="false" data-i18n="Frame">Рамка</button>
           <button class="tog" id="bCmp" aria-pressed="false" data-i18n="Before / after">До / после</button>
-          <button class="opt" id="bShift" aria-label="Сдвинуть засвет, другой вариант" data-i18n-aria="Shift the leak, another variant" data-i18n="Shift leak">Сдвинуть засвет</button>
         </div>
       </div>
     </div>
@@ -387,7 +465,10 @@
 </div>
 <section class="settings layer2" id="lookEd" hidden aria-label="Редактор плёнки" data-i18n-aria="Film editor">
   <div class="vbar cap"><span class="vleft"><button class="vback" id="edBack" aria-label="Назад" data-i18n-aria="Back">←</button><span id="edTitle"></span></span><span></span><span></span></div>
-  <div class="ed-pic" id="edPic"><img id="edImg" alt="" hidden><p class="muted" id="edNoPic" hidden></p></div>
+  <div class="ed-stick">
+    <div class="ed-pic" id="edPic"><img id="edImg" alt="" hidden><p class="muted" id="edNoPic" hidden></p></div>
+    <div class="ed-cats" id="edCats" role="tablist" aria-label="Настройки плёнки" data-i18n-aria="Film settings"></div>
+  </div>
   <div class="ed-top"><input class="al-name" id="edName" maxlength="32" autocomplete="off">
     <button class="tog" id="edCmp" aria-pressed="false" style="align-self:flex-start" data-i18n="Before / after">До / после</button>
     <select class="st-select" id="edBase" aria-label="Начать с" data-i18n-aria="Start from"></select></div>
@@ -434,7 +515,7 @@
   <div class="st-sec">
     <div class="st-h cap muted" data-i18n="Albums by link">Альбомы по ссылке</div>
     <div id="stAlbums"></div>
-    <p class="muted st-p" data-i18n="Select frames in the feed (long press, or Select day) → Album. Anyone with the link can view and download them, no sign-in needed.">Выбери кадры в ленте (долгое нажатие или «Выбрать день») → «Альбом». По ссылке их можно смотреть и скачивать без входа.</p>
+    <p class="muted st-p" data-i18n="Select frames (☰ → Select frames, a long press, or Select day) → Album. Anyone with the link can view and download them, no sign-in needed.">Выбери кадры (☰ → «Выбрать кадры», долгое нажатие или «Выбрать день») → «Альбом». По ссылке их можно смотреть и скачивать без входа.</p>
   </div>
   <div class="st-sec">
     <div class="st-h cap muted" data-i18n="Devices">Устройства</div>
@@ -802,12 +883,12 @@ $("sDelete").onclick = () => {
       total = Math.max(0, total - r.done);
       exitSelect();
       rebuildFeed();
-      toast(T(`В корзине: ${r.done}. Вернуть — ⋯ → Корзина`, `Moved to trash: ${r.done}. Restore: ⋯ → Trash`));
+      toast(T(`В корзине: ${r.done}. Вернуть — ☰ → Корзина`, `Moved to trash: ${r.done}. Restore: ☰ → Trash`));
       haptic("success");
     } catch (e) { toast(e.message); }
   };
-  const q = T(`Убрать ${n} ${plural(n, "кадр", "кадра", "кадров")} в корзину? Вернуть можно в «⋯» → «Корзина», пока хватает места.`,
-              `Move ${n} frame${n === 1 ? "" : "s"} to the trash? You can bring them back in ⋯ → Trash while there is space.`);
+  const q = T(`Убрать ${n} ${plural(n, "кадр", "кадра", "кадров")} в корзину? Вернуть можно в ☰ → «Корзина», пока хватает места.`,
+              `Move ${n} frame${n === 1 ? "" : "s"} to the trash? You can bring them back in ☰ → Trash while there is space.`);
   if (tg && tg.showConfirm) tg.showConfirm(q, go); else go(confirm(q));
 };
 
@@ -944,8 +1025,8 @@ function rebuildFeed() {
     $("feed").innerHTML = tg
       ? T(`<div class="state"><strong>Пока пусто</strong><p>Сними кадр: через полминуты он появится здесь и в чате.</p></div>`,
           `<div class="state"><strong>Nothing yet</strong><p>Take a shot: in half a minute it will appear here and in the chat.</p></div>`)
-      : T(`<div class="state"><strong>Пока пусто</strong><p>Сними кадр — через полминуты он появится здесь. Камера настраивается в «⋯» → «Камера», а фото с телефона добавляются кнопкой «+».</p></div>`,
-          `<div class="state"><strong>Nothing yet</strong><p>Take a shot — in half a minute it appears here. Set up the camera in ⋯ → Camera; add phone photos with the "+" button.</p></div>`);
+      : T(`<div class="state"><strong>Пока пусто</strong><p>Сними кадр — через полминуты он появится здесь. Камера настраивается в ☰ → «Настройки» → «Камера», а фото с телефона добавляются кнопкой «+ Добавить».</p></div>`,
+          `<div class="state"><strong>Nothing yet</strong><p>Take a shot — in half a minute it appears here. Set up the camera in ☰ → Settings → Camera; add phone photos with the "+ Add" button.</p></div>`);
   } else appendPhotos(photos, 0);
   renderHeader();
 }
@@ -1031,6 +1112,7 @@ function openViewer(i) {
 }
 function closeViewer() {
   if (crop) exitCrop(true);
+  if (zoom.s > 1) zoomReset();
   vCmp.hide();
   $("viewer").hidden = true;
   document.body.style.overflow = "";
@@ -1104,6 +1186,7 @@ function renderStrip(p) {
     }
   }
   strip.replaceChildren(frag);
+  $("leakRow").hidden = !(tab === "leak" && p.leak && !p.archived);
   const sel = strip.querySelector('[aria-pressed="true"]');
   if (sel) strip.scrollLeft = sel.offsetLeft - strip.clientWidth / 2 + sel.clientWidth / 2;
 }
@@ -1115,6 +1198,9 @@ document.querySelectorAll(".tab[data-tab]").forEach((t) => {
 function renderViewer() {
   const p = photos[cur];
   if (!p) return closeViewer();
+  if (zoom.s > 1) zoomReset();
+  $("vPrev").disabled = cur <= 0;
+  $("vNext").disabled = cur >= photos.length - 1 && photos.length >= total;
   $("vimg").alt = T("Кадр", "Frame") + ` ${p.id}`;
   $("vnum").textContent = T("Кадр", "Frame") + ` ${pad2(p.id)}`;
   $("vtime").textContent = [p.taken ? p.taken.slice(11, 16) : "", p.iso ? `ISO ${p.iso}` : ""].filter(Boolean).join("   ");
@@ -1217,20 +1303,20 @@ $("bHide").onclick = () => {
       if (!photos.length) return closeViewer();
       cur = Math.min(cur, photos.length - 1);
       renderViewer();
-      toast(T("Кадр в корзине. Вернуть — ⋯ → Корзина", "Frame moved to trash. Restore: ⋯ → Trash"));
+      toast(T("Кадр в корзине. Вернуть — ☰ → Корзина", "Frame moved to trash. Restore: ☰ → Trash"));
     } catch (e) { toast(e.message); }
   };
-  const q = T(`Убрать кадр ${pad2(p.id)} в корзину? Вернуть можно в «⋯» → «Корзина», пока хватает места.`,
-              `Move frame ${pad2(p.id)} to the trash? You can bring it back in ⋯ → Trash while there is space.`);
+  const q = T(`Убрать кадр ${pad2(p.id)} в корзину? Вернуть можно в ☰ → «Корзина», пока хватает места.`,
+              `Move frame ${pad2(p.id)} to the trash? You can bring it back in ☰ → Trash while there is space.`);
   if (tg && tg.showConfirm) tg.showConfirm(q, go); else go(confirm(q));
 };
 
 /* свайпы между кадрами — работают всегда, даже пока кадр проявляется */
 let sx = 0, sy = 0;
 let sxOk = true;
-$("stage").addEventListener("touchstart", (e) => { sx = e.touches[0].clientX; sy = e.touches[0].clientY; sxOk = !e.target.closest(".cmp-h"); }, { passive: true });
+$("stage").addEventListener("touchstart", (e) => { sx = e.touches[0].clientX; sy = e.touches[0].clientY; sxOk = !e.target.closest(".cmp-h") && e.touches.length === 1 && zoom.s === 1; }, { passive: true });
 $("stage").addEventListener("touchend", (e) => {
-  if (crop || !sxOk) return;
+  if (crop || !sxOk || zoom.s > 1 || zoom.pinched) return;
   const dx = e.changedTouches[0].clientX - sx, dy = e.changedTouches[0].clientY - sy;
   if (Math.abs(dx) < 50 || Math.abs(dx) < Math.abs(dy)) return;
   const next = cur + (dx < 0 ? 1 : -1);
@@ -1239,10 +1325,96 @@ $("stage").addEventListener("touchend", (e) => {
 document.addEventListener("keydown", (e) => {
   if (cur < 0) return;
   if (crop) { if (e.key === "Escape") exitCrop(); return; }
-  if (e.key === "Escape") closeViewer();
+  if (e.key === "Escape") { if (zoom.s > 1) zoomReset(); else closeViewer(); }
   if (e.key === "ArrowRight" && photos[cur + 1]) { cur++; renderViewer(); }
   if (e.key === "ArrowLeft" && photos[cur - 1]) { cur--; renderViewer(); }
+  if ((e.key === "+" || e.key === "=") && !e.target.closest("input")) zoomAt(zoom.s * 1.5);
+  if (e.key === "-" && !e.target.closest("input")) zoomAt(zoom.s / 1.5);
 });
+$("vPrev").onclick = () => { if (photos[cur - 1]) { cur--; renderViewer(); } };
+$("vNext").onclick = () => { if (photos[cur + 1]) { cur++; renderViewer(); } };
+
+/* ---------- зум: два пальца, колесо мыши, двойное нажатие; увеличенный кадр двигается пальцем или мышью ---------- */
+const zoom = { s: 1, x: 0, y: 0, pinched: false, touchAt: 0 };
+const ZMAX = 5;
+function zoomApply() {
+  const img = $("vimg");
+  const w = img.offsetWidth, h = img.offsetHeight;
+  if (zoom.s <= 1.01) { zoom.s = 1; zoom.x = 0; zoom.y = 0; }
+  zoom.x = clamp(zoom.x, w * (1 - zoom.s), 0);
+  zoom.y = clamp(zoom.y, h * (1 - zoom.s), 0);
+  img.style.transform = zoom.s === 1 ? "" : `translate(${zoom.x}px, ${zoom.y}px) scale(${zoom.s})`;
+  $("stage").classList.toggle("zoomed", zoom.s > 1);
+  $("zReset").hidden = zoom.s === 1;
+  $("zReset").textContent = `${Math.round(zoom.s * 100)}% · ${T("сбросить", "reset")}`;
+}
+// точка (cx, cy) на экране остаётся под пальцем/курсором
+function zoomAt(s, cx, cy) {
+  if (crop || cmpOn) return;
+  const img = $("vimg"), r = img.getBoundingClientRect();
+  if (!r.width) return;
+  if (cx === undefined) { cx = r.left + r.width / 2; cy = r.top + r.height / 2; }
+  s = clamp(s, 1, ZMAX);
+  const u = (cx - r.left) / zoom.s, v = (cy - r.top) / zoom.s;      // точка в координатах неувеличенного кадра
+  zoom.x += (cx - r.left) - u * s;
+  zoom.y += (cy - r.top) - v * s;
+  zoom.s = s;
+  zoomApply();
+}
+function zoomReset() { zoom.s = 1; zoomApply(); }
+$("zReset").onclick = (e) => { e.stopPropagation(); zoomReset(); };
+$("stage").addEventListener("wheel", (e) => {
+  if (crop || cmpOn || cur < 0) return;
+  e.preventDefault();
+  zoomAt(zoom.s * Math.exp(-e.deltaY * (e.ctrlKey ? 0.01 : 0.0025)), e.clientX, e.clientY);
+}, { passive: false });
+$("stage").addEventListener("dblclick", (e) => {
+  if (crop || cmpOn || e.target.closest("button") || Date.now() - zoom.touchAt < 800) return;   // пальцем — своя обработка
+  zoomAt(zoom.s > 1 ? 1 : 2.5, e.clientX, e.clientY);
+});
+{
+  let pts = new Map(), last = null, startDist = 0, startS = 1, lastTap = 0;
+  const stage = $("stage");
+  const mid = () => { const a = [...pts.values()]; return { x: (a[0].x + a[1].x) / 2, y: (a[0].y + a[1].y) / 2, d: Math.hypot(a[0].x - a[1].x, a[0].y - a[1].y) }; };
+  stage.addEventListener("pointerdown", (e) => {
+    if (crop || cmpOn || e.target.closest("button, .cmp-h, .cropbox")) return;
+    pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (pts.size === 2) { const m = mid(); startDist = m.d; startS = zoom.s; last = m; zoom.pinched = true; }
+    else if (pts.size === 1) {
+      last = { x: e.clientX, y: e.clientY };
+      zoom.pinched = false;
+      if (e.pointerType === "touch") {              // двойное касание пальцем — как двойной щелчок
+        const now = Date.now();
+        zoom.touchAt = now;
+        if (now - lastTap < 300) { zoomAt(zoom.s > 1 ? 1 : 2.5, e.clientX, e.clientY); lastTap = 0; } else lastTap = now;
+      }
+      if (zoom.s > 1) { stage.setPointerCapture(e.pointerId); stage.classList.add("drag"); }
+    }
+  });
+  stage.addEventListener("pointermove", (e) => {
+    if (!pts.has(e.pointerId)) return;
+    pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (pts.size === 2) {
+      const m = mid();
+      zoomAt(startS * (m.d / (startDist || 1)), m.x, m.y);
+      zoom.x += m.x - last.x; zoom.y += m.y - last.y; zoomApply();
+      last = m;
+    } else if (pts.size === 1 && zoom.s > 1) {
+      zoom.x += e.clientX - last.x; zoom.y += e.clientY - last.y;
+      last = { x: e.clientX, y: e.clientY };
+      zoomApply();
+    }
+  });
+  const up = (e) => {
+    pts.delete(e.pointerId);
+    if (pts.size < 2) startDist = 0;
+    if (pts.size === 1) last = [...pts.values()][0];
+    if (!pts.size) stage.classList.remove("drag");
+  };
+  stage.addEventListener("pointerup", up);
+  stage.addEventListener("pointercancel", up);
+  addEventListener("resize", () => { if (zoom.s > 1) zoomApply(); });
+}
 
 /* ---------- файлы вне Telegram: компьютер скачивает, телефон сохраняет через «Поделиться» ---------- */
 const SHARE_MAX = 30;
@@ -1383,7 +1555,37 @@ async function saveMe(changes) {
   try { await renderMe(await api("/api/me", changes)); haptic("success"); return true; }
   catch (e) { toast(e.message); return false; }
 }
-$("bMenu").onclick = openSettings;
+function closeMenu() { $("mainMenu").hidden = true; $("bMenu").setAttribute("aria-expanded", "false"); }
+$("bMenu").onclick = (e) => {
+  e.stopPropagation();
+  const open = $("mainMenu").hidden;
+  $("mainMenu").hidden = !open;
+  $("bMenu").setAttribute("aria-expanded", String(open));
+  if (open) $("mainMenu").querySelector("button").focus();
+};
+document.addEventListener("click", (e) => { if (!$("mainMenu").hidden && !e.target.closest("#mainMenu")) closeMenu(); });
+document.addEventListener("keydown", (e) => { if (e.key === "Escape" && !$("mainMenu").hidden) { closeMenu(); $("bMenu").focus(); } });
+$("mainMenu").onclick = async (e) => {
+  const b = e.target.closest("[data-m]");
+  if (!b) return;
+  closeMenu();
+  const m = b.dataset.m;
+  if (m === "add") $("bAdd").click();
+  else if (m === "select") {
+    if (!photos.length) return toast(T("Кадров пока нет", "No frames yet"));
+    if (mainTab !== "gallery") setMainTab("gallery");
+    enterSelect();
+    toast(T("Нажимай на кадры, чтобы выбрать", "Tap frames to select them"));
+  }
+  else if (m === "look") openEditor({});
+  else if (m === "community") setMainTab("community");
+  else if (m === "settings") openSettings();
+  else if (m === "trash") {
+    await openSettings();
+    if ($("stTrash").hidden && !$("stTrashBtn").disabled) await openTrash();
+    $("stTrashBtn").scrollIntoView({ block: "start" });
+  }
+};
 $("stBack").onclick = () => onBack();
 $("stName").onclick = async () => {
   const n = prompt(T("Как тебя зовут?", "What's your name?"), me ? me.name : "");
@@ -1449,29 +1651,51 @@ $("stFilm").onchange = async () => {
   if (await saveMe({ default_film: $("stFilm").value })) toast(T("Так будут проявляться новые кадры", "New frames will be developed like this"));
 };
 
-$("stTrashBtn").onclick = async () => {
+async function openTrash() {
   const box = $("stTrash");
-  if (!box.hidden) { box.hidden = true; return; }
   let j;
   try { j = await api("/api/trash"); } catch (e) { return toast(e.message); }
-  box.replaceChildren(...j.photos.map((p) => {
-    const b = document.createElement("button");
-    b.className = "cell";
-    b.innerHTML = `<div class="tile"><img loading="lazy" decoding="async" alt="" src="${esc(url(`/img/thumb/${p.id}`, `&v=${p.v}`))}"></div>` +
-                  `<div class="cell-cap cap"><span>${pad2(p.id)}</span><span class="name muted">${T("вернуть", "restore")}</span></div>`;
-    b.onclick = async () => {
+  const all = document.createElement("div");
+  all.className = "actions";
+  all.style.gridColumn = "1 / -1";
+  all.style.padding = "0 0 6px";
+  all.innerHTML = `<button class="pill danger" style="border-color:currentColor">${T("Очистить корзину навсегда", "Empty the trash for good")}</button>`;
+  all.querySelector("button").onclick = () => ask(
+    T(`Удалить навсегда все кадры из корзины (${j.photos.length})? Вернуть их будет нельзя.`, `Delete all ${j.photos.length} frames in the trash for good? They can't be brought back.`),
+    async (ok) => {
+      if (!ok) return;
+      try { const r = await api("/api/trash/purge", { all: true }); toast(T(`Удалено навсегда: ${r.purged}`, `Deleted for good: ${r.purged}`)); haptic("success"); }
+      catch (e) { return toast(e.message); }
+      box.hidden = true; renderMe();
+    });
+  const cells = j.photos.map((p) => {
+    const c = document.createElement("div");
+    c.className = "cell";
+    c.innerHTML = `<div class="tile"><img loading="lazy" decoding="async" alt="" src="${esc(url(`/img/thumb/${p.id}`, `&v=${p.v}`))}"></div>` +
+                  `<div class="cell-cap cap"><span>${pad2(p.id)}</span></div>` +
+                  `<div class="tr-acts cap"><button data-a="restore">${T("Вернуть", "Restore")}</button><button class="danger" data-a="purge">${T("Удалить", "Delete")}</button></div>`;
+    c.querySelector('[data-a="restore"]').onclick = async () => {
       try {
         await api(`/api/photo/${p.id}/restore`, {});
-        b.remove();
+        c.remove();
         toast(T("Кадр вернулся в ленту", "The frame is back in the feed"));
         haptic("success");
         jobs = Math.max(jobs, 1); poll(); renderMe();
       } catch (e) { toast(e.message); }
     };
-    return b;
-  }));
-  box.hidden = false;
-};
+    c.querySelector('[data-a="purge"]').onclick = () => ask(
+      T(`Удалить кадр ${pad2(p.id)} навсегда? Вернуть его будет нельзя.`, `Delete frame ${pad2(p.id)} for good? It can't be brought back.`),
+      async (ok) => {
+        if (!ok) return;
+        try { await api("/api/trash/purge", { ids: [p.id] }); c.remove(); toast(T("Удалено навсегда", "Deleted for good")); haptic("success"); renderMe(); }
+        catch (e) { toast(e.message); }
+      });
+    return c;
+  });
+  box.replaceChildren(...(cells.length ? [all, ...cells] : []));
+  box.hidden = !cells.length;
+}
+$("stTrashBtn").onclick = () => { if (!$("stTrash").hidden) $("stTrash").hidden = true; else openTrash(); };
 
 $("stCamBtn").onclick = async () => {
   const box = $("stCam");
@@ -1743,8 +1967,8 @@ function showPairing(msg) {
   $("mainTabs").hidden = true;
   const iosBrowser = ios && !standalone;
   $("feed").innerHTML = `<div class="state"><strong>${T("Привяжи это устройство", "Link this device")}</strong>` +
-    `<p>${T("Введи код: «⋯» → «Привязать устройство» в «Проявке» на другом устройстве, команда /link в боте или код приглашения. Свой первый код администратор видит в конце установки.",
-            "Enter a code: ⋯ → Link a device in Proyavka on another device, the /link command in the bot, or an invite code. The admin sees the first code at the end of setup.")}</p>` +
+    `<p>${T("Введи код: ☰ → «Настройки» → «Привязать устройство» в «Проявке» на другом устройстве, команда /link в боте или код приглашения. Свой первый код администратор видит в конце установки.",
+            "Enter a code: ☰ → Settings → Link a device in Proyavka on another device, the /link command in the bot, or an invite code. The admin sees the first code at the end of setup.")}</p>` +
     (iosBrowser ? `<p style="margin-top:10px">${T("На iPhone вход из браузера в приложение не переносится. Чтобы «Проявка» была приложением: «Поделиться» → «На экран „Домой“», открой иконку и введи код там.",
                                                   "On iPhone a browser sign-in does not carry over to the app. To use Proyavka as an app: Share → Add to Home Screen, open the icon and enter the code there.")}</p>` : "") +
     (msg ? `<p style="margin-top:10px;color:var(--text)">${esc(msg)}</p>` : "") +
@@ -1915,7 +2139,7 @@ function syncViewerCompare() {
   $("bCmp").setAttribute("aria-pressed", String(cmpOn));
   if (cmpOn && p && !p.archived && !crop) vCmp.show(origUrl(p, 1600)); else vCmp.hide();
 }
-$("bCmp").onclick = () => { cmpOn = !cmpOn; haptic(); syncViewerCompare(); };
+$("bCmp").onclick = () => { cmpOn = !cmpOn; haptic(); if (cmpOn && zoom.s > 1) zoomReset(); syncViewerCompare(); };
 
 /* ---------- свои плёнки: редактор, коды, сообщество ---------- */
 // Плёнка — несколько чисел (контраст, зерно, халяция…). Редактор крутит их ползунками, сервер на каждое движение
@@ -2005,22 +2229,28 @@ async function openEditor({ key } = {}) {
   $("edNoPic").hidden = !!ed.photo;
   $("edNoPic").textContent = T("Нет готового кадра для просмотра. Плёнку можно сохранить и применить позже.", "No finished frame to preview on. You can save the film and apply it later.");
   const frag = document.createDocumentFragment();
-  for (const sec of ED_SECTIONS) {
-    let box = frag;
-    if (sec.fold) {                           // редкие настройки — под спойлером, чтобы не пугать
-      box = document.createElement("details");
-      box.className = "ed-fold";
-      const sm = document.createElement("summary");
-      sm.className = "cap muted";
-      sm.textContent = T(...sec.h);
-      box.appendChild(sm);
-      frag.appendChild(box);
-    } else {
-      const h = document.createElement("div");
-      h.className = "ed-h cap muted";
-      h.textContent = T(...sec.h);
-      frag.appendChild(h);
-    }
+  const secs = [], cats = [];
+  const pickCat = (i) => {
+    ed.cat = i;
+    secs.forEach((el, j) => el.classList.toggle("on", j === i));
+    cats.forEach((b, j) => b.setAttribute("aria-selected", String(j === i)));
+    $("edBody").scrollIntoView({ block: "nearest" });
+  };
+  for (const [si, sec] of ED_SECTIONS.entries()) {
+    // на телефоне — по одной категории (вкладки под превью), чтобы кадр был крупным; на компьютере — все подряд
+    const box = document.createElement("div");
+    box.className = "ed-sec";
+    const h = document.createElement("div");
+    h.className = "ed-h cap muted";
+    h.textContent = T(...sec.h);
+    box.appendChild(h);
+    frag.appendChild(box);
+    secs.push(box);
+    const cb = document.createElement("button");
+    cb.setAttribute("role", "tab");
+    cb.textContent = T(...sec.h);
+    cb.onclick = () => pickCat(si);
+    cats.push(cb);
     for (const s of sec.s) {
       const el = document.createElement("div");
       el.className = "ed-sl";
@@ -2041,6 +2271,7 @@ async function openEditor({ key } = {}) {
   bw.style.alignItems = "flex-start";
   bw.style.gap = "6px";
   bw.innerHTML = `<button class="tog" aria-pressed="false"></button><button class="tog" aria-pressed="false"></button>`;
+  bw.className = "ed-sec ed-sl";
   bw.children[0].textContent = T("Чёрно-белая", "Black & white");
   bw.children[0].onclick = () => { ed.P.bw = ed.P.bw ? null : [0.3, 0.55, 0.15]; edSync(); edPreview(); };
   bw.children[1].textContent = T("Свечение в линейном свете (мягче и шире)", "Glow in linear light (softer, wider)");
@@ -2048,7 +2279,15 @@ async function openEditor({ key } = {}) {
   ed.bwBtn = bw.children[0];
   ed.linBtn = bw.children[1];
   frag.appendChild(bw);
+  // «Ч/б» и «линейное свечение» — вместе с цветом и свечением: переносим переключатели в их категории
+  const lin = bw.children[1];
+  secs[0].appendChild(Object.assign(document.createElement("div"), { className: "ed-sl" })).appendChild(bw.children[0]);
+  const glowSec = ED_SECTIONS.findIndex((s) => s.h[1] === "Glow");
+  secs[glowSec >= 0 ? glowSec : 0].appendChild(Object.assign(document.createElement("div"), { className: "ed-sl" })).appendChild(lin);
+  bw.remove();
   $("edBody").replaceChildren(frag);
+  $("edCats").replaceChildren(...cats);
+  pickCat(0);
   edSync();
   showLayer($("lookEd"));
   edPreview();
@@ -2058,6 +2297,8 @@ function edSync() {
   ed.bwBtn.setAttribute("aria-pressed", String(!!ed.P.bw));
   ed.linBtn.setAttribute("aria-pressed", String(ed.P.linear > 0.5));
 }
+// широкий экран — живой просмотр крупнее (1000 px), телефон — 420 px: так быстрее
+function edEdge() { return $("edPic").clientWidth > 520 ? 1000 : 420; }
 function edPreview() {
   if (!ed) return;
   clearTimeout(ed.timer);
@@ -2070,7 +2311,7 @@ function edPreview() {
     $("edPic").classList.add("busy");
     try {
       const r = await fetch("/api/look/try", { method: "POST", signal: e.ctl.signal, headers: { "X-Token": token, "Content-Type": "application/json" },
-                                               body: JSON.stringify({ id: e.photo.id, params: e.P }) });
+                                               body: JSON.stringify({ id: e.photo.id, params: e.P, edge: edEdge() }) });
       if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || T(`Сервер ответил ${r.status}`, `Server responded ${r.status}`));
       const blob = await r.blob();
       if (ed !== e || my !== e.seq) return;
@@ -2087,7 +2328,7 @@ $("edCmp").onclick = () => {
   if (!ed || !ed.photo) return;
   const on = $("edCmp").getAttribute("aria-pressed") !== "true";
   $("edCmp").setAttribute("aria-pressed", String(on));
-  if (on) edCmp.show(origUrl(ed.photo, 420)); else edCmp.hide();
+  if (on) edCmp.show(origUrl(ed.photo, edEdge())); else edCmp.hide();
 };
 function closeEditor() {
   if (!ed) return;
@@ -2518,6 +2759,7 @@ const RATIOS = [{ key: "free", name: () => T("Свободно", "Free"), r: 0 }
 const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
 
 function enterCrop() {
+  if (zoom.s > 1) zoomReset();
   const p = photos[cur];
   if (!p || p.archived) return;
   const c = p.crop || [0, 0, 1, 1];

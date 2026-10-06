@@ -251,31 +251,17 @@ def _submit_view(pid):
         # если нужна, рисуется здесь же, в этом месте очереди: по кругу между пользователями, как и раньше
         upd(pid, view=view, thumb=thumb, rendered_rev=rev, updated=time.time())
         if chat_path:
-            # версия для чата рисуется отдельно и встаёт в процессы сейчас, в свою очередь по кругу; место в очереди
-            # экрана при этом свободно — следующее переключение плёнки не ждёт Telegram
+            # версию для чата нарисует очередь Telegram (не больше двух сразу, по порядку кадров): место в очереди экрана
+            # свободно сразу — следующее переключение не ждёт Telegram, а пакет из кэша не забивает процессы другим
             with JOB_LOCK:
                 urgent = VIEW_PRIO.get(pid, 1) == 0
-            FAST.submit(job_chat, ph, chat_path).add_done_callback(
-                lambda f: EVENTS.put((_chat_done, (pid, rev, chat_path, urgent, f))))
+            queue_tg_update(pid, urgent=urgent)
         out = Future()
         out.set_result((view, thumb, "cached"))
         EVENTS.put((_view_done, (pid, rev, False, out, key)))
         return
     fut = FAST.submit(job_view, ph, view, thumb, chat_path)
     fut.add_done_callback(lambda f: EVENTS.put((_view_done, (pid, rev, chat, f, key))))
-
-
-def _chat_done(pid, rev, path, urgent, fut):
-    """Версия для чата к экрану, взятому из кэша."""
-    if fut.exception():
-        log.warning("chat render #%d: %s", pid, fut.exception())
-        remove(path)
-        return
-    cur = get(pid)
-    if not cur or cur["hidden"] or cur["rev"] != rev:     # уже поменяли — свежий вариант в очереди
-        remove(path)
-        return
-    queue_tg_update(pid, urgent=urgent)
 
 
 def _view_done(pid, rev, chat, fut, key=None):

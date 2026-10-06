@@ -52,5 +52,20 @@ def purge_files(ph):
     return size
 
 
+def purge_trash(uid, ids=None):
+    """«Удалить навсегда» из корзины: свои кадры, только те, что уже в корзине. ids=None — вся корзина."""
+    from .database import q
+    rows = q("SELECT * FROM photos WHERE owner=? AND hidden=1 AND (src IS NOT NULL OR work IS NOT NULL "
+             "OR view IS NOT NULL OR thumb IS NOT NULL)", (uid,))
+    if ids is not None:
+        want = set(ids)
+        rows = [r for r in rows if r["id"] in want]
+    for ph in rows:
+        purge_files(ph)
+        for f in PREVIEWS.glob(f"{ph['id']}_*.jpg"):
+            remove(str(f))
+    return len(rows)
+
+
 def hide_photo(ph):
     delete_photos([ph["id"]])
