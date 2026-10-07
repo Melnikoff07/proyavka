@@ -7,7 +7,7 @@ Take a shot, and half a minute later it's in your feed already "on film": colour
 
 *Proyavka* (проявка) is Russian for "film development".
 
-- 12 films, each with its own character, plus automatic choice by scene (night, sunset, overcast, landscape)
+- 25 films, each with its own character (negative, slide, cinema, b&w, processes), plus automatic choice by scene (night, sunset, overcast, landscape)
 - 12 light leaks, date stamp, negative frame, strength from 25 to 150 %
 - your own LUTs: add a `.cube` file and it joins the film list; each user has their own, nobody else sees them
 - frames arrive by themselves: over FTP from cameras that support it, or via the app for Sony PlayMemories cameras; phone photos via the "+" button
@@ -15,9 +15,9 @@ Take a shot, and half a minute later it's in your feed already "on film": colour
 - crop (free, 1:1, 4:5, 3:2, 16:9) and batch edits: select a day's frames and change the film or leak, or delete them at once; deleted frames stay in the trash while there is space
 - full-size files: download one or a ZIP on a computer, save straight to Photos on iPhone
 - **no Telegram needed:** the app installs on a phone from the browser (iPhone: Share → Add to Home Screen; Android and computers: Install in Chrome or Edge); devices sign in with a one-time code or QR. Prefer Telegram? Connect a bot at setup or later in the settings — frames then also arrive in the chat with film buttons
-- notifications when new frames are developed (switch them on or off per device), light / dark / auto theme
+- notifications when new frames are developed (switch them on or off per device), light / dark / auto / burger theme
 - share albums by link: pick a day or any frames, send the link — anyone can view and download them without signing in; delete the album and the link stops working
-- your own films: build one from sliders with a live preview on your frame, share it as a text code, or take one from the community catalog (`community/looks.json` in this repo — suggest yours from the app, it opens a ready GitHub issue)
+- your own films: build one from sliders (basics like exposure and highlights, colour bands, glow, grain) with a live preview on your frame, share it as a text code, or take one from the community catalog (`community/looks.json` in this repo — suggest yours from the app, it opens a ready GitHub issue)
 - one server for several people: family or friends by invite code, each with their own feed, camera and storage
 - English and Russian interface, chosen per user
 - runs on your own server — no subscriptions, no third-party cloud
@@ -29,7 +29,7 @@ Take a shot, and half a minute later it's in your feed already "on film": colour
 ```mermaid
 flowchart LR
     A[Camera with FTP<br>Sony A7C II, A7 IV…] -- FTPS --> S
-    B[Sony a6000–a6500, RX100…<br>Proyavka app] -- HTTPS --> S
+    B[Sony a5000–a6500, RX100…<br>Proyavka app] -- HTTPS --> S
     S[Your server<br>receives frames + develops film] --> W[App<br>phone, computer]
     S -. optional .-> T[Telegram bot]
 ```
@@ -75,7 +75,7 @@ Running `python3 setup.py` again opens a menu: a QR code to sign in from a new d
 
 **With FTP upload** (Sony A7C II, A7 IV, A1, many Fujifilm, Canon, Nikon): the camera sends frames by itself. Import a certificate and enter the server address — [step by step](docs/ftp-cameras.md).
 
-**Sony with PlayMemories apps** (a5000/a5100, a6000/a6300/a6500, a7 II/a7R II/a7S II, RX100 III–V, RX10 II/III and others [from the compatibility list](https://openmemories.readthedocs.io/devices.html)): install the Proyavka app with pmca-gui, put `config.txt` on the card, pick a Wi-Fi network once in the app — then **Proyavka → Send new** after shooting. [Step by step](docs/sony-app.md).
+**Sony with PlayMemories apps** (a5000/a5100, a6000/a6300/a6500, a7 II/a7R II/a7S II, RX100 III–V, RX10 II/III and others [from the compatibility list](https://openmemories.readthedocs.io/devices.html)): install the Proyavka app with pmca-gui, put `config.txt` on the card, pick a Wi-Fi network once in the app — then **Proyavka → Send new** after shooting. Both generations work, including the older Android 2.3 ones (a5000, a6000, RX100 III): they send to a separate port **8443** of your server (the wizard opens it; allow TCP 8443 in your hosting firewall). [Step by step](docs/sony-app.md).
 
 ## Several people on one server
 
@@ -136,7 +136,7 @@ Every film is an original mathematical model (curves, shadow and highlight tints
 | `relay/` | server setup: HTTPS, FTPS, camera upload receiver, cameras of invited users (`proyavka-user`) |
 | `community/` | catalog of films shared by people (`looks.json`) and the script that adds one |
 | `tests/` | test suites and the stand that runs the whole bot without Telegram |
-| `camera-app/` | app for Sony cameras (Android 4.1, no Gradle) |
+| `camera-app/` | app for Sony cameras (Android 2.3 and 4.1, no Gradle) |
 | `docs/` | camera guides, settings, films |
 
 Secrets (`config.env`, `camera-config/`, the APK signing key) are created locally and never go into git — see `.gitignore`.

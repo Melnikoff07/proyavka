@@ -2,7 +2,7 @@
 
 **English** · [Русский](README.ru.md)
 
-A "Send new" button for Sony cameras with PlayMemories Camera Apps (Android 4.1 inside): a5000/a5100, a6000/a6300/a6500, a7 II / a7R II / a7S II, RX100 III–V, RX10 II/III and others from the [compatibility list](https://openmemories.readthedocs.io/devices.html). Step-by-step install — [docs/sony-app.md](../docs/sony-app.md).
+A "Send new" button for Sony cameras with PlayMemories Camera Apps (Android 2.3 or 4.1 inside): a5000/a5100, a6000/a6300/a6500, a7 II / a7R II / a7S II, RX100 III–V, RX10 II/III and others from the [compatibility list](https://openmemories.readthedocs.io/devices.html). Step-by-step install — [docs/sony-app.md](../docs/sony-app.md).
 
 ## Usage
 
@@ -33,7 +33,7 @@ Networks added on the camera are stored next to it in `PROYAVKA/wifi.txt` and ta
 
 - **The app keeps the networks itself.** The camera stores its Wi-Fi list on a RAM disk and doesn't always restore it from backup — hence "the camera forgot my Wi-Fi". The app re-adds the saved networks on every launch.
 - **Wi-Fi is on only while sending** and turned off on exit — no battery drain, and background processes don't survive on these cameras anyway.
-- **HTTPS with bundled root certificates.** Android 4.1 has no Let's Encrypt roots and TLS 1.2 is disabled; the app ships ISRG X1/X2/YE/YR roots and enables TLS 1.2 itself. If your server's certificate isn't from Let's Encrypt, add its root to `certs/` and rebuild.
+- **HTTPS with bundled root certificates.** Android 4.1 has no Let's Encrypt roots and TLS 1.2 is disabled (Android 2.3 knows only TLS 1.0 and sends to the server's separate camera-only port 8443); the app ships ISRG X1/X2/YE/YR roots and enables TLS 1.2 itself where it can. If your server's certificate isn't from Let's Encrypt, add its root to `certs/` and rebuild.
 - **Integrity check.** The server returns the SHA-1 of the received file and the app compares it with its own; on mismatch it retries, up to three times.
 
 ## Build
