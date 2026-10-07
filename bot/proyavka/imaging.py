@@ -249,7 +249,7 @@ def source_image(ph, mode):
             BASE_CACHE[key] = img
             while len(BASE_CACHE) > 4:     # ~7 МБ на кадр в каждом процессе-работнике
                 BASE_CACHE.pop(next(iter(BASE_CACHE)))
-    return img
+    return img.copy()                  # «Оригинал» отдаёт этот же объект дальше, а job_view уменьшает его на месте — кэш портить нельзя
 
 
 def render(ph, full=False, mode=None):

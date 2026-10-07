@@ -78,7 +78,7 @@ def qr_png(text):
 
 
 def html_esc(t):
-    return str(t).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+    return str(t).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace('"', "&quot;").replace("'", "&#39;")
 
 
 def download_name(ph):

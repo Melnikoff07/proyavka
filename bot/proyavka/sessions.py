@@ -127,6 +127,8 @@ def file_uid(tok, name):
 
 def check_init_data(init_data):
     """Проверка подписи Telegram. Возвращает id пользователя Telegram (пускать ли его — решает список users)."""
+    if not config.BOT_TOKEN:               # без бота подпись считалась бы пустым ключом — её мог бы подделать кто угодно
+        return False
     pairs = dict(parse_qsl(init_data or "", keep_blank_values=True))
     got = pairs.pop("hash", None)
     if not got:
@@ -136,9 +138,9 @@ def check_init_data(init_data):
     calc = hmac.new(secret, dcs.encode(), hashlib.sha256).hexdigest()
     if not hmac.compare_digest(calc, got):
         return False
-    if time.time() - int(pairs.get("auth_date", "0")) > 86400:
-        return False
     try:
+        if time.time() - int(pairs.get("auth_date", "0")) > 86400:
+            return False
         return int(json.loads(pairs.get("user", "{}")).get("id") or 0) or False
     except (ValueError, TypeError):
         return False

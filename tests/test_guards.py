@@ -80,4 +80,12 @@ if __name__ == "__main__":
     page = h.get("/").decode() if isinstance(h.get("/"), bytes) else ""
     check(f"LUT с HTML в названии принят как текст: {r.get('name')!r}", r.get("key"))
     check("в «Проявке» названия экранируются", "${esc(it.name)}" in page and "${it.name}</div>" not in page)
+    # токен бота не попадает в тексты ошибок; пустой токен не даёт подделать вход из Telegram
+    from proyavka import config, sessions, telegram
+    config.BOT_TOKEN = "123456:SECRET-TOKEN-ABCDEFGHIJKLMNOPQRSTUV"
+    check("scrub вырезает токен", "SECRET-TOKEN" not in telegram.scrub(f"Max retries exceeded with url: /bot{config.BOT_TOKEN}/sendPhoto"))
+    config.BOT_TOKEN = ""
+    check("без токена бота вход из Telegram закрыт", sessions.check_init_data("auth_date=1&hash=abc") is False)
+    r = h.get("/api/photos?limit=-1&offset=-3")
+    check("limit/offset вне границ не ломают ленту", isinstance(r, dict) and len(r.get("photos", [])) <= 120)
     harness.done()

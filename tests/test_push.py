@@ -55,6 +55,9 @@ if __name__ == "__main__":
     hd.token = dev_tok
     sub = {"endpoint": "https://web.push.apple.com/abc", "keys": {"p256dh": "B" * 87, "auth": "A" * 22}}
     check("кривая подписка не принята", hd.post("/api/push/subscribe", {"endpoint": "http://x", "keys": {}}).get("_status") == 400)
+    check("чужой адрес подписки (не push-сервис) не принят",
+          hd.post("/api/push/subscribe", {"endpoint": "https://127.0.0.1/x", "keys": sub["keys"]}).get("_status") == 400
+          and hd.post("/api/push/subscribe", {"endpoint": "https://evil.example.com/x", "keys": sub["keys"]}).get("_status") == 400)
     check("подписка принята", hd.post("/api/push/subscribe", sub).get("ok"))
     row = database.q("SELECT * FROM push_subs")
     check(f"подписка привязана к устройству #{row[0]['device'] if row else '?'}", len(row) == 1 and row[0]["device"] and row[0]["owner"] == 1)

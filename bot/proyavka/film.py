@@ -565,7 +565,10 @@ def parse_cube(data):
             raise ValueError(L("это одномерный LUT, нужен трёхмерный (.cube с LUT_3D_SIZE)",
                                "this is a 1D LUT, a 3D one is needed (.cube with LUT_3D_SIZE)"))
         if head == "LUT_3D_SIZE":
-            size = int(line.split()[1])
+            try:
+                size = int(line.split()[1])
+            except (IndexError, ValueError):
+                size = None
         elif head == "DOMAIN_MAX":
             dmax = max(float(v) for v in line.split()[1:4])
         elif head == "DOMAIN_MIN":
@@ -583,7 +586,9 @@ def parse_cube(data):
         raise ValueError(L("в файле LUT есть битые строки", "the LUT file has broken lines"))
     if t.shape[0] != size ** 3:
         raise ValueError(L(f"в LUT {t.shape[0]} строк вместо {size ** 3}", f"the LUT has {t.shape[0]} rows instead of {size ** 3}"))
-    if dmax > 1.5:                                  # редкие LUT в целых числах (0–1023 и т. п.)
+    if not np.isfinite(t).all():
+        raise ValueError(L("в файле LUT есть нечисловые значения", "the LUT file has non-numeric values"))
+    if dmax > 1.5 and dmax > dmin:                  # редкие LUT в целых числах (0–1023 и т. п.)
         t = (t - dmin) / (dmax - dmin)
     return size, np.clip(t, 0, 1).astype(np.float32)
 

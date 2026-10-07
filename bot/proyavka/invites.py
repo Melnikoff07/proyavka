@@ -68,7 +68,8 @@ def join_by_invite(code, name, device_name):
         raise ValueError(L("как тебя зовут?", "what is your name?"))
     with JOIN_LOCK:
         top = q("SELECT MAX(id) AS m FROM users WHERE id >= ?", (WEB_BASE,))[0]["m"]
-        uid = max(top or WEB_BASE, WEB_BASE) + 1
+        used = q("SELECT MAX(used_by) AS m FROM invites WHERE used_by >= ?", (WEB_BASE,))[0]["m"]   # и удалённые: номер не переиспользуется
+        uid = max(top or WEB_BASE, used or WEB_BASE, WEB_BASE) + 1
         if not use_invite(code, uid):
             return None
         run("INSERT INTO users(id, role, name, lang, default_film, created, invited_by) VALUES (?, 'user', ?, ?, 'auto', ?, ?)",

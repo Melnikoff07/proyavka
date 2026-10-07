@@ -153,6 +153,7 @@ def batch_action(data, uid):
 
 class Handler(BaseHTTPRequestHandler):
     server_version = "filmbot"
+    timeout = 120                      # молчащее соединение (медленная атака, оборванная связь) не держит поток вечно
 
     def log_message(self, fmt, *args):
         pass
@@ -319,9 +320,8 @@ class Handler(BaseHTTPRequestHandler):
 
     def authed(self, qs, media=False):
         """Пользователь по токену сессии (или None). Заодно язык ответов — его.
-        Для картинок и файлов (media) годится и токен из адреса: ?m= — токен для картинок; ?s= — прежний вид (сессия
-        в адресе), оставлен на время перехода: открытые у людей страницы ещё присылают его. Убрать в следующей версии."""
-        tok = self.headers.get("X-Token") or ((qs.get("s") or [""])[0] if media else "")
+        Для картинок и файлов (media) годится и токен из адреса: ?m= — токен для картинок (сессия в адрес не попадает)."""
+        tok = self.headers.get("X-Token") or ""
         exp, uid = SESSIONS.get(tok) or (0, None)
         now = time.time()
         if not tok or exp <= now or uid not in USERS:
@@ -358,8 +358,17 @@ class Handler(BaseHTTPRequestHandler):
         with open(path, "rb") as f:
             self.send(200, f.read(), "image/jpeg", "private, max-age=31536000, immutable")
 
+    def content_length(self):
+        try:
+            n = int(self.headers.get("Content-Length") or 0)
+        except ValueError:
+            n = -1
+        if n < 0:
+            raise ValueError(L("неверный размер запроса", "invalid request size"))
+        return n
+
     def body(self):
-        n = int(self.headers.get("Content-Length") or 0)
+        n = self.content_length()
         if n > 65536:
             raise ValueError(L("слишком большой запрос", "request too large"))
         return json.loads(self.rfile.read(n) or b"{}")
@@ -497,8 +506,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self.js({"now": now, "total": total, "jobs": jobs_in_work(uid), "media": media_token(uid),
                                 "photos": [photo_json(r) for r in rows]})
             if parts == ["api", "photos"]:
-                off = int((qs.get("offset") or ["0"])[0])
-                lim = min(120, int((qs.get("limit") or ["60"])[0]))
+                off = max(0, int((qs.get("offset") or ["0"])[0]))
+                lim = max(1, min(120, int((qs.get("limit") or ["60"])[0])))
                 total = q("SELECT COUNT(*) AS n FROM photos WHERE owner=? AND hidden=0", (uid,))[0]["n"]
                 rows = q("SELECT * FROM photos WHERE owner=? AND hidden=0 ORDER BY taken DESC, id DESC LIMIT ? OFFSET ?",
                          (uid, lim, off))
@@ -551,9 +560,9 @@ class Handler(BaseHTTPRequestHandler):
                 uid = self.authed(qs)
                 if not uid:
                     # дочитать и выбросить: иначе соединение рвётся и вместо «войди заново» человек видит «нет связи»
-                    self.drain(int(self.headers.get("Content-Length") or 0))
+                    self.drain(max(0, int(self.headers.get("Content-Length") or 0)))
                     return self.err(401, L("нужна авторизация через Telegram", "Telegram authorization required"))
-                length = int(self.headers.get("Content-Length") or 0)
+                length = self.content_length()
                 if not (qs.get("lut") or [""])[0] and over_daily(uid):
                     self.drain(length)
                     return self.err(400, L(f"за сутки уже {DAILY_LIMIT} кадров — это предел, завтра можно снова",

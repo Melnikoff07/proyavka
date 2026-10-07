@@ -134,7 +134,7 @@ if __name__ == "__main__":
     check(f"полный размер файлом: {im.size}, {hd.get('Content-Disposition')}",
           st == 200 and im.size[0] >= 6000 and hd.get("Content-Disposition", "").startswith("attachment;"))
     st, hd, body = raw_get(h, f"/img/full/{pids[0]}?s={dev_tok2}")
-    check("ссылкой ?s= тоже (для <a download>)", st == 200 and body[:2] == b"\xff\xd8")
+    check("сессия в адресе (?s=) больше не принимается", st == 401)
     t = time.time()
     st, hd, body = raw_get(h, f"/api/zip?ids={pids[0]},{pids[1]},999999", dev_tok2)
     z = zipfile.ZipFile(io.BytesIO(body))

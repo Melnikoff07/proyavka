@@ -2,6 +2,19 @@
 
 English first, [по-русски — ниже](#журнал-изменений).
 
+## Unreleased
+
+### Fixes and hardening
+- The Telegram bot token no longer ends up in error messages shown in the chat or written to the log (failed downloads and uploads used to include the full API address).
+- After viewing a frame with the "Original" film on a server without Telegram, later renders of that frame came out at 500 px. Fixed.
+- Sign-in through Telegram is refused when the server has no bot token (the signature could be forged with an empty key); a broken `auth_date` is a normal error.
+- Notification subscriptions are accepted only from the browsers' push services (Google, Mozilla, Apple, Microsoft): the server no longer sends requests to arbitrary addresses.
+- Numbers of removed users are not reused, so old image links can never open a new person's photos.
+- The session in the address (`?s=`) is gone for good; image links use only `?m=`.
+- Batch summaries no longer block the two Telegram upload threads (deleting, files, the "Compare" sheet could stall for up to 15 minutes after a big batch).
+- Idle or stalled connections are closed after 2 minutes; negative sizes and `limit`/`offset` are rejected; broken `.cube` files give a clear error instead of a crash.
+- Album titles with quotes can't break the link preview tags; the bot token file, the push key and the camera users' password hashes are created with private permissions from the start.
+
 ## 1.5.4 — 2026-10-07
 - Camera app 1.4.4: on Android 2.3 cameras (a6000…) the app crashed with OutOfMemoryError on the first frame and the camera closed it. Android 2.3's HTTPS connection ignores streaming mode and buffers the whole file in memory. There the app now sends each frame itself over the TLS connection, 32 KB at a time, checking the server certificate's name itself; Android 4.1 cameras keep the old path. Checked: a 12 MB frame over port 8443 with a 24 MB memory limit.
 - The log never stops the app, even if writing it fails.
@@ -108,6 +121,19 @@ English first, [по-русски — ниже](#журнал-изменений
 ---
 
 # Журнал изменений
+
+## Unreleased
+
+### Исправления и защита
+- Токен Telegram-бота больше не попадает в тексты ошибок, которые видны в чате и пишутся в журнал (раньше при сбое скачивания или отправки туда попадал полный адрес API).
+- После просмотра кадра с плёнкой «Оригинал» на сервере без Telegram следующие отрисовки этого кадра получались размером 500 px. Исправлено.
+- Вход через Telegram закрыт, если на сервере нет токена бота (подпись можно было подделать пустым ключом); битая `auth_date` — обычная ошибка.
+- Подписки на уведомления принимаются только от push-сервисов браузеров (Google, Mozilla, Apple, Microsoft): сервер не шлёт запросы на произвольные адреса.
+- Номера удалённых пользователей не используются повторно: старые ссылки на картинки не откроют фото нового человека.
+- Сессия в адресе (`?s=`) убрана насовсем; ссылки на картинки используют только `?m=`.
+- Итоги пакетных правок больше не занимают два потока загрузки в Telegram (после большого пакета удаление, файлы и лист «Сравнить» могли зависнуть до 15 минут).
+- Молчащие соединения закрываются через 2 минуты; отрицательные размеры и `limit`/`offset` отклоняются; битые `.cube` дают понятную ошибку, а не сбой.
+- Название альбома с кавычками не ломает теги превью ссылки; файл с токеном бота, ключ уведомлений и хеши паролей камер создаются сразу с закрытыми правами.
 
 ## 1.5.4 — 2026-10-07
 - Приложение камеры 1.4.4: на камерах с Android 2.3 (a6000…) приложение падало с OutOfMemoryError на первом же кадре, и камера его закрывала. HTTPS-соединение Android 2.3 не включает потоковую отправку и держит весь файл в памяти. Теперь там приложение шлёт кадр само поверх TLS-соединения, по 32 КБ, и само проверяет имя в сертификате сервера; на камерах с Android 4.1 — прежний путь. Проверено: кадр 12 МБ через порт 8443 при пределе памяти 24 МБ.

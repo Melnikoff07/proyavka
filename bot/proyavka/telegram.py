@@ -14,7 +14,7 @@ from pathlib import Path
 from . import config
 from .config import BASE, TMP, log
 from .i18n import L, cur_lang, speak, tr
-from .util import save_atomic
+from .util import remove, save_atomic
 from .film import PRESETS, pname
 from .imaging import LEAKS, auto_reason, font, has
 from .database import EDIT_LOCK, run, upd
@@ -59,12 +59,21 @@ def tg(method, files=None, **params):
     return tg_send(method, files, **params)
 
 
+def scrub(text):
+    """Текст ошибки без токена бота: исключения requests несут адрес вида .../bot<токен>/метод."""
+    text = str(text)
+    return text.replace(config.BOT_TOKEN, "<token>") if config.BOT_TOKEN else text
+
+
 def tg_send(method, files=None, **params):
     data = {k: (json.dumps(v, ensure_ascii=False) if isinstance(v, (dict, list)) else v)
             for k, v in params.items() if v is not None}
     for attempt in range(3):
-        r = requests.post(f"https://api.telegram.org/bot{config.BOT_TOKEN}/{method}", data=data, files=files, timeout=(10, 120))   # (подключение, ответ)
-        j = r.json()
+        try:
+            r = requests.post(f"https://api.telegram.org/bot{config.BOT_TOKEN}/{method}", data=data, files=files, timeout=(10, 120))   # (подключение, ответ)
+            j = r.json()
+        except (requests.RequestException, ValueError) as e:
+            raise RuntimeError(f"{method}: {scrub(e)}") from None
         if j.get("ok"):
             return j["result"]
         wait = (j.get("parameters") or {}).get("retry_after")
@@ -260,10 +269,14 @@ def download_tg_file(file_id, name, uid):
     url = f"https://api.telegram.org/file/bot{config.BOT_TOKEN}/{info['file_path']}"
     name = "".join(c for c in Path(name).name if c.isalnum() or c in "-_.")[:60] or "photo.jpg"
     tmp = TMP / f"tg_{secrets.token_hex(6)}.part"
-    with requests.get(url, timeout=(10, 120), stream=True) as r:
-        r.raise_for_status()
-        with open(tmp, "wb") as f:
-            shutil.copyfileobj(r.raw, f)
+    try:
+        with requests.get(url, timeout=(10, 120), stream=True) as r:
+            r.raise_for_status()
+            with open(tmp, "wb") as f:
+                shutil.copyfileobj(r.raw, f)
+    except requests.RequestException as e:
+        remove(str(tmp))
+        raise RuntimeError(L("не удалось скачать файл из Telegram", "could not download the file from Telegram") + f": {scrub(e)}") from None
     os.replace(tmp, udir(uid, "incoming") / name)
 
 
@@ -272,6 +285,9 @@ def download_tg_bytes(file_id, limit):
     if (info.get("file_size") or 0) > limit:
         raise ValueError(L("файл слишком большой", "file is too large"))
     url = f"https://api.telegram.org/file/bot{config.BOT_TOKEN}/{info['file_path']}"
-    r = requests.get(url, timeout=(10, 120))
-    r.raise_for_status()
+    try:
+        r = requests.get(url, timeout=(10, 120))
+        r.raise_for_status()
+    except requests.RequestException as e:
+        raise RuntimeError(L("не удалось скачать файл из Telegram", "could not download the file from Telegram") + f": {scrub(e)}") from None
     return r.content[:limit + 1]

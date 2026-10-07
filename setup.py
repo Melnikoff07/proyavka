@@ -147,7 +147,9 @@ ENV_ORDER = [
 def save_env(env):
     lines = [k if k.startswith("#") else f"{k}={env[k]}" for k in ENV_ORDER if k.startswith("#") or k in env]
     lines += [f"{k}={v}" for k, v in env.items() if k not in ENV_ORDER]
-    CONF.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    fd = os.open(CONF, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)      # токен бота: права 600 с первой секунды
+    with os.fdopen(fd, "w", encoding="utf-8") as f:
+        f.write("\n".join(lines) + "\n")
     CONF.chmod(0o600)
 
 

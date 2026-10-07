@@ -329,7 +329,7 @@ def batch_track(pids, text, uid):
                     finished.append(BATCHES.pop(old))
             BATCH_OF[pid] = bid
     for b in finished:
-        NET.submit(_batch_report, b)
+        _report_later(b)
     return bid
 
 
@@ -347,7 +347,12 @@ def batch_step(pid, result):
         if b["left"]:
             return
         BATCHES.pop(bid)
-    NET.submit(_batch_report, b)
+    _report_later(b)
+
+
+def _report_later(b):
+    """Итог ждёт до 15 минут, пока кадры уйдут в чат, — отдельным потоком, а не из пула NET (там два потока на все загрузки)."""
+    threading.Thread(target=_batch_report, args=(b,), daemon=True, name="batch-report").start()
 
 
 def _batch_report(b):

@@ -51,7 +51,11 @@ def vapid():
             else:
                 v = Vapid02()
                 v.generate_keys()
-                v.save_key(str(path))
+                old = os.umask(0o077)           # закрытый ключ сразу с правами 600, а не после chmod
+                try:
+                    v.save_key(str(path))
+                finally:
+                    os.umask(old)
                 os.chmod(path, 0o600)
             raw = v.public_key.public_bytes(serialization.Encoding.X962, serialization.PublicFormat.UncompressedPoint)
             _VAPID["v"], _VAPID["pub"] = v, base64.urlsafe_b64encode(raw).rstrip(b"=").decode()
@@ -63,10 +67,24 @@ def push_key():
     return _VAPID["pub"]
 
 
+PUSH_HOSTS = ("googleapis.com", "push.services.mozilla.com", "notify.windows.com", "push.apple.com", "mozaws.net")
+
+
+def push_host_ok(endpoint):
+    """Адрес подписки — только у настоящих push-сервисов браузеров: сервер сам шлёт туда запросы, и по чужому адресу
+    (внутренняя сеть, служебные порты) слать нельзя. PUSH_EXTRA_HOSTS — свои через запятую (для тестов и своих сервисов)."""
+    from urllib.parse import urlparse
+    u = urlparse(endpoint)
+    host = (u.hostname or "").lower()
+    extra = tuple(h.strip().lower() for h in os.environ.get("PUSH_EXTRA_HOSTS", "").split(",") if h.strip())
+    return u.scheme == "https" and u.port in (None, 443) and any(host == h or host.endswith("." + h) for h in PUSH_HOSTS + extra)
+
+
 def push_subscribe(uid, did, sub):
     endpoint = str(sub.get("endpoint") or "")
     keys = sub.get("keys") or {}
-    if not endpoint.startswith("https://") or len(endpoint) > 2000 or not keys.get("p256dh") or not keys.get("auth"):
+    if (not endpoint.startswith("https://") or len(endpoint) > 2000 or not push_host_ok(endpoint)
+            or not keys.get("p256dh") or not keys.get("auth")):
         raise ValueError(L("неверная подписка", "invalid subscription"))
     run("DELETE FROM push_subs WHERE endpoint=?", (endpoint,))
     run("INSERT INTO push_subs(owner, device, endpoint, p256dh, auth, created) VALUES (?,?,?,?,?,?)",

@@ -6,7 +6,7 @@
 # add заводит виртуального FTP-пользователя vsftpd со своей папкой /srv/camera/u/u<id>/upload
 # и токен для приёмника camera-recv (на сервере хранится только хеш). del убирает всё это вместе с папкой.
 set -eu
-umask 022
+umask 077        # временные файлы с хешами паролей не читаются другими; нужные папки ниже создаются с явными правами
 ROOT=/srv/camera/u
 PW=/etc/proyavka/ftp.passwd           # логины FTP: имя:хеш пароля (pam_pwdfile)
 TOK=/etc/proyavka/camera-tokens       # токены приложения камеры: sha256 имя
@@ -45,6 +45,7 @@ add)
     install -d -m 755 -o root -g root "$ROOT" "$ROOT/$name"          # корень chroot FTP — не для записи
     install -d -m 2775 -o camera -g photos "$ROOT/$name/upload" "$ROOT/$name/upload/.incoming"
     printf 'local_root=%s\n' "$ROOT/$name" > "$CONF/$name"
+    chmod 644 "$CONF/$name"
     echo "added $name"
     ;;
 passwd)
