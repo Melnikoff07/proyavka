@@ -407,7 +407,7 @@
       <div class="menu" id="mainMenu" role="menu" hidden>
         <button role="menuitem" data-m="add" data-i18n="Add photos">Добавить фото</button>
         <button role="menuitem" data-m="select" data-i18n="Select frames">Выбрать кадры</button>
-        <button role="menuitem" data-m="look" data-i18n="Create your own film">Создать свою плёнку</button>
+        <button role="menuitem" data-m="look" data-i18n="Edit a film">Править плёнку</button>
         <button role="menuitem" data-m="community" data-i18n="Community films">Плёнки сообщества</button>
         <button role="menuitem" data-m="trash" data-i18n="Trash">Корзина</button>
         <button role="menuitem" data-m="settings" data-i18n="Settings">Настройки</button>
@@ -498,7 +498,7 @@
   </div>
   <div class="ed-top"><input class="al-name" id="edName" maxlength="32" autocomplete="off">
     <button class="tog" id="edCmp" aria-pressed="false" style="align-self:flex-start" data-i18n="Before / after">До / после</button>
-    <select class="st-select" id="edBase" aria-label="Начать с" data-i18n-aria="Start from"></select></div>
+    <select class="st-select" id="edBase" aria-label="Основа" data-i18n-aria="Based on"></select></div>
   <div id="edBody"></div>
   <div class="actions"><button class="btn" id="edSave"></button><button class="link cap" id="edReset" data-i18n="Reset">Сбросить</button></div>
   <div class="actions" style="padding-top:6px"><button class="link cap" id="edShare" style="color:var(--text);text-decoration:underline;text-underline-offset:3px" data-i18n="Suggest to the community">Предложить в сообщество</button></div>
@@ -652,6 +652,12 @@ function toast(text) {
 function haptic(kind) { try { tg.HapticFeedback.selectionChanged(); if (kind) tg.HapticFeedback.notificationOccurred(kind); } catch (e) {} }
 function url(path, extra) { return `${path}?m=${encodeURIComponent(media)}${extra || ""}`; }   // в адресе не сессия, а токен «только смотреть»
 const esc = (v) => String(v ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
+const LAST_FILM = "proyavka.lastfilm";
+// с чего начинает редактор: плёнка текущего кадра, если у неё есть ползунки; иначе последняя выбранная; иначе первая
+function editorBase() {
+  const has = (k) => presets.find((f) => f.p && f.key === k);
+  return (photos[cur] && has(photos[cur].preset)) || has(stored(LAST_FILM)) || has("street_neg") || presets.find((f) => f.p);
+}
 function presetName(key) { const f = presets.find((x) => x.key === key); return f ? f.name : key === "original" ? T("Оригинал", "Original") : key; }
 function prevUrl(p, film, leak) {
   const lk = leak ? `&lk=${leak}&ls=${p.leak_seed || 0}` : "";
@@ -1205,7 +1211,7 @@ function renderStrip(p) {
     add.innerHTML = `<div class="pic">+</div><div class="fname">${T("Свой LUT", "Your LUT")}</div>`;
     add.onclick = () => $("lutPicker").click();
     frag.appendChild(add);
-    for (const [glyph, ru, en, fn] of [["✎", "Создать", "Create", () => openEditor({})], ["✦", "Сообщество", "Community", openCommunity]]) {
+    for (const [glyph, ru, en, fn] of [["✎", "Править", "Edit", () => openEditor({})], ["✦", "Сообщество", "Community", openCommunity]]) {
       const b = document.createElement("button");
       b.className = "film addlut";
       b.innerHTML = `<div class="pic">${glyph}</div><div class="fname">${T(ru, en)}</div>`;
@@ -1265,7 +1271,7 @@ function apply(changes) {
   const local = Object.assign({}, changes);
   if (changes.leak_shift) { delete local.leak_shift; local.leak_seed = (p.leak_seed || 0) + 1; if (!p.leak) local.leak = "edge"; }
   Object.assign(p, local, { pending: true });
-  if (changes.preset) p.preset_name = presetName(changes.preset);
+  if (changes.preset) { p.preset_name = presetName(changes.preset); if (presets.some((f) => f.key === changes.preset && f.p)) stored(LAST_FILM, changes.preset); }
   haptic();
   updateCell(i);
   if (changes.strength || changes.preset || "leak" in changes || changes.leak_shift || "crop" in changes) {
@@ -2237,27 +2243,29 @@ function hideLayer(el) {
   syncHistory();
 }
 
+function baseName(f) { return T(`${f.name} · моя`, `${f.name} · mine`).slice(0, 32); }
 async function openEditor({ key } = {}) {
-  let P, name;
+  let P, name, baseKey = "";
   try {
     if (key) { const j = await api(`/api/look/${key}`); P = j.params; name = j.name; }
     else {
-      const cp = presets.find((f) => f.p && photos[cur] && f.key === photos[cur].preset) || presets.find((f) => f.key === "street_neg") || presets.find((f) => f.p);
+      const cp = editorBase();
       P = deep(cp.p);
-      name = T("Моя плёнка", "My film");
+      name = baseName(cp);
+      baseKey = cp.key;
     }
   } catch (e) { return toast(e.message); }
-  ed = { key: key || null, P, orig: deep(P), photo: edPhoto(), rows: [], seq: 0, timer: 0, ctl: null };
-  $("edTitle").textContent = key ? T("Изменить плёнку", "Edit film") : T("Новая плёнка", "New film");
+  ed = { key: key || null, P, orig: deep(P), photo: edPhoto(), rows: [], seq: 0, timer: 0, ctl: null, autoName: !key };
+  $("edTitle").textContent = key ? T("Изменить плёнку", "Edit film") : T("Править плёнку", "Tweak a film");
   $("edName").value = name;
   $("edName").placeholder = T("Название", "Name");
+  $("edName").oninput = () => { if (ed) ed.autoName = false; };
   $("edSave").textContent = key ? T("Сохранить", "Save") : T("Сохранить плёнку", "Save film");
   $("edSave").disabled = false;
   const base = $("edBase");
   base.hidden = !!key;
-  base.replaceChildren(Object.assign(document.createElement("option"), { value: "", textContent: T("Начать с плёнки…", "Start from a film…") }),
-    ...presets.filter((f) => f.p).map((f) => Object.assign(document.createElement("option"), { value: f.key, textContent: f.name })));
-  base.value = "";
+  base.replaceChildren(...presets.filter((f) => f.p).map((f) => Object.assign(document.createElement("option"), { value: f.key, textContent: T("Основа: ", "Based on: ") + f.name })));
+  base.value = baseKey;
   $("edImg").hidden = true;
   edCmp.hide();
   $("edCmp").setAttribute("aria-pressed", "false");
@@ -2385,6 +2393,7 @@ $("edBase").onchange = () => {
   if (!f || !ed) return;
   ed.P = deep(f.p);
   ed.orig = deep(f.p);
+  if (ed.autoName) $("edName").value = baseName(f);
   edSync();
   edPreview();
 };

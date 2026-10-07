@@ -4,6 +4,10 @@ English first, [по-русски — ниже](#журнал-изменений
 
 ## Unreleased
 
+### Films
+- The colour and tone of all 25 built-in films were re-fitted against reference renders (the same frames developed with real film emulations): curves, black lift, tints, saturation and per-colour bands. Grain, halation, glow and vignette are unchanged. Frames already rendered are redrawn in the background once after the update (films version 4); the previous values are kept in `bot/films_v3.json`.
+- The film editor now starts from the film you have picked: the “Create” button in the film strip is now “Edit”, and the editor opens with that film's values (the one on the current frame, otherwise the last one you picked). The “Based on” list at the top switches to another film at any time; the name follows it until you type your own. Saving always makes a new film of your own, built-in films stay as they are.
+
 ### Fixes and hardening
 - The Telegram bot token no longer ends up in error messages shown in the chat or written to the log (failed downloads and uploads used to include the full API address).
 - After viewing a frame with the "Original" film on a server without Telegram, later renders of that frame came out at 500 px. Fixed.
@@ -123,6 +127,10 @@ English first, [по-русски — ниже](#журнал-изменений
 # Журнал изменений
 
 ## Unreleased
+
+### Плёнки
+- Цвет и тон всех 25 встроенных плёнок заново подогнаны по эталонным кадрам (те же кадры, проявленные настоящими эмуляциями плёнок): кривые, подъём чёрного, тонировка, насыщенность и цветовые полосы. Зерно, халяция, свечение и виньетка прежние. Уже готовые кадры после обновления один раз перерисуются в фоне (версия плёнок 4); прежние значения — в `bot/films_v3.json`.
+- Редактор плёнки теперь начинается с выбранной плёнки: кнопка «Создать» в ленте плёнок стала «Править», и редактор открывается со значениями этой плёнки (с кадра на экране, иначе последней выбранной). Список «Основа» сверху в любой момент переключает на другую плёнку; название подстраивается, пока вы не ввели своё. Сохранение всегда создаёт новую вашу плёнку, встроенные остаются как есть.
 
 ### Исправления и защита
 - Токен Telegram-бота больше не попадает в тексты ошибок, которые видны в чате и пишутся в журнал (раньше при сбое скачивания или отправки туда попадал полный адрес API).

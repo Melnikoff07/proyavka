@@ -765,7 +765,7 @@ def backfill_views():
         schedule_view(r["id"], prio=2, chat=False)   # только картинка для «Проявки», в чате всё уже есть
 
 
-FILMS_VERSION = "3"        # 3 — 10 плёнок заново (плотность цвета, халяция у огней); 2 — bot/films_v2.json; 1 — bot/films_v1.json
+FILMS_VERSION = "4"        # 4 — цвет всех 25 плёнок заново, по эталонным кадрам (bot/films_v3.json); 3 — 10 плёнок заново (плотность цвета, халяция у огней); 2 — bot/films_v2.json; 1 — bot/films_v1.json
 
 
 def refilm_builtin():

@@ -93,8 +93,9 @@ if __name__ == "__main__":
             d = np.abs(r - ref2[f"{key}_{name}"].astype(np.int16))
             wi2, wm2 = max(wi2, int(d.max())), max(wm2, float(d.mean()))
     check(f"плёнки v2 воспроизводятся (таблицы {wl2:.6f}, кадры {wi2} из 255, в среднем {wm2:.2f})", wl2 < 1e-5 and wi2 <= 6 and wm2 < 0.5)
-    check("Super 400 и Portrait 400 остались как в v2", all({f: v for f, v in film.params_json(film.clean_params(film.PRESETS[k])).items() if f in v2[k]["params"]}
-                                                              == v2[k]["params"] for k in ("super400", "portrait400")))
+    v3 = json.loads((HERE.parent / "bot" / "films_v3.json").read_text(encoding="utf-8"))["films"]
+    check("снимок v3 (до подгонки цвета по эталонам) полный: 25 плёнок, параметры проходят проверку",
+          len(v3) == 25 and set(v3) == set(film.PRESETS) and all(film.clean_params(v["params"]) for v in v3.values()))
 
     # --- встроенные плёнки сейчас: вид закреплён эталоном ---
     cur = np.load(HERE / "film_ref.npz")
