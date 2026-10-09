@@ -16,8 +16,8 @@ from .users import USERS
 from .jobs import job_full
 
 
-ALBUM_CSP = ("default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline' https://fonts.googleapis.com; "
-             "font-src https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self'; "
+ALBUM_CSP = ("default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; "
+             "font-src 'self'; img-src 'self' data:; connect-src 'self'; "
              "base-uri 'none'; form-action 'none'; frame-ancestors 'none'")
 
 

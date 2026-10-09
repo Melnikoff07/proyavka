@@ -407,6 +407,12 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send(200, app_icon(size), "image/png", "max-age=86400")
             if parts[0] == "a":
                 return self.album_get(parts[1:])
+            if len(parts) == 2 and parts[0] == "fonts" and re.fullmatch(r"[a-z-]+\.woff2", parts[1]):      # шрифты страниц: без входа
+                from .config import FONTS_DIR
+                f = FONTS_DIR / parts[1]
+                if f.is_file():
+                    return self.send(200, f.read_bytes(), "font/woff2", "public, max-age=2592000")
+                return self.err(404, L("не найдено", "not found"))
             if parts[0] == "community" and COMMUNITY_HUB:          # каталог для остальных серверов: без входа, только чтение
                 if parts == ["community", "looks.json"]:
                     return self.send(200, json.dumps(hub_raw(), ensure_ascii=False), "application/json; charset=utf-8", "public, max-age=300")

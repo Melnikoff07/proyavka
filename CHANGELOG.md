@@ -35,6 +35,7 @@ English first, [по-русски — ниже](#журнал-изменений
 - Connecting a Telegram bot from settings no longer puts the token into the error text if Telegram is unreachable.
 - The server no longer accepts a session token that it never issued (re-sign-in extends only a known token).
 - Internal: the per-frame lock table for full-size renders is fixed-size instead of growing with the feed; the log shows the real version (`git describe`) instead of “v6.0”.
+- Fonts (Inter Tight, Lilita One; SIL OFL) are now served by the app itself: the app and public album pages no longer contact Google, so a viewer's address is not sent to a third party. Content-Security-Policy no longer allows Google domains.
 
 ## 1.5.4 — 2026-10-07
 - Camera app 1.4.4: on Android 2.3 cameras (a6000…) the app crashed with OutOfMemoryError on the first frame and the camera closed it. Android 2.3's HTTPS connection ignores streaming mode and buffers the whole file in memory. There the app now sends each frame itself over the TLS connection, 32 KB at a time, checking the server certificate's name itself; Android 4.1 cameras keep the old path. Checked: a 12 MB frame over port 8443 with a 24 MB memory limit.
@@ -176,6 +177,7 @@ English first, [по-русски — ниже](#журнал-изменений
 - Подключение Telegram-бота из настроек больше не показывает токен в тексте ошибки, если Telegram недоступен.
 - Сервер не принимает токен сессии, которого сам не выдавал (повторный вход продлевает только известный токен).
 - Внутреннее: таблица замков полного размера фиксированная, а не растёт вместе с лентой; в журнале настоящая версия (`git describe`) вместо «v6.0».
+- Шрифты (Inter Tight, Lilita One; лицензия SIL OFL) теперь отдаёт само приложение: приложение и публичные страницы альбомов не обращаются к Google, адрес зрителя не уходит третьим лицам. Политика CSP больше не разрешает домены Google.
 
 ## 1.5.4 — 2026-10-07
 - Приложение камеры 1.4.4: на камерах с Android 2.3 (a6000…) приложение падало с OutOfMemoryError на первом же кадре, и камера его закрывала. HTTPS-соединение Android 2.3 не включает потоковую отправку и держит весь файл в памяти. Теперь там приложение шлёт кадр само поверх TLS-соединения, по 32 КБ, и само проверяет имя в сертификате сервера; на камерах с Android 4.1 — прежний путь. Проверено: кадр 12 МБ через порт 8443 при пределе памяти 24 МБ.

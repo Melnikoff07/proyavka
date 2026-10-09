@@ -141,4 +141,16 @@ if __name__ == "__main__":
         msg = str(e)
     devices.requests.post = real_post
     check("токен бота не попадает в текст ошибки подключения", msg != "" and secret not in msg)
+
+    # --- шрифты отдаём сами ---
+    pub = harness.Harness(h.fb, h.port, h.base)
+    f1 = pub.get("/fonts/intertight-cyrillic.woff2", auth=False)
+    check("шрифт отдаётся без входа", isinstance(f1, bytes) and f1[:4] == b"wOF2")
+    check("чужие имена шрифтов не отдаются", pub.get("/fonts/..%2Fconfig.env", auth=False).get("_status") in (401, 404)
+          and pub.get("/fonts/nope.woff2", auth=False).get("_status") == 404)
+    page = pub.get("/", auth=False)
+    check("приложение не ходит в Google за шрифтами", isinstance(page, bytes) and b"googleapis" not in page and b"gstatic" not in page and b"/fonts/intertight" in page)
+    alb = h.post("/api/albums", {"ids": ids[:1]})
+    ap = pub.get("/a/" + alb["url"].rsplit("/", 1)[1], auth=False)
+    check("страница альбома тоже", isinstance(ap, bytes) and b"googleapis" not in ap and b"gstatic" not in ap and b"/fonts/intertight" in ap)
     harness.done()

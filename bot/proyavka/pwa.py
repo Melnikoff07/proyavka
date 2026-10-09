@@ -63,6 +63,6 @@ self.addEventListener("fetch", (e) => {
 # Страница — из одного файла, поэтому скрипт и стили встроенные; зато грузить что-то с чужих адресов и
 # отправлять куда-то, кроме своего сервера, ей нельзя.
 CSP = ("default-src 'self'; script-src 'self' 'unsafe-inline' https://telegram.org; "
-       "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; "
+       "style-src 'self' 'unsafe-inline'; font-src 'self'; "
        "img-src 'self' data: blob:; connect-src 'self'; worker-src 'self'; manifest-src 'self'; "
        "object-src 'none'; base-uri 'none'; form-action 'none'")
