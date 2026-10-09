@@ -16,7 +16,7 @@ from .util import html_esc, key_hash, qr_png, segno
 from .film import canon
 from .database import DB_LOCK, q, run, run_count
 from .users import ADMIN, USERS, set_user, storage_limit, user, user_lang, valid_look
-from .telegram import btn, safe, tg
+from .telegram import btn, safe, scrub, tg
 from .sessions import SESSIONS, SESSION_DEV
 from .storage import user_usage
 
@@ -168,7 +168,7 @@ def connect_bot(token):
     try:
         j = requests.post(f"https://api.telegram.org/bot{token}/getMe", timeout=20).json()
     except Exception as e:
-        raise ValueError(L("Telegram недоступен", "Telegram is unreachable") + f": {e}")
+        raise ValueError(L("Telegram недоступен", "Telegram is unreachable") + f": {scrub(str(e).replace(token, '<token>'))}")
     if not j.get("ok"):
         raise ValueError(L("Telegram не принял токен", "Telegram rejected the token") + f": {j.get('description')}")
     save_config("BOT_TOKEN", token)

@@ -24,6 +24,7 @@ import socket
 import sys
 import threading
 import time
+from pathlib import Path
 
 from proyavka import config
 from proyavka.botui import handle_updates
@@ -31,7 +32,7 @@ from proyavka.config import LOCAL, RAW_MISSING, TMP, VPS, log
 from proyavka.database import init_db
 from proyavka.devices import BOT_RESET, new_pair, show_code
 from proyavka.i18n import speak
-from proyavka.ingest import ingest_loop
+from proyavka.ingest import ingest_loop, recover_ingest
 from proyavka.invites import set_commands
 from proyavka.pools import init_pools
 from proyavka.scheduler import dispatcher, tg_worker
@@ -53,6 +54,16 @@ def _ipv4_first(*args, **kwargs):
 socket.getaddrinfo = _ipv4_first
 
 
+def app_version():
+    """Версия для журнала: ближайший тег и коммит из git (git describe), если это клон; иначе «?»."""
+    import subprocess
+    try:
+        return subprocess.run(["git", "-c", "safe.directory=*", "describe", "--tags", "--always"], cwd=str(Path(__file__).resolve().parent),
+                              capture_output=True, text=True, timeout=5).stdout.strip() or "?"
+    except Exception:
+        return "?"
+
+
 def main():
     from proyavka.ingest import vps_watch
     init_db()
@@ -69,6 +80,7 @@ def main():
     init_pools()
     threading.Thread(target=tg_worker, daemon=True, name="tg").start()
     start_web()
+    recover_ingest()                          # до приёма: иначе входящий файл оборванного кадра сочтут повтором
     threading.Thread(target=vps_watch, daemon=True, name="vps-watch").start()
     threading.Thread(target=ingest_loop, args=(state,), daemon=True, name="ingest").start()
     backfill_fingerprints()
@@ -77,7 +89,7 @@ def main():
     if RAW_MISSING:
         log.warning("RAW включён, но нет библиотеки rawpy — RAW выключен. Поставить: .venv/bin/pip install rawpy "
                     "(или setup.py --raw=1)")
-    log.info("filmbot v6.0 started (%s), пользователей: %d, Telegram: %s", "локально" if LOCAL else VPS, len(USERS),
+    log.info("Proyavka %s started (%s), пользователей: %d, Telegram: %s", app_version(), "локально" if LOCAL else VPS, len(USERS),
              "да" if config.BOT_TOKEN else "нет — только приложение")
     last_clean = 0.0
     while True:

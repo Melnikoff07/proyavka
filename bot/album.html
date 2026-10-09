@@ -38,6 +38,7 @@
   .hero .sub { margin-top: 12px; color: var(--muted); font-size: 13px; }
   .actions { display: flex; align-items: center; gap: 18px; margin-top: 20px; }
   .btn { height: 44px; padding: 0 22px; background: var(--btn-bg); color: var(--btn-text); font-weight: 500; }
+  a.btn { display: inline-flex; align-items: center; text-decoration: none; }
   .note { margin: 10px 0 0; color: var(--muted); font-size: 13px; max-width: 44ch; }
 
   main { max-width: 1400px; margin: 0 auto; }
@@ -83,7 +84,7 @@
   <div class="cap muted" id="brand">Proyavka</div>
   <h1 id="title">{{TITLE}}</h1>
   <p class="sub" id="sub"></p>
-  <div class="actions" id="topActions" hidden><button class="btn" id="bAll"></button></div>
+  <div class="actions" id="topActions" hidden><button class="btn" id="bAll"></button> <a class="btn" id="bEdit" hidden></a></div>
   <p class="note" id="allNote" hidden></p>
 </header>
 <main id="feed"></main>
@@ -165,6 +166,11 @@ async function load() {
   $("sub").textContent = [frames(photos.length), span].filter(Boolean).join(" · ");
   $("bAll").textContent = photos.length === 1 ? T("Скачать", "Download") : T("Скачать всё", "Download all");
   $("topActions").hidden = false;
+  if (j.edit) {                       // хозяин разрешил правку: то же приложение «Проявки», только с кадрами этого альбома
+    $("bEdit").textContent = T("Редактировать", "Edit");
+    $("bEdit").href = `/?album=${encodeURIComponent(base.split("/").pop())}`;
+    $("bEdit").hidden = false;
+  }
   render(days);
 }
 

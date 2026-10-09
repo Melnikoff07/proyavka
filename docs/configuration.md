@@ -46,7 +46,7 @@ One `NAME=value` per line. After editing: `sudo systemctl restart proyavka-bot`.
 | `CLEANUP_MINUTES` | `15` | how often storage limits are checked (also right after frames arrive) |
 | `UPLOAD_MAX_MB` | `50` | max size of one file uploaded with "+" in the Mini App (nginx has the same limit) |
 | `CHAT_PACE_SECONDS` | `1` | background chat edits (batches, deletes) at most once per this many seconds, as Telegram requires |
-| `ORIGINALS_DAYS` | `14` | keep originals this long; after that a frame stays viewable but its film can't be changed |
+| `ORIGINALS_DAYS` | `0` | delete originals after this many days; `0` keeps them until space runs out (then the oldest go first). A frame without its original stays viewable but its film can't be changed and export is no larger than the working copy |
 | `MIN_FREE_GB` | `5` | always leave this much free disk space |
 | `FAST_WORKERS` | CPUs − 1 (max 3) | processes for chat images and previews |
 | `HEAVY_WORKERS` | `1` | processes for full-size exports |
@@ -89,7 +89,7 @@ Or `python3 setup.py` → "Status".
 1. The camera uploads the file to `/srv/camera/upload` on the server (invited users: `/srv/camera/u/u<id>/upload`): FTPS from cameras with FTP, HTTPS from the Sony app. Phone photos go straight to the bot via "+" in the Mini App.
 2. The bot notices it instantly (`inotifywait`), takes the file and checks it's a complete JPEG.
 3. It picks a film (automatically by scene or the owner's default), renders the chat version and sends it to the frame owner in Telegram.
-4. The original stays in the data folder while there's space and `ORIGINALS_DAYS` hasn't passed — so you can change film, strength, leaks and export full size.
+4. The original stays in the data folder while there's space (and until `ORIGINALS_DAYS`, if you set it) — so you can change film, strength, leaks and export full size.
 5. A deleted frame disappears from the feed and the chat, but its files stay in the trash: bring it back with `/trash` in the chat. When space nears the limit, the trash is emptied first (oldest deletions first), then old originals.
 
 ## Try films without Telegram

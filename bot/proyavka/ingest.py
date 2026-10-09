@@ -256,12 +256,45 @@ def _ingest(f, owner, fp):
               "VALUES (?,?,?,?,?,?,?,1,0,?,?,?)", (f.name, taken, iso, auto_key, reason, preset, now, now, fp, owner))
     src = udir(owner, "originals") / f"{pid}_{f.name}"
     work = work_dir / f"{pid}.jpg"
-    os.replace(tmp_work, work)
-    shutil.move(str(f), src)
-    upd(pid, src=str(src), work=str(work))
+    try:
+        os.replace(tmp_work, work)
+        shutil.move(str(f), src)
+        upd(pid, src=str(src), work=str(work))
+    except Exception:
+        # сорвалось посередине: строку без файлов не оставляем — иначе отпечаток примет этот кадр за уже принятый
+        if not f.exists() and src.exists():
+            shutil.move(str(src), str(f))
+        run("DELETE FROM photos WHERE id=?", (pid,))
+        remove(str(work))
+        remove(str(tmp_work))
+        raise
     schedule_view(pid, prio=1, uid=owner)   # после отрисовки кадр сам уйдёт в чат
     log.info("#%d %s → %s, подготовка %.1fs", pid, f.name, preset, time.time() - t0)
     return True
+
+
+def recover_ingest():
+    """Запуск после сбоя посреди приёма: кадр записан в базу, а файлы ещё не легли на место. Раньше входящий файл потом
+    считался повтором по отпечатку и удалялся — кадр терялся. Теперь: файлы уже на месте — довести запись; иначе убрать
+    строку, и кадр примется заново из входящих."""
+    done = dropped = 0
+    for r in q("SELECT id, name, owner FROM photos WHERE work IS NULL AND src IS NULL AND hidden=0 AND view IS NULL "
+               "AND rev=1 AND rendered_rev=0"):
+        work = udir(r["owner"], "work") / f"{r['id']}.jpg"
+        src = udir(r["owner"], "originals") / f"{r['id']}_{r['name']}"
+        if work.exists() and src.exists():
+            upd(r["id"], src=str(src), work=str(work))
+            schedule_view(r["id"], prio=1, uid=r["owner"])
+            done += 1
+        else:
+            remove(str(work))
+            run("DELETE FROM photos WHERE id=?", (r["id"],))
+            dropped += 1
+    for uid in list(USERS):
+        for p in udir(uid, "work").glob("incoming_*.jpg"):
+            remove(str(p))
+    if done or dropped:
+        log.info("после сбоя приёма: доведено %d, возвращено во входящие %d", done, dropped)
 
 
 DUP_REPORT = {}      # владелец -> {"n": сколько повторов, "since": когда был последний}

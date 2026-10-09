@@ -25,14 +25,14 @@ from .users import ADMIN, DAILY_LIMIT, INVITE_DAYS, USERS, set_user, user, user_
 from .jobs import BASE_EDGES, job_full, job_preview, job_source
 from .telegram import safe, uid_of_tg
 from .sessions import (
-    DEV_COOKIE, SESSIONS, SESSION_DEV, SESSION_TTL, file_token, file_uid, media_token, media_uid, note_fail,
-    too_many_fails,
+    DEV_COOKIE, SESSION_ALBUM, SESSIONS, SESSION_DEV, SESSION_TTL, album_media, album_media_token, file_token, file_uid,
+    media_token, media_uid, note_fail, too_many_fails,
 )
 from .push import LAST_POLL, push_key, push_subscribe
 from .scheduler import (
     EXPORTING, apply_changes, batch_step, batch_track, export_photo, jobs_in_work, schedule_view,
 )
-from .photos import delete_photos, hide_photo, purge_trash, restore_photo
+from .photos import BATCH_MAX, batch_ids, delete_photos, hide_photo, purge_trash, restore_photo
 from .looks import (
     HUB_DIR, RateLimit, add_look, add_lut, community_add, community_image, community_json,
     community_preview, delete_lut, edit_look, hub_decide, hub_pending, hub_raw, hub_receive, look_flags,
@@ -40,7 +40,7 @@ from .looks import (
 )
 from .albums import (
     ALBUM_CSP, ALBUM_ZIPS, ZIP_POOL, album_by_token, album_page, album_public, album_rows, delete_album,
-    edit_album, full_file, make_album, user_albums,
+    album_has, edit_album, full_file, guest_album, make_album, user_albums,
 )
 from .ingest import over_daily, receive_upload
 from .devices import (
@@ -77,23 +77,7 @@ def preview_file(ph, key, strength, leak="", lseed=0, crop=None):
     return Path(FAST.submit(job_preview, snap, key, strength, str(path), leak).result(timeout=120))
 
 
-BATCH_MAX = 500
-
-
-def batch_ids(data, uid):
-    ids = data.get("ids")
-    if not isinstance(ids, list) or not ids or len(ids) > BATCH_MAX:
-        raise ValueError(L(f"выбери от 1 до {BATCH_MAX} кадров", f"select 1 to {BATCH_MAX} frames"))
-    try:
-        ids = list(dict.fromkeys(int(i) for i in ids))
-    except (TypeError, ValueError):
-        raise ValueError(L("неверный список кадров", "invalid frame list"))
-    marks = ",".join("?" * len(ids))
-    return [r["id"] for r in q(f"SELECT id FROM photos WHERE hidden=0 AND owner=? AND id IN ({marks}) ORDER BY id",
-                               (uid, *ids))]
-
-
-def batch_edit(ids, changes, uid):
+def batch_edit(ids, changes, uid, guest=False):
     """Плёнка, засвет, сила для многих кадров: в базу сразу, рисуются очередью (срочность 1)."""
     if not isinstance(changes, dict):
         raise ValueError(L("нет изменений", "no changes"))
@@ -102,6 +86,8 @@ def batch_edit(ids, changes, uid):
         raise ValueError(L("нет изменений", "no changes"))
     if "preset" in changes and changes["preset"] != "auto" and not valid_look(canon(str(changes["preset"])), uid):
         raise ValueError(L("неизвестная плёнка", "unknown film"))
+    if guest and "preset" in changes and changes["preset"] not in ("auto", "original", *PRESETS):
+        raise ValueError(L("неизвестная плёнка", "unknown film"))      # свои плёнки хозяина гостю не показываются
     if "strength" in changes and changes["strength"] not in STRENGTHS:
         raise ValueError(L("неверная сила", "invalid strength"))
     if "leak" in changes and changes["leak"] not in ("", None, *LEAKS):
@@ -115,13 +101,13 @@ def batch_edit(ids, changes, uid):
         parts.append(L("засвет", "leak") + f": {tr(LEAKS[changes['leak']][0])}" if changes["leak"] in LEAKS
                      else L("без засвета", "no leak"))
     live = [pid for pid in ids if has((get(pid) or {}).get("work"))]
-    bid = batch_track(live, ", ".join(parts), uid)   # до постановки в очередь: быстрый кадр не должен проскочить мимо учёта
+    bid = None if guest else batch_track(live, ", ".join(parts), uid)   # до постановки в очередь; хозяину о правке гостя не пишем
     queued = 0
     for pid in live:
         ph = get(pid)
         try:
             before = ph["rev"]
-            after = apply_changes(ph, changes, prio=1)
+            after = apply_changes(ph, changes, prio=1, chat=not guest)
         except RuntimeError:                      # успели заархивировать
             batch_step(pid, "gone")
             continue
@@ -132,12 +118,14 @@ def batch_edit(ids, changes, uid):
     return {"ok": True, "queued": queued, "same": len(live) - queued, "skipped": len(ids) - len(live), "batch": bid}
 
 
-def batch_action(data, uid):
-    """Действия над выбранными кадрами из «Проявки»: правка, удаление, файлы."""
+def batch_action(data, uid, album=None):
+    """Действия над выбранными кадрами из «Проявки»: правка, удаление, файлы. Гость альбома (album) может только править."""
     action = data.get("action")
-    ids = batch_ids(data, uid)
+    if album and action != "edit":
+        raise ValueError(L("гостю доступна только правка", "guests can only edit"))
+    ids = batch_ids(data, uid, album)
     if action == "edit":
-        return batch_edit(ids, data.get("changes"), uid)
+        return batch_edit(ids, data.get("changes"), uid, guest=bool(album))
     if action == "delete":
         return {"ok": True, "done": delete_photos(ids)}
     if action == "files":
@@ -190,15 +178,22 @@ class Handler(BaseHTTPRequestHandler):
         """Адрес клиента от nginx (бот слушает только 127.0.0.1). Без заголовка — неизвестен."""
         return self.headers.get("X-Real-IP")
 
-    def new_session(self, uid, old="", did=None):
+    def new_session(self, uid, old="", did=None, album=None):
         now = time.time()
+        old = str(old or "")
+        was = SESSIONS.get(old)              # до чистки: только что истёкший, но выданный нами токен можно продлить
         for k in [k for k, v in SESSIONS.items() if v[0] < now]:
             SESSIONS.pop(k, None)
             SESSION_DEV.pop(k, None)
+            SESSION_ALBUM.pop(k, None)
+        if album:                                  # гостевая сессия: всегда своя, с привязкой к альбому
+            tok = secrets.token_urlsafe(24)
+            SESSIONS[tok] = (now + SESSION_TTL, uid)
+            SESSION_ALBUM[tok] = album
+            return tok
         # повторный вход из уже открытой ленты продлевает прежний токен: на нём ссылки на все картинки
-        old = str(old or "")
-        was = SESSIONS.get(old)
-        tok = old if len(old) >= 32 and (was is None or was[1] == uid) and SESSION_DEV.get(old) in (None, did) else secrets.token_urlsafe(24)
+        # токен, которого сервер не выдавал (или он уже истёк), не принимаем: новую сессию всегда называет сервер
+        tok = old if was is not None and was[1] == uid and SESSION_DEV.get(old) in (None, did) else secrets.token_urlsafe(24)
         SESSIONS[tok] = (now + SESSION_TTL, uid)
         if did:
             SESSION_DEV[tok] = did
@@ -324,13 +319,24 @@ class Handler(BaseHTTPRequestHandler):
         tok = self.headers.get("X-Token") or ""
         exp, uid = SESSIONS.get(tok) or (0, None)
         now = time.time()
+        self.album = None                        # id альбома, если вошёл гость по ссылке: тогда доступны только его кадры
         if not tok or exp <= now or uid not in USERS:
             if media and not self.headers.get("X-Token"):
-                muid = media_uid((qs.get("m") or [""])[0])
+                mtok = (qs.get("m") or [""])[0]
+                muid = media_uid(mtok)
                 if muid:
                     _CTX.lang = user_lang(muid)
                     return muid
+                got = album_media(mtok)
+                if got and guest_album(*got):
+                    self.album = got[1]
+                    _CTX.lang = user_lang(got[0])
+                    return got[0]
             return None
+        if tok in SESSION_ALBUM:
+            if not guest_album(uid, SESSION_ALBUM[tok]):          # хозяин выключил правку или удалил альбом
+                return None
+            self.album = SESSION_ALBUM[tok]
         if exp - now < SESSION_TTL - 600:      # пока «Проявкой» пользуются, сессия продлевается сама
             SESSIONS[tok] = (now + SESSION_TTL, uid)
         _CTX.lang = user_lang(uid)
@@ -350,7 +356,11 @@ class Handler(BaseHTTPRequestHandler):
             ph = get(int(pid))
         except ValueError:
             return None
-        return ph if ph and ph["owner"] == uid else None
+        if not ph or ph["owner"] != uid:
+            return None
+        if getattr(self, "album", None) and not album_has(self.album, ph["id"]):
+            return None
+        return ph
 
     def file(self, path):
         if not has(path):
@@ -381,6 +391,7 @@ class Handler(BaseHTTPRequestHandler):
         u = urlparse(self.path)
         parts = [p for p in u.path.split("/") if p]
         qs = parse_qs(u.query)
+        self.album = None
         try:
             if not parts:
                 if not WEBAPP_HTML.exists():
@@ -415,6 +426,9 @@ class Handler(BaseHTTPRequestHandler):
                 uid = self.authed(qs, media=files)
             if not uid:
                 return self.err(401, L("нужна авторизация через Telegram", "Telegram authorization required"))
+            if self.album and not (parts in (["api", "presets"], ["api", "updates"], ["api", "photos"], ["api", "zip"])
+                                   or (len(parts) in (3, 4) and parts[0] == "img" and parts[1] in ("thumb", "view", "full", "source", "preview"))):
+                return self.err(403, L("по ссылке альбома это недоступно", "not available through an album link"))
             if parts == ["api", "presets"]:
                 items = [{"key": "original", "name": L("Оригинал", "Original"), "when": L("без обработки", "unprocessed")}]
                 items += [{"key": k, "name": p["name"], "when": tr(p["when"]), "desc": tr(p["desc"]),
@@ -422,7 +436,7 @@ class Handler(BaseHTTPRequestHandler):
                 items += [{"key": f"lut{r['id']}", "name": r["name"], "desc": "", "lut": True,
                            "when": f"LUT {r['size']}³" if r["size"] else L("Своя плёнка", "Your film"),
                            **(look_flags(uid, f"lut{r['id']}") if not r["size"] else {})}
-                          for r in user_luts(uid)]
+                          for r in ([] if self.album else user_luts(uid))]
                 leaks = [{"key": k, "name": tr(v[0]), "desc": tr(v[1])} for k, v in LEAKS.items()]
                 return self.js({"presets": items, "strengths": STRENGTHS, "leaks": leaks})
             if parts == ["api", "me"]:
@@ -501,16 +515,34 @@ class Handler(BaseHTTPRequestHandler):
                 LAST_POLL[SESSION_DEV.get(self.headers.get("X-Token") or "") or ("u", uid)] = time.time()
                 since = float((qs.get("since") or ["0"])[0])
                 now = time.time()
-                rows = q("SELECT * FROM photos WHERE owner=? AND updated > ? ORDER BY id DESC LIMIT 500", (uid, since))
-                total = q("SELECT COUNT(*) AS n FROM photos WHERE owner=? AND hidden=0", (uid,))[0]["n"]
-                return self.js({"now": now, "total": total, "jobs": jobs_in_work(uid), "media": media_token(uid),
+                if self.album:
+                    rows = q("SELECT p.* FROM photos p JOIN album_photos ap ON ap.photo=p.id WHERE ap.album=? AND p.owner=? "
+                             "AND p.updated > ? ORDER BY p.updated, p.id LIMIT 501", (self.album, uid, since))
+                    total = q("SELECT COUNT(*) AS n FROM photos p JOIN album_photos ap ON ap.photo=p.id WHERE ap.album=? AND p.hidden=0",
+                              (self.album,))[0]["n"]
+                else:
+                    rows = q("SELECT * FROM photos WHERE owner=? AND updated > ? ORDER BY updated, id LIMIT 501", (uid, since))
+                    total = q("SELECT COUNT(*) AS n FROM photos WHERE owner=? AND hidden=0", (uid,))[0]["n"]
+                more = len(rows) > 500
+                if more:      # порция неполная: курсор — время последней выданной строки, остальное придёт со следующим запросом
+                    cut = rows[499]["updated"]
+                    kept = [r for r in rows[:500] if r["updated"] < cut]
+                    rows, now = (kept, kept[-1]["updated"]) if kept else (rows[:500], cut)    # все 500 с одной отметкой — берём их целиком
+                return self.js({"now": now, "more": more, "total": total, "jobs": jobs_in_work(uid),
+                                "media": album_media_token(uid, self.album) if self.album else media_token(uid),
                                 "photos": [photo_json(r) for r in rows]})
             if parts == ["api", "photos"]:
                 off = max(0, int((qs.get("offset") or ["0"])[0]))
                 lim = max(1, min(120, int((qs.get("limit") or ["60"])[0])))
-                total = q("SELECT COUNT(*) AS n FROM photos WHERE owner=? AND hidden=0", (uid,))[0]["n"]
-                rows = q("SELECT * FROM photos WHERE owner=? AND hidden=0 ORDER BY taken DESC, id DESC LIMIT ? OFFSET ?",
-                         (uid, lim, off))
+                if self.album:
+                    total = q("SELECT COUNT(*) AS n FROM photos p JOIN album_photos ap ON ap.photo=p.id WHERE ap.album=? AND p.hidden=0",
+                              (self.album,))[0]["n"]
+                    rows = q("SELECT p.* FROM photos p JOIN album_photos ap ON ap.photo=p.id WHERE ap.album=? AND p.owner=? AND p.hidden=0 "
+                             "ORDER BY p.taken DESC, p.id DESC LIMIT ? OFFSET ?", (self.album, uid, lim, off))
+                else:
+                    total = q("SELECT COUNT(*) AS n FROM photos WHERE owner=? AND hidden=0", (uid,))[0]["n"]
+                    rows = q("SELECT * FROM photos WHERE owner=? AND hidden=0 ORDER BY taken DESC, id DESC LIMIT ? OFFSET ?",
+                             (uid, lim, off))
                 return self.js({"total": total, "photos": [photo_json(r) for r in rows]})
             if len(parts) == 3 and parts[0] == "img" and parts[1] in ("thumb", "view"):
                 ph = self.mine(parts[2], uid)
@@ -555,13 +587,14 @@ class Handler(BaseHTTPRequestHandler):
         u = urlparse(self.path)
         parts = [p for p in u.path.split("/") if p]
         qs = parse_qs(u.query)
+        self.album = None
         try:
             if parts == ["api", "upload"]:      # тело — сам файл, а не JSON, поэтому до self.body()
                 uid = self.authed(qs)
-                if not uid:
+                if not uid or self.album:
                     # дочитать и выбросить: иначе соединение рвётся и вместо «войди заново» человек видит «нет связи»
                     self.drain(max(0, int(self.headers.get("Content-Length") or 0)))
-                    return self.err(401, L("нужна авторизация через Telegram", "Telegram authorization required"))
+                    return self.err(403 if uid else 401, L("нужна авторизация через Telegram", "Telegram authorization required"))
                 length = self.content_length()
                 if not (qs.get("lut") or [""])[0] and over_daily(uid):
                     self.drain(length)
@@ -590,6 +623,16 @@ class Handler(BaseHTTPRequestHandler):
                 key, uid, did = got
                 body = {"token": self.new_session(uid, did=did), "media": media_token(uid), "device": key, "lang": user_lang(uid)}
                 return self.send(200, json.dumps(body, ensure_ascii=False), headers=self.device_cookie(key))
+            if parts == ["api", "auth"] and data.get("album"):       # гость по ссылке альбома с правкой
+                if too_many_fails(self.ip()):
+                    return self.err(429, L("слишком много попыток, подожди 10 минут", "too many attempts, wait 10 minutes"))
+                a = album_by_token(str(data["album"]))
+                if not a or not a["edit"]:
+                    note_fail(self.ip())
+                    return self.err(403, L("правка по этой ссылке не включена", "editing is not enabled for this link"))
+                _CTX.lang = user_lang(a["owner"])
+                return self.js({"token": self.new_session(a["owner"], album=a["id"]), "media": album_media_token(a["owner"], a["id"]),
+                                "lang": user_lang(a["owner"]), "guest": True, "title": a["title"] or ""})
             if parts == ["api", "auth"]:
                 key = data.get("device") or (self.cookie_key() if data.get("cookie") else "")
                 if key:                             # браузер или приложение без Telegram
@@ -620,8 +663,11 @@ class Handler(BaseHTTPRequestHandler):
             uid = self.authed(qs)
             if not uid:
                 return self.err(401, L("нужна авторизация через Telegram", "Telegram authorization required"))
+            if self.album and not (parts == ["api", "batch"] or (len(parts) in (3, 4) and parts[:2] == ["api", "photo"] and parts[2].isdigit()
+                                                           and parts[3:] in ([], ["edit"]))):
+                return self.err(403, L("по ссылке альбома это недоступно", "not available through an album link"))
             if parts == ["api", "batch"]:
-                return self.js(batch_action(data, uid))
+                return self.js(batch_action(data, uid, self.album))
             if parts == ["api", "me"]:
                 return self.js(set_me(uid, data))
             if parts == ["api", "look", "try"]:
@@ -729,7 +775,9 @@ class Handler(BaseHTTPRequestHandler):
                     return self.err(404, L("кадр не найден", "frame not found"))
                 action = parts[3] if len(parts) > 3 else "edit"
                 if action == "edit":
-                    return self.js(photo_json(apply_changes(ph, data, sync_tg=False)))
+                    if self.album and str(data.get("preset") or "original") not in ("auto", "original", *PRESETS):
+                        raise ValueError(L("неизвестная плёнка", "unknown film"))
+                    return self.js(photo_json(apply_changes(ph, data, sync_tg=False, chat=not self.album)))
                 if action == "file":
                     export_photo(ph["id"])
                     return self.js(photo_json(get(ph["id"])))
@@ -763,6 +811,12 @@ def backfill_views():
     for r in q("SELECT id FROM photos WHERE view IS NULL AND work IS NOT NULL AND hidden=0 ORDER BY id DESC"):
         run("UPDATE photos SET rev=rev+1 WHERE id=?", (r["id"],))
         schedule_view(r["id"], prio=2, chat=False)   # только картинка для «Проявки», в чате всё уже есть
+    # правка записана, а перезапуск оборвал отрисовку: очередь в памяти, без этого кадр вечно «проявляется»
+    stale = q("SELECT id, owner FROM photos WHERE rev != rendered_rev AND view IS NOT NULL AND hidden=0 AND work IS NOT NULL ORDER BY id DESC")
+    for r in stale:
+        schedule_view(r["id"], prio=2, chat=False, uid=r["owner"])
+    if stale:
+        log.info("недорисованных после перезапуска кадров: %d, ставлю в очередь", len(stale))
 
 
 FILMS_VERSION = "4"        # 4 — цвет всех 25 плёнок заново, по эталонным кадрам (bot/films_v3.json); 3 — 10 плёнок заново (плотность цвета, халяция у огней); 2 — bot/films_v2.json; 1 — bot/films_v1.json

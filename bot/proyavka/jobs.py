@@ -10,7 +10,7 @@ from .util import save_atomic
 from .film import PRESETS, film, look, preset_lut
 from .imaging import (
     auto_pick, contact_sheet, crop_img, crop_tag, is_raw, leak_seed, light_leak, open_raw, raw_exif,
-    read_exif, render,
+    read_exif, render, srgb_icc, to_srgb,
 )
 
 
@@ -32,7 +32,7 @@ def job_prepare(src, work_path, edge):
     im = Image.open(src)
     taken, iso = read_exif(im)
     im.draft("RGB", (edge, edge))           # JPEG сразу декодируется в уменьшенном виде — в разы быстрее
-    im = ImageOps.exif_transpose(im).convert("RGB")
+    im = ImageOps.exif_transpose(to_srgb(im)).convert("RGB")
     im.thumbnail((edge, edge), Image.LANCZOS)
     taken = taken or datetime.now().strftime("%Y-%m-%d %H:%M")
     auto_key, reason = auto_pick(im, iso, int(taken[11:13]))
@@ -60,8 +60,46 @@ def job_chat(ph, path):
     return save_atomic(render(ph), path, 92)
 
 
+# Что из съёмки переносим в готовый файл: когда, на что, с какими настройками. Координаты (GPS) не переносим.
+EXIF_BASE = (0x010F, 0x0110)                                       # Make, Model
+EXIF_SUB = (0x829A, 0x829D, 0x8827, 0x9003, 0x9004, 0x920A, 0xA434)  # выдержка, диафрагма, ISO, дата съёмки, фокусное, объектив
+
+
+def full_exif(ph):
+    """EXIF для готового файла: дата съёмки (иначе в «Фото» на телефоне кадр встаёт сегодняшним числом) и данные камеры из оригинала."""
+    ex = Image.Exif()
+    sub = ex.get_ifd(0x8769)
+    src = ph.get("src")
+    if src and os.path.exists(src) and not is_raw(src):
+        try:
+            with Image.open(src) as im:
+                old = im.getexif()
+                old_sub = old.get_ifd(0x8769)
+            for t in EXIF_BASE:
+                if old.get(t):
+                    ex[t] = old[t]
+            for t in EXIF_SUB:
+                if old_sub.get(t):
+                    sub[t] = old_sub[t]
+        except Exception:
+            pass
+    taken = ph.get("taken")
+    if taken and 0x9003 not in sub:
+        try:
+            stamp = datetime.strptime(str(taken)[:16], "%Y-%m-%d %H:%M").strftime("%Y:%m:%d %H:%M:00")
+            sub[0x9003] = sub[0x9004] = stamp
+        except ValueError:
+            pass
+    if ph.get("iso") and 0x8827 not in sub:
+        sub[0x8827] = int(ph["iso"])
+    if 0x9003 in sub:
+        ex[0x0132] = sub[0x9003]
+    ex[0x0131] = "Proyavka"
+    return ex
+
+
 def job_full(ph, path):
-    return save_atomic(render(ph, full=True), path, 95)
+    return save_atomic(render(ph, full=True), path, 95, exif=full_exif(ph), icc_profile=srgb_icc())
 
 
 BASE_EDGES = (420, 1000, 1600)     # 420 — полоска плёнок и редактор, 1000 — просмотр плёнки сообщества, 1600 — «до/после» в кадре
@@ -93,7 +131,7 @@ def job_base(ph, edge):
 
 def job_preview(ph, key, strength, path, leak=""):
     base = preview_base(ph)
-    out = look(base, ph, key, strength, ph["id"])
+    out = look(base, ph, key, strength, ph["id"], fit=True)
     if leak:
         out = light_leak(out, leak, leak_seed(ph))
     return save_atomic(out, path, 84)
@@ -103,14 +141,14 @@ def job_sample(params, path, edge=900):
     """Плёнка на общем образце каталога (превью заявки и одобренной плёнки)."""
     im = Image.open(COMMUNITY_BUNDLED.parent / "sample.jpg").convert("RGB")
     im.thumbnail((edge, edge), Image.LANCZOS)
-    img = film(im, "custom", 100, 1, params)
+    img = film(im, "custom", 100, 1, params, fit=True)
     return save_atomic(img, path, 80)
 
 
 def job_try(ph, params, strength, path=None, edge=420):
     """Кадр с плёнкой, которой ещё нет в базе: живой просмотр в редакторе и превью плёнок сообщества.
     Без path — JPEG байтами (редактор не засоряет диск), с path — файлом-кэшем."""
-    out = film(preview_base(ph, edge), "custom", strength, ph["id"], params)
+    out = film(preview_base(ph, edge), "custom", strength, ph["id"], params, fit=True)
     if path:
         return save_atomic(out, path, 84)
     buf = io.BytesIO()

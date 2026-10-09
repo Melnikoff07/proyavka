@@ -1,11 +1,12 @@
 """Обработка кадра: открытие оригиналов (в том числе RAW), кадрирование, засветы, дата и рамка, листы-превью, автовыбор плёнки."""
 
 import hashlib
+import io
 import math
 import numpy as np
 import os
 import threading
-from PIL import Image, ImageChops, ImageDraw, ImageFilter, ImageFont, ImageOps
+from PIL import Image, ImageChops, ImageCms, ImageDraw, ImageFilter, ImageFont, ImageOps
 from datetime import datetime
 from pathlib import Path
 
@@ -256,7 +257,7 @@ def render(ph, full=False, mode=None):
     mode = mode or ("full" if full else "work")
     img = source_image(ph, mode)
     key = ph["preset"]
-    out = look(img, ph, key, ph["strength"], ph["id"])
+    out = look(img, ph, key, ph["strength"], ph["id"], fit=mode == "view")
     if ph["leak"]:
         out = light_leak(out, ph.get("leak_kind") or "edge", leak_seed(ph))
     if ph["stamp"]:
@@ -279,7 +280,7 @@ def contact_sheet(ph):
     d = ImageDraw.Draw(sheet)
     f = font(26)
     for i, k in enumerate(keys):
-        tile = film(base, k, ph["strength"], seed=ph["id"])
+        tile = film(base, k, ph["strength"], seed=ph["id"], fit=True)
         x = gap + (i % cols) * (tw + gap)
         y = gap + (i // cols) * (th + lab + gap)
         sheet.paste(tile, (x, y))
@@ -390,14 +391,46 @@ def raw_exif(path):
         return None, None
 
 
+SRGB_PROFILE = None
+
+
+def srgb_profile():
+    global SRGB_PROFILE
+    if SRGB_PROFILE is None:
+        SRGB_PROFILE = ImageCms.createProfile("sRGB")
+    return SRGB_PROFILE
+
+
+def srgb_icc():
+    """Профиль sRGB для готовых файлов: просмотрщики не гадают, в каком пространстве цвета кадр."""
+    return ImageCms.ImageCmsProfile(srgb_profile()).tobytes()
+
+
+def to_srgb(im):
+    """Кадр с встроенным профилем (Display P3 с iPhone, Adobe RGB) — в sRGB, иначе цвета потускнеют или уйдут в сторону.
+    Без профиля или с sRGB возвращается как есть."""
+    icc = im.info.get("icc_profile")
+    if not icc or im.mode not in ("RGB", "RGBA"):
+        return im
+    try:
+        prof = ImageCms.ImageCmsProfile(io.BytesIO(icc))
+        if "srgb" in ImageCms.getProfileDescription(prof).lower():
+            return im
+        out = ImageCms.profileToProfile(im, prof, srgb_profile(), outputMode=im.mode)
+    except Exception:
+        return im
+    out.info.pop("icc_profile", None)
+    return out
+
+
 def open_src(path, need=None):
-    """Оригинал, повёрнутый как надо. need — нужная длинная сторона (JPEG декодируется сразу уменьшенным)."""
+    """Оригинал, повёрнутый как надо и в sRGB. need — нужная длинная сторона (JPEG декодируется сразу уменьшенным)."""
     if is_raw(path):
         return open_raw(path, need)
     im = Image.open(path)
     if need:
         im.draft("RGB", (need, need))
-    return ImageOps.exif_transpose(im)
+    return ImageOps.exif_transpose(to_srgb(im))
 
 
 def read_exif(im):

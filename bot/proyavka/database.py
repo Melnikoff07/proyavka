@@ -67,6 +67,8 @@ def init_db():
         db.execute("""CREATE TABLE IF NOT EXISTS albums(
             id INTEGER PRIMARY KEY AUTOINCREMENT, owner INTEGER, token TEXT UNIQUE, title TEXT,
             created REAL, updated REAL, views INTEGER DEFAULT 0)""")
+        if "edit" not in {r[1] for r in db.execute("PRAGMA table_info(albums)")}:      # правка по ссылке: у прежних альбомов выключена
+            db.execute("ALTER TABLE albums ADD COLUMN edit INTEGER DEFAULT 0")
         db.execute("""CREATE TABLE IF NOT EXISTS album_photos(
             album INTEGER, photo INTEGER, PRIMARY KEY(album, photo))""")
         db.execute("INSERT OR IGNORE INTO users(id, role, lang, created) VALUES (?, 'admin', ?, ?)", (CHAT_ID, LANG, time.time()))

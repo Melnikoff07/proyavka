@@ -395,6 +395,7 @@
   .tr-acts { display: flex; justify-content: space-between; gap: 8px; padding-top: 6px; }
   .tr-acts button { padding: 6px 0; }
   .danger { color: #ff5a4e; }
+  body.guest #sAlbum, body.guest #sDelete, body.guest #bHide { display: none !important; }
   @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
 </style>
 </head>
@@ -632,6 +633,7 @@ function fileLabel(p) {
   return ios ? T("Сохранить", "Save") : T("Скачать", "Download");
 }
 
+const GUEST = new URLSearchParams(location.search).get("album") || "";      // гость по ссылке альбома: правит только его кадры
 let token = "", media = "", photos = [], total = 0, loading = false, finished = false, jobs = 0;
 let presets = [], leaks = [], strengths = [25, 50, 75, 100, 125, 150], cur = -1, tab = "film";
 let groups = {};            // день -> { grid, count, n }
@@ -701,7 +703,7 @@ async function reauth() {
   let r = null;
   try {
     r = await fetch("/api/auth", { method: "POST", headers: { "Content-Type": "application/json" },
-                                        body: JSON.stringify(tg ? { initData: tg.initData, token } : { device: stored(DEV_KEY), cookie: 1, token }) });
+                                        body: JSON.stringify(GUEST ? { album: GUEST } : tg ? { initData: tg.initData, token } : { device: stored(DEV_KEY), cookie: 1, token }) });
     if (!r.ok) throw new Error();
     const j = await r.json();
     token = j.token;
@@ -858,7 +860,16 @@ function toggleSel(id, on) {
   updateSelUI();
 }
 function dayIds(k) { return photos.filter((p) => dayKey(p) === k).map((p) => p.id); }
-function selectDay(k) {
+async function selectDay(k) {
+  // лента подгружается по 60 кадров: хвост дня мог ещё не прийти — догружаем, пока день не закончится
+  if (!finished && photos.length && dayKey(photos[photos.length - 1]) === k) {
+    toast(T("Догружаю день…", "Loading the rest of the day…"));
+    while (!finished && photos.length && dayKey(photos[photos.length - 1]) === k) {
+      const n = photos.length;
+      if (loading) await new Promise((r) => setTimeout(r, 100)); else await loadMore();
+      if (!loading && photos.length === n && !finished) return toast(T("Не удалось догрузить день", "Could not load the rest of the day"));
+    }
+  }
   const ids = dayIds(k);
   const all = ids.every((id) => selected.has(id));
   ids.forEach((id) => { if (all) selected.delete(id); else selected.add(id); });
@@ -1125,6 +1136,7 @@ async function poll() {
       renderHeader();
     }
     if (curId !== null && cur >= 0 && (changed.has(curId) || rebuild)) refreshViewerImage();
+    if (j.more) return poll();               // за раз приходит не больше 500 изменений — остальное сразу следом
   } catch (e) { /* сеть моргнула — попробуем в следующий раз */ }
   schedulePoll();
 }
@@ -1570,8 +1582,8 @@ async function renderMe(j) {
   $("stFilm").value = me.default_film;
   $("stUsed").textContent = T(`${fmtB(me.used)} из ${fmtB(me.limit)}`, `${fmtB(me.used)} of ${fmtB(me.limit)}`);
   $("stBar").style.width = Math.min(100, (me.used / me.limit) * 100) + "%";
-  $("stUsedNote").textContent = T(`Кадров в ленте: ${me.frames}. Когда место кончается, сначала чистится корзина, потом самые старые оригиналы — и так оригиналы живут ${me.orig_days} дн.`,
-                                  `Frames in the feed: ${me.frames}. When space runs out, the trash goes first, then the oldest originals — originals are kept ${me.orig_days} days anyway.`);
+  $("stUsedNote").textContent = T(`Кадров в ленте: ${me.frames}. Когда место кончается, сначала чистится корзина, потом самые старые оригиналы${me.orig_days ? ` — и так оригиналы живут ${me.orig_days} дн.` : "."}`,
+                                  `Frames in the feed: ${me.frames}. When space runs out, the trash goes first, then the oldest originals${me.orig_days ? ` — originals are kept ${me.orig_days} days anyway.` : "."}`);
   $("stTrashBtn").textContent = me.trash ? T(`Корзина: ${me.trash}`, `Trash: ${me.trash}`) : T("Корзина пуста", "The trash is empty");
   $("stTrashBtn").disabled = !me.trash;
   $("stAdmin").hidden = !me.admin;
@@ -1920,11 +1932,13 @@ $("sAlbum").onclick = async () => {
     `<input class="al-name" id="alName" maxlength="80" placeholder="${esc(T("Название", "Title"))}" value="${esc(albumDefaultTitle(ids))}">` +
     `<p class="muted" style="margin:10px 0 0">${T("Кто получит ссылку, увидит эти кадры и сможет скачать — без входа и без Telegram. Удалишь альбом — ссылка перестанет работать.",
                                                  "Anyone with the link sees these frames and can download them — no sign-in, no Telegram. Delete the album and the link stops working.")}</p>` +
+    `<label class="muted" style="display:block;margin:10px 0 0"><input type="checkbox" id="alEdit" checked> ${T("Разрешить менять плёнку, засвет и кадр — изменения увидишь и ты, уведомлений не будет",
+                                                                                                          "Let people change film, leak and crop — you see the changes too, no notifications")}</label>` +
     `<div class="actions al-acts"><button class="btn" id="alCreate">${T(`Создать ссылку · ${ids.length}`, `Create link · ${ids.length}`)}</button></div>`);
   $("alCreate").onclick = async () => {
     $("alCreate").disabled = true;
     try {
-      const a = await api("/api/albums", { ids, title: $("alName").value.trim() });
+      const a = await api("/api/albums", { ids, title: $("alName").value.trim(), edit: $("alEdit").checked });
       exitSelect();
       showAlbumLink(a);
       haptic("success");
@@ -1938,7 +1952,12 @@ function showAlbumLink(a) {
     `<p class="muted" style="margin:10px 0 0">${framesN(a.n)}${a.views ? T(` · открывали ${a.views} раз`, ` · opened ${a.views} times`) : ""}</p>` +
     `<div class="actions al-acts"><button class="btn" id="alShare">${T("Отправить ссылку", "Share link")}</button>` +
     `<button class="link cap" id="alCopy">${T("Копировать", "Copy")}</button><button class="link cap" id="alOpen">${T("Открыть", "Open")}</button></div>` +
-    `<button class="link cap" id="alRename">${T("Переименовать", "Rename")}</button>`);
+    `<button class="link cap" id="alRename">${T("Переименовать", "Rename")}</button> ` +
+    `<button class="link cap" id="alEditTog">${a.edit ? T("Правка по ссылке: включена — выключить", "Editing by link: on — turn off") : T("Правка по ссылке: выключена — включить", "Editing by link: off — turn on")}</button>`);
+  $("alEditTog").onclick = async () => {
+    try { showAlbumLink(await api(`/api/album/${a.id}`, { edit: !a.edit })); if (!$("settings").hidden) renderAlbums(); }
+    catch (e) { toast(e.message); }
+  };
   $("alUrl").onfocus = () => $("alUrl").select();
   $("alCopy").onclick = () => copyText(a.url, T("Ссылка скопирована", "Link copied"));
   $("alOpen").onclick = () => openExternal(a.url);
@@ -3028,18 +3047,25 @@ async function uploadAll(files) {
   if (!tg) {
     matchMedia("(prefers-color-scheme: dark)").addEventListener("change", applyTheme);
     $("vBack").hidden = false;
-    if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").catch(() => {});
-    if (ios && !standalone && !stored("proyavka.iosHint")) {
+    if ("serviceWorker" in navigator && !GUEST) navigator.serviceWorker.register("/sw.js").catch(() => {});
+    if (ios && !standalone && !GUEST && !stored("proyavka.iosHint")) {
       $("iosHint").hidden = false;
       $("iosHint").onclick = () => { $("iosHint").hidden = true; stored("proyavka.iosHint", "1"); };
     }
   }
   try {
-    const a = await signIn();
+    const a = GUEST ? await api("/api/auth", { album: GUEST }) : await signIn();
     if (!a) return;
-    $("bAdd").hidden = false;
+    $("bAdd").hidden = !!GUEST;
     $("bMenu").hidden = false;
-    $("mainTabs").hidden = false;
+    $("mainTabs").hidden = !!GUEST;
+    if (GUEST) {          // те же экран и правка, но без добавления, корзины, настроек, своих плёнок и сообщества
+      document.body.classList.add("guest");
+      document.title = a.title || document.title;
+      if (a.title) $("appName").textContent = a.title;
+      for (const m of ["add", "look", "community", "trash", "settings"]) $("mainMenu").querySelector(`[data-m="${m}"]`).hidden = true;
+      for (const id of ["sAlbum", "sDelete", "bHide"]) $(id).hidden = true;
+    }
     token = a.token;
     media = a.media || "";
     if (a.lang && a.lang !== LANG) { LANG = a.lang; translatePage(); }

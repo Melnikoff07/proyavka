@@ -18,7 +18,10 @@ from .users import USERS
 SESSION_DEV = {}                      # токен сессии -> id устройства, с которого вошли
 
 
-AUTH_FAILS = {}                       # ip -> времена неудачных попыток войти кодом или ключом
+SESSION_ALBUM = {}                    # токен гостевой сессии -> id альбома, которым она ограничена
+
+
+AUTH_FAILS = {}                    # ip -> времена неудачных попыток войти кодом или ключом
 
 
 FAIL_WINDOW, FAIL_MAX = 600, 20
@@ -110,6 +113,26 @@ def _check(tok, scope=""):
 def media_uid(tok):
     """Пользователь по токену для картинок или None."""
     return _check(tok)
+
+
+def album_media_token(uid, aid):
+    """Токен для картинок гостя альбома: годится только для кадров этого альбома (хозяин в токене — чтобы найти его кадры)."""
+    exp = (int(time.time() // 86400) + 2) * 86400
+    return f"{uid}.{exp}.{_media_sig(uid, exp, f'album:{aid}', media_epoch(uid))}.{aid}"
+
+
+def album_media(tok):
+    """(хозяин, id альбома) по токену гостя или None."""
+    try:
+        uid, exp, sig, aid = str(tok).split(".")
+        uid, exp, aid = int(uid), int(exp), int(aid)
+        sig = sig.encode("ascii")
+    except (ValueError, UnicodeEncodeError):
+        return None
+    if exp <= time.time() or uid not in USERS:
+        return None
+    want = _media_sig(uid, exp, f"album:{aid}", media_epoch(uid)).encode()
+    return (uid, aid) if hmac.compare_digest(sig, want) else None
 
 
 FILE_TTL = 300

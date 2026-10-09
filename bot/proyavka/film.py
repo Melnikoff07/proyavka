@@ -509,29 +509,72 @@ def halo_layer(sl, p, size):
     return halo * (dark * (1 - src))[..., None] * (p["halation"] * 0.5)
 
 
+# Таблицы вместо степеней 2,4 по каждому пикселю: вход — 8 бит, значит линейный свет берётся из 256 значений;
+# выход — из 65536 значений линейной шкалы (шаг меньше 0,06 уровня sRGB, разница с точным счётом не больше 1 уровня на 0,2 % пикселей)
+LIN8 = to_linear(np.arange(256, dtype=np.float32) / 255.0).astype(np.float32)
+SRGB16 = (from_linear(np.arange(65536, dtype=np.float32) / 65535.0) * 255 + 0.5).astype(np.uint8)
+FX_THREADS = min(4, os.cpu_count() or 1)
+FX_POOL = None
+FX_POOL_LOCK = threading.Lock()
+
+
+def _fx_pool():
+    global FX_POOL
+    with FX_POOL_LOCK:
+        if FX_POOL is None:
+            from concurrent.futures import ThreadPoolExecutor
+            FX_POOL = ThreadPoolExecutor(max_workers=FX_THREADS, thread_name_prefix="fx")
+        return FX_POOL
+
+
 def apply_fx_linear(img, acc, strip=256):
-    """Прибавить свечение к кадру в линейном свете. Идём полосами по strip строк (256: пик памяти ~100 МБ на кадр 24 Мп): полный кадр во float — сотни мегабайт."""
+    """Прибавить свечение к кадру в линейном свете. Идём полосами по strip строк (256: пик памяти ~100 МБ на кадр 24 Мп): полный кадр во float — сотни мегабайт.
+    Большие кадры считаются полосами в нескольких потоках (numpy и PIL отпускают GIL), результат тот же."""
     w, h = img.size
     sh, sw = acc.shape[:2]
-    out = Image.new("RGB", (w, h))
-    for y0 in range(0, h, strip):
+    res = np.empty((h, w, 3), dtype=np.uint8)
+
+    def one(y0):
         y1 = min(h, y0 + strip)
         box = (0, y0 * sh / h, sw, y1 * sh / h)
-        fx = np.stack([np.asarray(Image.fromarray(np.ascontiguousarray(acc[..., c])).resize((w, y1 - y0), Image.BILINEAR, box=box),
-                                  dtype=np.float32) for c in range(3)], axis=-1)
-        lin = to_linear(np.asarray(img.crop((0, y0, w, y1)), dtype=np.float32) / 255.0) + fx
-        out.paste(Image.fromarray((from_linear(lin) * 255 + 0.5).astype(np.uint8)), (0, y0))
-    return out
+        lin = LIN8[np.asarray(img.crop((0, y0, w, y1)))]
+        for c in range(3):
+            lin[..., c] += np.asarray(Image.fromarray(np.ascontiguousarray(acc[..., c])).resize((w, y1 - y0), Image.BILINEAR, box=box),
+                                      dtype=np.float32)
+        np.clip(lin, 0.0, 1.0, out=lin)
+        lin *= 65535.0
+        lin += 0.5
+        res[y0:y1] = SRGB16[lin.astype(np.uint16)]
+
+    rows = range(0, h, strip)
+    if FX_THREADS > 1 and w * h > 6_000_000:
+        list(_fx_pool().map(one, rows))
+    else:
+        for y0 in rows:
+            one(y0)
+    return Image.fromarray(res)
 
 
 GRAIN_GAIN = 1.75  # калибровка под прежний вид зерна
 
 
-def grain_layer(w, h, p, k, rng):
-    """Шум вокруг серого 128: накладывается «мягким светом» — сильнее в полутонах, как у плёнки."""
+# Зерно в итоговом кадре (6000 px), уменьшенном до экрана, слабее, чем зерно, нарисованное сразу на малом размере: там оно мельче
+# пикселя, упирается в минимум в 1 px и не «съедается» уменьшением. Поправка к силе зерна для превью (fit=True): по замерам
+# (отношение итога к прямому рендеру на сером) от расчётного размера зерна в пикселях, grain_size * длинная_сторона / 3000
+FIT_C = (0.0, 0.168, 0.224, 0.294, 0.392, 0.533, 0.64, 0.7, 0.853, 0.96, 1.0, 1.12, 1.5)
+FIT_R = (0.10, 0.25, 0.32, 0.40, 0.51, 0.60, 0.66, 0.69, 0.75, 0.78, 0.80, 0.96, 1.0)
+
+
+def grain_fit(grain_size, edge):
+    return float(np.interp(grain_size * edge / 3000.0, FIT_C, FIT_R))
+
+
+def grain_layer(w, h, p, k, rng, fit=False):
+    """Шум вокруг серого 128: накладывается «мягким светом» — сильнее в полутонах, как у плёнки.
+    fit — это превью меньшего размера: сила зерна подгоняется под вид итогового кадра на экране."""
     scale = max(w, h) / 3000.0
     gs = max(1.0, p["grain_size"] * scale)
-    amp = p["grain"] * min(k, 1.5) * 255 * GRAIN_GAIN
+    amp = p["grain"] * min(k, 1.5) * 255 * GRAIN_GAIN * (grain_fit(p["grain_size"], max(w, h)) if fit else 1.0)
     chroma = 0 if p["bw"] else p["grain_color"] * 0.6
 
     def noise(size, weight):
@@ -761,14 +804,14 @@ def parse_look_code(code):
         raise ValueError(L("это не код плёнки Проявки", "this is not a Proyavka film code"))
 
 
-def look(img, ph, key, strength, seed):
+def look(img, ph, key, strength, seed, fit=False):
     """Плёнка, свой LUT или оригинал. LUT — только цвет; сила смешивает его с исходником (больше 100% — усиливает)."""
     if key == "original":
         return img
     if is_lut(key):
         p = look_params(ph.get("owner"), key)
         if p is not None:                           # своя плёнка из редактора или сообщества — те же эффекты, что у встроенных
-            return film(img, key, strength, seed, p)
+            return film(img, key, strength, seed, p, fit)
         try:
             lut = user_lut(ph.get("owner"), key)
         except OSError:
@@ -776,10 +819,10 @@ def look(img, ph, key, strength, seed):
         a = img.filter(lut)
         k = strength / 100.0
         return a if k == 1 else Image.blend(img, a, k)
-    return film(img, key, strength, seed)
+    return film(img, key, strength, seed, fit=fit)
 
 
-def film(img, key, strength=100, seed=0, p=None):
+def film(img, key, strength=100, seed=0, p=None, fit=False):
     pr = p
     p = pr or PRESETS[key]
     rng = np.random.default_rng(seed)
@@ -799,7 +842,7 @@ def film(img, key, strength=100, seed=0, p=None):
     if k != 1:
         a = Image.blend(orig, a, k)
     if p["grain"] > 0:
-        g = grain_layer(w, h, p, k, rng)
+        g = grain_layer(w, h, p, k, rng, fit)
         a = ImageChops.soft_light(a, g)
         if p["grain_shadow"] > 0:       # у негатива в тенях зерно крупнее и заметнее: второй проход тем же шумом, только по теням
             gs = p["grain_shadow"]

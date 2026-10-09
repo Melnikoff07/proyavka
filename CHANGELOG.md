@@ -7,6 +7,13 @@ English first, [по-русски — ниже](#журнал-изменений
 ### Films
 - The colour and tone of all 25 built-in films were re-fitted against reference renders (the same frames developed with real film emulations): curves, black lift, tints, saturation and per-colour bands. Grain, halation, glow and vignette are unchanged. Frames already rendered are redrawn in the background once after the update (films version 4); the previous values are kept in `bot/films_v3.json`.
 - The film editor now starts from the film you have picked: the “Create” button in the film strip is now “Edit”, and the editor opens with that film's values (the one on the current frame, otherwise the last one you picked). The “Based on” list at the top switches to another film at any time; the name follows it until you type your own. Saving always makes a new film of your own, built-in films stay as they are.
+- Grain in previews now matches the finished frame: the film strip, the editor, community previews and the app view (when it is drawn directly at 1600 px) used to show grain 1.3–4× stronger than the same frame at full size scaled to the screen, because small renders cannot make grain finer than a pixel. The grain strength of those small renders is now corrected from measurements (within ~3 % of the full-size result on flat grey). Finished and chat images are unchanged.
+
+### Albums
+- Editing by album link: anyone with the link can press “Edit” and change film, strength, light leak, date, frame and crop of the album's frames in the same screen as the app, and download them in full size. Changes are made to the owner's frames themselves, so the owner sees them at once; nothing is sent to the owner's chat or notifications. Guests cannot add, delete, send to chat, open settings or see other frames and custom films. On by default for new albums (a checkbox when creating), off for existing ones; the owner can switch it in the album sheet, and turning it off ends guest sessions at once.
+
+### Speed
+- Films with halation/glow render faster with the same picture: the sRGB ↔ linear conversion in the glow step uses lookup tables instead of per-pixel powers (about 25 % faster at 1600 px, about 2× at full size), and full-size frames are processed in strips on several threads. Result differs from the exact calculation by at most 1 level on a fraction of a percent of pixels (below JPEG noise).
 
 ### Fixes and hardening
 - The Telegram bot token no longer ends up in error messages shown in the chat or written to the log (failed downloads and uploads used to include the full API address).
@@ -18,6 +25,16 @@ English first, [по-русски — ниже](#журнал-изменений
 - Batch summaries no longer block the two Telegram upload threads (deleting, files, the "Compare" sheet could stall for up to 15 minutes after a big batch).
 - Idle or stalled connections are closed after 2 minutes; negative sizes and `limit`/`offset` are rejected; broken `.cube` files give a clear error instead of a crash.
 - Album titles with quotes can't break the link preview tags; the bot token file, the push key and the camera users' password hashes are created with private permissions from the start.
+- A frame whose edit was recorded but not yet drawn when the server restarted is now queued again at start (before, it showed “developing” forever and the app polled every second).
+- Intake survives a crash in the middle: a frame written to the database before its files were moved is completed or returned to the incoming folder at start (before, the leftover file was taken for a duplicate and deleted).
+- Downloaded and exported files now carry the shooting date, camera and exposure data (no GPS) and an sRGB profile, so the phone gallery files them by the date taken. Photos with a Display P3 / Adobe RGB profile are converted to sRGB on the way in instead of being read as sRGB.
+- Originals are no longer deleted by age: `ORIGINALS_DAYS` now defaults to `0` — they go only when space runs out (oldest first). Set a number of days to restore the old behaviour.
+- The feed update call returns at most 500 changes at a time and tells the app to ask again; before, a mass redraw of more than 500 frames could skip some.
+- `setup.py` checks for Python 3.11+ first; the README now names Ubuntu 24.04+ / Debian 12+ (Ubuntu 22.04 ships Python 3.10).
+- “Select day” selected only the frames already loaded into the feed (the feed loads 60 at a time), so a day with ~300 frames came out as 60–80. It now loads the rest of the day first.
+- Connecting a Telegram bot from settings no longer puts the token into the error text if Telegram is unreachable.
+- The server no longer accepts a session token that it never issued (re-sign-in extends only a known token).
+- Internal: the per-frame lock table for full-size renders is fixed-size instead of growing with the feed; the log shows the real version (`git describe`) instead of “v6.0”.
 
 ## 1.5.4 — 2026-10-07
 - Camera app 1.4.4: on Android 2.3 cameras (a6000…) the app crashed with OutOfMemoryError on the first frame and the camera closed it. Android 2.3's HTTPS connection ignores streaming mode and buffers the whole file in memory. There the app now sends each frame itself over the TLS connection, 32 KB at a time, checking the server certificate's name itself; Android 4.1 cameras keep the old path. Checked: a 12 MB frame over port 8443 with a 24 MB memory limit.
@@ -131,6 +148,13 @@ English first, [по-русски — ниже](#журнал-изменений
 ### Плёнки
 - Цвет и тон всех 25 встроенных плёнок заново подогнаны по эталонным кадрам (те же кадры, проявленные настоящими эмуляциями плёнок): кривые, подъём чёрного, тонировка, насыщенность и цветовые полосы. Зерно, халяция, свечение и виньетка прежние. Уже готовые кадры после обновления один раз перерисуются в фоне (версия плёнок 4); прежние значения — в `bot/films_v3.json`.
 - Редактор плёнки теперь начинается с выбранной плёнки: кнопка «Создать» в ленте плёнок стала «Править», и редактор открывается со значениями этой плёнки (с кадра на экране, иначе последней выбранной). Список «Основа» сверху в любой момент переключает на другую плёнку; название подстраивается, пока вы не ввели своё. Сохранение всегда создаёт новую вашу плёнку, встроенные остаются как есть.
+- Зерно в превью теперь соответствует готовому кадру: лента плёнок, редактор, превью сообщества и вид в приложении (когда рисуется сразу в 1600 px) показывали зерно в 1,3–4 раза сильнее, чем тот же кадр полного размера, уменьшенный до экрана: на малом размере зерно не может быть мельче пикселя. Силу зерна в таких рисунках теперь поправили по замерам (в пределах ~3 % от полноразмерного результата на ровном сером). Готовые файлы и картинки для чата не изменились.
+
+### Альбомы
+- Правка по ссылке альбома: тот, у кого есть ссылка, нажимает «Редактировать» и меняет плёнку, силу, засвет, дату, рамку и кадрирование кадров альбома в том же экране, что и в приложении, и скачивает их в полном размере. Меняются сами кадры хозяина, поэтому он видит правки сразу; в его чат и уведомления ничего не уходит. Гость не может добавлять, удалять, отправлять в чат, открывать настройки и видеть другие кадры и свои плёнки. Для новых альбомов включено по умолчанию (галочка при создании), для прежних выключено; хозяин переключает это в окне альбома, выключение сразу закрывает сессии гостей.
+
+### Скорость
+- Плёнки со свечением рисуются быстрее при той же картинке: перевод sRGB ↔ линейный свет в шаге свечения идёт по таблицам вместо степени на каждый пиксель (около на четверть быстрее на 1600 px, вдвое — на полном размере), а кадры полного размера считаются полосами в нескольких потоках. От точного расчёта результат отличается не более чем на 1 уровень у долей процента пикселей (меньше шума JPEG).
 
 ### Исправления и защита
 - Токен Telegram-бота больше не попадает в тексты ошибок, которые видны в чате и пишутся в журнал (раньше при сбое скачивания или отправки туда попадал полный адрес API).
@@ -142,6 +166,16 @@ English first, [по-русски — ниже](#журнал-изменений
 - Итоги пакетных правок больше не занимают два потока загрузки в Telegram (после большого пакета удаление, файлы и лист «Сравнить» могли зависнуть до 15 минут).
 - Молчащие соединения закрываются через 2 минуты; отрицательные размеры и `limit`/`offset` отклоняются; битые `.cube` дают понятную ошибку, а не сбой.
 - Название альбома с кавычками не ломает теги превью ссылки; файл с токеном бота, ключ уведомлений и хеши паролей камер создаются сразу с закрытыми правами.
+- Кадр, у которого правка записана, но не успела нарисоваться до перезапуска сервера, теперь ставится в очередь заново при запуске (раньше он «проявлялся» вечно, а приложение опрашивало сервер каждую секунду).
+- Приём переживает сбой посередине: кадр, записанный в базу до переноса файлов, при запуске доводится или возвращается во входящие (раньше оставшийся файл принимался за повтор и удалялся).
+- Скачанные и выгруженные файлы теперь несут дату съёмки, камеру и экспозицию (без GPS) и профиль sRGB, поэтому галерея телефона ставит их по дате съёмки. Фото с профилем Display P3 / Adobe RGB при приёме переводятся в sRGB, а не читаются как sRGB.
+- Оригиналы больше не удаляются по возрасту: `ORIGINALS_DAYS` по умолчанию `0` — они уходят только когда не хватает места (самые старые первыми). Задайте число дней, чтобы вернуть прежнее поведение.
+- Запрос обновлений ленты отдаёт не больше 500 изменений за раз и просит приложение спросить ещё; раньше массовая перерисовка больше 500 кадров могла пропустить часть.
+- `setup.py` сначала проверяет Python 3.11+; в README теперь Ubuntu 24.04+ / Debian 12+ (в Ubuntu 22.04 Python 3.10).
+- «Выбрать день» выбирал только уже подгруженные в ленту кадры (лента грузится по 60), поэтому день из ~300 кадров выбирался на 60–80. Теперь сначала догружается остаток дня.
+- Подключение Telegram-бота из настроек больше не показывает токен в тексте ошибки, если Telegram недоступен.
+- Сервер не принимает токен сессии, которого сам не выдавал (повторный вход продлевает только известный токен).
+- Внутреннее: таблица замков полного размера фиксированная, а не растёт вместе с лентой; в журнале настоящая версия (`git describe`) вместо «v6.0».
 
 ## 1.5.4 — 2026-10-07
 - Приложение камеры 1.4.4: на камерах с Android 2.3 (a6000…) приложение падало с OutOfMemoryError на первом же кадре, и камера его закрывала. HTTPS-соединение Android 2.3 не включает потоковую отправку и держит весь файл в памяти. Теперь там приложение шлёт кадр само поверх TLS-соединения, по 32 КБ, и само проверяет имя в сертификате сервера; на камерах с Android 4.1 — прежний путь. Проверено: кадр 12 МБ через порт 8443 при пределе памяти 24 МБ.

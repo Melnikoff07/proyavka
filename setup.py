@@ -741,6 +741,10 @@ def install(env):
 
 def main():
     global LANG
+    if sys.version_info < (3, 11):       # ProcessPoolExecutor(max_tasks_per_child=…) и часть библиотек — от 3.11
+        die("Нужен Python 3.11 или новее (сейчас %d.%d): Ubuntu 24.04+, Debian 12+, Raspberry Pi OS Bookworm. / "
+            "Python 3.11 or newer is required (this is %d.%d): Ubuntu 24.04+, Debian 12+, Raspberry Pi OS Bookworm."
+            % (sys.version_info[:2] * 2))
     if IS_ROOT and ROOT != OPT and (OPT / "config.env").exists():
         os.execv(sys.executable, [sys.executable, str(OPT / "setup.py")] + sys.argv[1:])   # уже установлено там
     env = load_env()

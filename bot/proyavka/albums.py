@@ -1,6 +1,5 @@
 """Альбомы по ссылке: создание из выбранных кадров, публичная страница, кадры и архив без входа, кэш полных размеров."""
 
-import collections
 import os
 import re
 import secrets
@@ -25,7 +24,7 @@ ALBUM_CSP = ("default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-
 ALBUM_ZIPS = set()                    # альбомы, чей архив сейчас собирается: по одному за раз
 
 
-FULL_LOCKS = collections.defaultdict(threading.Lock)
+FULL_LOCKS = [threading.Lock() for _ in range(64)]      # по id кадра; одинаковые id делят замок, лишнего ожидания почти нет
 
 
 ZIP_POOL = ThreadPoolExecutor(max_workers=2, thread_name_prefix="zip")
@@ -52,7 +51,8 @@ def album_json(a):
     ids = [r["photo"] for r in q("SELECT ap.photo FROM album_photos ap JOIN photos p ON p.id=ap.photo "
                                  "WHERE ap.album=? AND p.hidden=0", (a["id"],))]
     return {"id": a["id"], "title": a["title"] or "", "url": album_url(a["token"]), "n": len(rows), "ids": ids,
-            "cover": rows[0]["id"] if rows else None, "created": a["created"], "views": a["views"] or 0}
+            "cover": rows[0]["id"] if rows else None, "created": a["created"], "views": a["views"] or 0,
+            "edit": bool(a["edit"])}
 
 
 def user_albums(uid):
@@ -67,7 +67,7 @@ def my_album(uid, aid):
 
 
 def album_photo_ids(uid, data):
-    from .web import batch_ids
+    from .photos import batch_ids
     ids = batch_ids(data, uid)
     if not ids:
         raise ValueError(L("в альбоме нет ни одного кадра", "the album has no frames"))
@@ -87,8 +87,8 @@ def make_album(uid, data):
         raise RuntimeError(L("«Проявка» не настроена: пустой WEBAPP_URL", "Proyavka is not set up: WEBAPP_URL is empty"))
     ids = album_photo_ids(uid, data)
     now = time.time()
-    aid = run("INSERT INTO albums(owner, token, title, created, updated) VALUES (?,?,?,?,?)",
-              (uid, secrets.token_urlsafe(12), clean_title(data.get("title")), now, now))
+    aid = run("INSERT INTO albums(owner, token, title, created, updated, edit) VALUES (?,?,?,?,?,?)",
+              (uid, secrets.token_urlsafe(12), clean_title(data.get("title")), now, now, 1 if data.get("edit", True) else 0))
     save_album_photos(aid, ids)
     log.info("альбом #%d от %d: %d кадров", aid, uid, len(ids))
     return album_json(my_album(uid, aid))
@@ -98,6 +98,8 @@ def edit_album(uid, aid, data):
     a = my_album(uid, aid)
     if "title" in data:
         run("UPDATE albums SET title=? WHERE id=?", (clean_title(data["title"]), aid))
+    if "edit" in data:
+        run("UPDATE albums SET edit=? WHERE id=?", (1 if data["edit"] else 0, aid))
     if "ids" in data:
         save_album_photos(aid, album_photo_ids(uid, data))
     run("UPDATE albums SET updated=? WHERE id=?", (time.time(), aid))
@@ -118,10 +120,21 @@ def album_by_token(tok):
     return rows[0] if rows and rows[0]["owner"] in USERS else None
 
 
+def guest_album(uid, aid):
+    """Альбом, которым ограничена гостевая сессия, если правка по ссылке всё ещё включена (иначе None)."""
+    rows = q("SELECT * FROM albums WHERE id=? AND owner=? AND edit=1", (aid, uid))
+    return rows[0] if rows else None
+
+
+def album_has(aid, pid):
+    return bool(q("SELECT 1 FROM album_photos ap JOIN photos p ON p.id=ap.photo WHERE ap.album=? AND ap.photo=? AND p.hidden=0",
+                  (aid, pid)))
+
+
 def album_public(a):
     from .devices import ZIP_MAX
     rows = album_rows(a)
-    return {"title": a["title"] or "", "zip_max": ZIP_MAX,
+    return {"title": a["title"] or "", "zip_max": ZIP_MAX, "edit": bool(a["edit"]),
             "photos": [{"id": r["id"], "taken": r["taken"], "v": int(os.path.getmtime(r["view"]) * 1000) if has(r["view"]) else 0,
                         "name": download_name(r)} for r in rows]}
 
@@ -145,7 +158,7 @@ def full_file(ph):
     """Кадр в полном размере: рисуется один раз на каждую правку и лежит в кэше превью (чистится через сутки)."""
     from .pools import HEAVY
     path = PREVIEWS / f"{ph['id']}_full_{ph['rev'] or 0}.jpg"
-    with FULL_LOCKS[ph["id"]]:
+    with FULL_LOCKS[ph["id"] % len(FULL_LOCKS)]:
         if path.exists():
             os.utime(path)
         else:

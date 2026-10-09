@@ -36,7 +36,7 @@ FULL_EDGE = int(os.environ.get("FULL_EDGE", "0"))      # «Файл»: 0 = по�
 
 WEBAPP_URL = os.environ.get("WEBAPP_URL", "")          # https://1-2-3-4.sslip.io/
 WEB_PORT = int(os.environ.get("WEB_PORT", "8088"))
-ORIG_DAYS = float(os.environ.get("ORIGINALS_DAYS", "14"))   # сколько дней держать оригиналы
+ORIG_DAYS = float(os.environ.get("ORIGINALS_DAYS", "0"))   # через сколько дней удалять оригиналы; 0 — только когда не хватает места
 STORAGE_GB = float(os.environ.get("STORAGE_GB", "20"))      # общий лимит на фото
 MIN_FREE_GB = float(os.environ.get("MIN_FREE_GB", "5"))     # сколько места оставлять на диске
 FAST_WORKERS = int(os.environ.get("FAST_WORKERS", "3"))     # процессы для экрана и превью

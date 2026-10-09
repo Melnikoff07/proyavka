@@ -17,9 +17,10 @@ def jpeg(img, q=92):
 
 
 # Эти функции выполняются в процессах-работниках: только рендер и файлы, без базы и Telegram.
-def save_atomic(img, path, quality):
+def save_atomic(img, path, quality, **meta):
+    """meta — exif= и icc_profile= для файлов, которые уходят человеку («Скачать», «Файл»)."""
     tmp = f"{path}.{os.getpid()}.{threading.get_ident()}.tmp"   # уникально: несколько процессов могут писать один файл
-    img.save(tmp, "JPEG", quality=quality, subsampling=0 if quality >= 90 else 2)
+    img.save(tmp, "JPEG", quality=quality, subsampling=0 if quality >= 90 else 2, **meta)
     try:
         os.replace(tmp, path)
     except PermissionError:          # Windows: файл как раз читает другой процесс — его копия не хуже

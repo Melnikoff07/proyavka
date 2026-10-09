@@ -6,10 +6,29 @@ from .config import PREVIEWS, log
 from .i18n import L
 from .util import fsize, remove
 from .imaging import has
-from .database import get, run
+from .database import get, q, run
 from .pools import NET
 from .telegram import _delete_messages
 from .scheduler import schedule_view
+
+
+BATCH_MAX = 500
+
+
+def batch_ids(data, uid, album=None):
+    ids = data.get("ids")
+    if not isinstance(ids, list) or not ids or len(ids) > BATCH_MAX:
+        raise ValueError(L(f"выбери от 1 до {BATCH_MAX} кадров", f"select 1 to {BATCH_MAX} frames"))
+    try:
+        ids = list(dict.fromkeys(int(i) for i in ids))
+    except (TypeError, ValueError):
+        raise ValueError(L("неверный список кадров", "invalid frame list"))
+    marks = ",".join("?" * len(ids))
+    if album:                                 # гость: только кадры своего альбома
+        return [r["id"] for r in q(f"SELECT p.id FROM photos p JOIN album_photos ap ON ap.photo=p.id WHERE ap.album=? "
+                                   f"AND p.hidden=0 AND p.owner=? AND p.id IN ({marks}) ORDER BY p.id", (album, uid, *ids))]
+    return [r["id"] for r in q(f"SELECT id FROM photos WHERE hidden=0 AND owner=? AND id IN ({marks}) ORDER BY id",
+                               (uid, *ids))]
 
 
 def delete_photos(ids):

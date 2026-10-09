@@ -545,7 +545,7 @@ def tg_worker():
                 _tg_settled(pid)
 
 
-def apply_changes(ph, changes, sync_tg=None, prio=0):
+def apply_changes(ph, changes, sync_tg=None, prio=0, chat=True):
     """Поставить изменения в очередь и сразу вернуть состояние. Рисуется фоном.
     prio: 0 — правка одного кадра, 1 — пакетная (уступает одиночным)."""
     fields = {}
@@ -587,5 +587,5 @@ def apply_changes(ph, changes, sync_tg=None, prio=0):
         return cur
     cols = ", ".join(f"{k}=?" for k in fields)
     run(f"UPDATE photos SET {cols}, rev=rev+1, updated=? WHERE id=?", (*fields.values(), time.time(), ph["id"]))
-    schedule_view(ph["id"], prio=prio)
+    schedule_view(ph["id"], prio=prio, chat=chat)
     return get(ph["id"])

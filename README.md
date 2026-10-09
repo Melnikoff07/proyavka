@@ -44,7 +44,7 @@ You can move processing home and keep the VPS as a mere mailbox — the smallest
 
 ## Requirements
 
-- **A VPS with Ubuntu 22.04+ or Debian 12+**: 1 CPU and 1–2 GB of RAM is enough. A clean one is best: the wizard installs nginx and vsftpd on it
+- **A VPS with Ubuntu 24.04+ or Debian 12+** (Python 3.11 or newer): 1 CPU and 1–2 GB of RAM is enough. A clean one is best: the wizard installs nginx and vsftpd on it
 - **Telegram is optional.** Proyavka works as an app in a browser and on a phone; connect a bot right away or later ([@BotFather](https://t.me/BotFather), a minute)
 - No domain needed: the wizard uses a free name like `1-2-3-4.sslip.io` with a Let's Encrypt certificate
 

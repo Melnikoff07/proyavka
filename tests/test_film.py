@@ -204,9 +204,38 @@ if __name__ == "__main__":
     a1 = np.asarray(film.apply_fx_linear(night, acc, strip=64), dtype=np.int16)
     a2 = np.asarray(film.apply_fx_linear(night, acc, strip=4000), dtype=np.int16)
     check(f"полосами и целиком — одно и то же (расхождение {int(np.abs(a1 - a2).max())})", int(np.abs(a1 - a2).max()) <= 1)
+    big = Image.fromarray(np.tile(spot, (2, 2, 1))[:2000, :3200])       # больше 6 Мп: считается в потоках
+    b1 = np.asarray(film.apply_fx_linear(big, np.tile(acc, (2, 2, 1)), strip=256), dtype=np.int16)
+    film.FX_THREADS, keep = 1, film.FX_THREADS
+    b2 = np.asarray(film.apply_fx_linear(big, np.tile(acc, (2, 2, 1)), strip=256), dtype=np.int16)
+    film.FX_THREADS = keep
+    check("в потоках и в одном — одно и то же", np.array_equal(b1, b2))
+    zero = np.zeros_like(acc)
+    z = np.asarray(film.apply_fx_linear(night, zero), dtype=np.int16)
+    check(f"таблицы без свечения возвращают кадр с точностью до уровня ({int(np.abs(z - np.asarray(night, dtype=np.int16)).max())})",
+          int(np.abs(z - np.asarray(night, dtype=np.int16)).max()) <= 1)
     check("без свечения в линейном режиме кадр не меняется", np.array_equal(np.asarray(film.film(night.copy(), "custom", 100, 1, flat(linear=1))), np.asarray(film.film(night.copy(), "custom", 100, 1, flat()))))
     sample_big = Image.open(HERE / "testdata" / "a6300_DSC00266.JPG").convert("RGB")
     check("на полном кадре 6000×4000 линейный режим отрабатывает", film.film(sample_big, "custom", 100, 1, film.clean_params(dict(film.params_json(film.clean_params(film.PRESETS["night800"])), linear=1))).size == (6000, 4000))
+
+    # --- зерно в превью: подогнано под итоговый кадр, уменьшенный до того же размера ---
+    def grain_std(key, W, H, down=None, fit=False):
+        pr = dict(film.PRESETS[key], vignette=0, halation=0, bloom=0)
+        pr0 = dict(pr, grain=0)
+        gray = Image.new("RGB", (W, H), (118, 118, 118))
+        a, b = film.film(gray, key, 100, 1, pr, fit), film.film(gray, key, 100, 1, pr0, fit)
+        if down:
+            a, b = (x.resize((down, round(down * H / W)), Image.LANCZOS) for x in (a, b))
+        d = np.asarray(a.convert("L"), dtype=np.float32) - np.asarray(b.convert("L"), dtype=np.float32)
+        h2, w2 = d.shape
+        return float(d[h2 // 4:3 * h2 // 4, w2 // 4:3 * w2 // 4].std())
+    for key in ("street_neg", "vivid50", "push3200"):
+        for W in (420, 1600):
+            want = grain_std(key, 6000, 4000, W)
+            raw = grain_std(key, W, W * 2 // 3)
+            got = grain_std(key, W, W * 2 // 3, fit=True)
+            check(f"зерно превью {key} {W} px: итог {want:.2f}, без поправки {raw:.2f}, с поправкой {got:.2f}",
+                  abs(got - want) <= 0.15 * want + 0.15 and (raw > want * 1.15 or abs(raw - want) < 0.15 * want))
 
     # --- чужие данные: огромные числа и пустые веса ч/б ---
     huge = 10 ** 400                                   # целое из 400 цифр JSON разбирает, а float() на нём — OverflowError

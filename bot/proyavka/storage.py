@@ -42,10 +42,11 @@ def cleanup():
     for p in TMP.iterdir():                 # версии для чата, которые устарели, пока ждали отправки
         if p.is_file() and now - p.stat().st_mtime > 3600:
             remove(p)
-    # 1) старые оригиналы (они есть на карте камеры)
-    for r in q("SELECT id, src FROM photos WHERE src IS NOT NULL AND created < ?", (now - ORIG_DAYS * 86400,)):
-        remove(r["src"])
-        upd(r["id"], src=None)
+    # 1) оригиналы старше ORIGINALS_DAYS (по умолчанию не трогаем: их удаляет нехватка места, ниже)
+    if ORIG_DAYS > 0:
+        for r in q("SELECT id, src FROM photos WHERE src IS NOT NULL AND created < ?", (now - ORIG_DAYS * 86400,)):
+            remove(r["src"])
+            upd(r["id"], src=None)
     # 2) лимит каждого пользователя
     for uid in list(USERS):
         enforce_limit(uid)
@@ -101,11 +102,11 @@ def storage_text(uid):
     text = L(f"Кадров в ленте: {n['n'] or 0}\n"
              f"С оригиналом: {n['o'] or 0}, можно менять плёнку: {n['w'] or 0}\n"
              f"Оригиналы: {gb(use['src'])}, рабочие копии: {gb(use['work'])}, превью: {gb(use['pics'])}\n"
-             f"Занято {gb(sum(use.values()))} из {lim}, оригиналы живут {ORIG_DAYS:g} дн.",
+             f"Занято {gb(sum(use.values()))} из {lim}, {f'оригиналы живут {ORIG_DAYS:g} дн.' if ORIG_DAYS else 'оригиналы хранятся, пока хватает места'}",
              f"Frames in feed: {n['n'] or 0}\n"
              f"With original: {n['o'] or 0}, film can be changed: {n['w'] or 0}\n"
              f"Originals: {gb(use['src'])}, working copies: {gb(use['work'])}, previews: {gb(use['pics'])}\n"
-             f"Used {gb(sum(use.values()))} of {lim}, originals kept {ORIG_DAYS:g} days")
+             f"Used {gb(sum(use.values()))} of {lim}, {f'originals kept {ORIG_DAYS:g} days' if ORIG_DAYS else 'originals kept while there is space'}")
     if uid == ADMIN:
         du = shutil.disk_usage(BASE)
         text += L(f"\nСвободно на диске: {gb(du.free)} из {gb(du.total)}", f"\nFree disk space: {gb(du.free)} of {gb(du.total)}")
