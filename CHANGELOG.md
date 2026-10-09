@@ -2,7 +2,7 @@
 
 English first, [по-русски — ниже](#журнал-изменений).
 
-## Unreleased
+## 1.6 — 2026-10-10
 
 ### Films
 - The colour and tone of all 25 built-in films were re-fitted against reference renders (the same frames developed with real film emulations): curves, black lift, tints, saturation and per-colour bands. Grain, halation, glow and vignette are unchanged. Frames already rendered are redrawn in the background once after the update (films version 4); the previous values are kept in `bot/films_v3.json`.
@@ -144,7 +144,7 @@ English first, [по-русски — ниже](#журнал-изменений
 
 # Журнал изменений
 
-## Unreleased
+## 1.6 — 2026-10-10
 
 ### Плёнки
 - Цвет и тон всех 25 встроенных плёнок заново подогнаны по эталонным кадрам (те же кадры, проявленные настоящими эмуляциями плёнок): кривые, подъём чёрного, тонировка, насыщенность и цветовые полосы. Зерно, халяция, свечение и виньетка прежние. Уже готовые кадры после обновления один раз перерисуются в фоне (версия плёнок 4); прежние значения — в `bot/films_v3.json`.
