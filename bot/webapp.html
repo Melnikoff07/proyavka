@@ -303,6 +303,9 @@
   .pairform input { text-transform: uppercase; letter-spacing: .08em; }
   .pairform input::placeholder { text-transform: none; letter-spacing: 0; }
   .pastebtn { color: var(--muted); padding: 12px 0 0; }
+  .betalink { display: inline-block; margin-top: 18px; color: var(--text); }
+  .beta-note { color: var(--text); }
+  .beta-note b { font-weight: 500; color: #e8441a; }
   .paircode { font-size: 34px; font-weight: 500; letter-spacing: .06em; margin: 2px 0 10px; user-select: all; -webkit-user-select: all; }
   .al-name { width: 100%; font: inherit; font-size: 16px; color: var(--text); background: var(--tile); border: 0; padding: 0 12px; height: 44px; }
   .al-acts { padding: 16px 0 0; }
@@ -421,6 +424,7 @@
   <input type="file" id="picker" accept="image/*,.dng,.arw,.cr2,.cr3,.nef,.raf,.orf,.rw2,.pef,.srw" multiple hidden>
   <input type="file" id="lutPicker" accept=".cube" hidden>
   <p class="sub" id="sub"></p>
+  <p class="sub beta-note" id="betaNote" hidden></p>
   <p class="sub" id="iosHint" hidden data-i18n="To install as an app: Share → Add to Home Screen.">Поставить как приложение: «Поделиться» → «На экран „Домой“».</p>
 </header>
 <nav class="maintabs cap" id="mainTabs" role="tablist" hidden>
@@ -1824,7 +1828,9 @@ async function renderUsers(list) {
     row.className = "st-user";
     const gb = Math.round(u.limit / 1e8) / 10;
     row.innerHTML = `<div class="dn"><span>${esc(u.name)}${u.admin ? T(" — администратор", " — admin") : ""}</span>` +
-      `<span class="cap muted">${u.frames} · ${fmtB(u.used)} / ${fmtB(u.limit)}${u.telegram ? " · Telegram" : ""}</span></div>` +
+      `<span class="cap muted">${u.frames} · ${fmtB(u.used)} / ${fmtB(u.limit)}${u.telegram ? " · Telegram" : ""}` +
+      `${u.expires ? T(" · бета, ещё ", " · beta, ") + Math.max(0, Math.round((u.expires - Date.now() / 1000) / 3600)) + T(" ч", "h left") : ""}</span></div>` +
+      (u.expires ? `<button class="cap" data-act="extend">${T("Продлить", "Extend")}</button>` : "") +
       `<button class="cap" data-act="limit">${gb} ${T("ГБ", "GB")} ▸</button>` +
       (u.admin ? "" : `<button class="cap" data-act="del">${T("Удалить", "Remove")}</button>`);
     row.querySelector('[data-act="limit"]').onclick = async () => {      // лимит по кругу; свой у администратора — тоже
@@ -1833,6 +1839,9 @@ async function renderUsers(list) {
         renderUsers(await api(`/api/user/${u.id}/limit`, { gb: next }));
         if (u.admin) renderMe();
       } catch (e) { toast(e.message); }
+    };
+    if (u.expires) row.querySelector('[data-act="extend"]').onclick = async () => {
+      try { renderUsers(await api(`/api/user/${u.id}/extend`, {})); toast(T("Слот продлён", "Slot extended")); } catch (e) { toast(e.message); }
     };
     if (!u.admin) {
       row.querySelector('[data-act="del"]').onclick = () => ask(T(`Удалить «${u.name}»? Все его кадры и файлы будут стёрты, камера отключена.`, `Remove "${u.name}"? All their frames and files will be erased and the camera disconnected.`),
@@ -2034,6 +2043,15 @@ function showPairing(msg) {
     `<button class="btn">${T("Войти", "Sign in")}</button></form>` +
     (navigator.clipboard && navigator.clipboard.readText ? `<button class="pastebtn cap" id="pairPaste">${T("Вставить из буфера", "Paste from clipboard")}</button>` : "") +
     `</div>`;
+  fetch("/api/beta").then((r) => r.ok && r.json()).then((b) => {        // открытая бета: можно войти и без кода
+    if (!b || !b.on || !$("pairForm")) return;
+    const a = document.createElement("a");
+    a.className = "betalink cap";
+    a.href = "/beta";
+    a.textContent = b.free ? T(`Нет кода? Открытая бета — свободно слотов: ${b.free} →`, `No code? Open beta — ${b.free} free slots →`)
+                           : T("Открытая бета: все слоты заняты →", "Open beta: all slots are taken →");
+    $("pairForm").parentNode.appendChild(a);
+  }).catch(() => {});
   const go = (v) => {
     const m = /pair=([\w-]+)/.exec(v);
     const code = (m ? m[1] : v).replace(/[^0-9a-z]/gi, "");
@@ -2065,6 +2083,17 @@ function askName(code) {
     };
   });
 }
+function betaNote(exp) {               // участник открытой беты: сколько осталось
+  const sec = exp - Date.now() / 1000;
+  const d = Math.floor(sec / 86400), h = Math.floor((sec % 86400) / 3600);
+  const left = sec <= 0 ? T("минуты", "minutes") : d ? T(`${d} д ${h} ч`, `${d}d ${h}h`) : h ? T(`${h} ч`, `${h}h`) : T("меньше часа", "under an hour");
+  $("betaNote").innerHTML = T(`<b>Бета</b> · осталось ${left}. Потом аккаунт и кадры удалятся — скачай нужное.`,
+                              `<b>Beta</b> · ${left} left. Then the account and frames are deleted — download what you need.`);
+  $("betaNote").hidden = false;
+  clearTimeout(betaNote.t);
+  betaNote.t = setTimeout(() => betaNote(exp), 60000);
+}
+
 async function signIn() {
   if (tg) return api("/api/auth", { initData: tg.initData });
   const m = /[#&]pair=([\w-]+)/.exec(location.hash);
@@ -3073,6 +3102,7 @@ async function uploadAll(files) {
     }
     token = a.token;
     media = a.media || "";
+    if (a.expires) betaNote(a.expires);
     if (a.lang && a.lang !== LANG) { LANG = a.lang; translatePage(); }
     const pj = await api("/api/presets");
     presets = pj.presets;

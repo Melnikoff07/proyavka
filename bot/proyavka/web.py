@@ -13,8 +13,8 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
-from . import config
-from .config import COMMUNITY_BUNDLED, LANG, PREVIEWS, STRENGTHS, TMP, UPLOAD_MAX, WEB_BASE, WEB_PORT, log
+from . import beta, config
+from .config import COMMUNITY_BUNDLED, CONTACT_TG, LANG, PROJECT_URL, PREVIEWS, STRENGTHS, TMP, UPLOAD_MAX, WEB_BASE, WEB_PORT, log
 from .i18n import L, tr, _CTX
 from .util import disposition, download_name, qr_svg, remove
 from .film import LUT_MAX_BYTES, PRESETS, canon, clean_params, params_json, parse_look_code, pname
@@ -307,6 +307,29 @@ class Handler(BaseHTTPRequestHandler):
                              {"Content-Disposition": disposition(download_name(ph))})
         return self.err(404, L("не найдено", "not found"))
 
+    BETA_FILES = {"guide.json": "application/json", "lottie.min.js": "text/javascript; charset=utf-8"}
+
+    def beta_get(self, rest):
+        """/beta — страница открытой беты, /beta/<файл>, /beta/film/<плёнка>.jpg; /api/beta (rest=None) — слоты."""
+        if not beta.BETA:
+            return self.err(404, L("не найдено", "not found"))
+        if rest is None:
+            return self.js(beta.status(self.authed({})))
+        if not rest:
+            page = Path(beta.BETA_DIR, "index.html").read_text(encoding="utf-8")
+            base = config.WEBAPP_URL.rstrip("/")
+            page = page.replace("{{BASE}}", base).replace("{{PROJECT}}", PROJECT_URL).replace("{{CONTACT}}", CONTACT_TG or "")
+            return self.send(200, page, "text/html; charset=utf-8", "no-cache", {"Content-Security-Policy": CSP})
+        if len(rest) == 1 and rest[0] in self.BETA_FILES:
+            return self.send(200, Path(beta.BETA_DIR, rest[0]).read_bytes(), self.BETA_FILES[rest[0]], "public, max-age=3600")
+        if rest == ["sample.jpg"]:
+            return self.send(200, (COMMUNITY_BUNDLED.parent / "sample.jpg").read_bytes(), "image/jpeg", "public, max-age=86400")
+        if len(rest) == 2 and rest[0] == "film" and rest[1].endswith(".jpg"):
+            path = beta.sample_film(rest[1][:-4])
+            if path:
+                return self.send(200, path.read_bytes(), "image/jpeg", "public, max-age=86400")
+        return self.err(404, L("не найдено", "not found"))
+
     def js(self, obj, code=200):
         self.send(code, json.dumps(obj, ensure_ascii=False))
 
@@ -407,6 +430,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send(200, app_icon(size), "image/png", "max-age=86400")
             if parts[0] == "a":
                 return self.album_get(parts[1:])
+            if parts[0] == "beta" or parts == ["api", "beta"]:
+                return self.beta_get(parts[1:] if parts[0] == "beta" else None)
             if len(parts) == 2 and parts[0] == "fonts" and re.fullmatch(r"[a-z-]+\.woff2", parts[1]):      # шрифты страниц: без входа
                 from .config import FONTS_DIR
                 f = FONTS_DIR / parts[1]
@@ -629,6 +654,18 @@ class Handler(BaseHTTPRequestHandler):
                 key, uid, did = got
                 body = {"token": self.new_session(uid, did=did), "media": media_token(uid), "device": key, "lang": user_lang(uid)}
                 return self.send(200, json.dumps(body, ensure_ascii=False), headers=self.device_cookie(key))
+            if parts == ["api", "beta", "join"]:
+                if too_many_fails(self.ip(), everyone=True):
+                    return self.err(429, L("слишком много попыток, подожди 10 минут", "too many attempts, wait 10 minutes"))
+                if data.get("lang") in ("ru", "en"):
+                    _CTX.lang = data["lang"]
+                try:
+                    key, uid, did = beta.join(data.get("name"), self.ip(), data.get("device") or "Browser", data.get("lang"))
+                except PermissionError as e:
+                    return self.err(403, str(e))
+                body = {"token": self.new_session(uid, did=did), "media": media_token(uid), "device": key, "lang": user_lang(uid),
+                        "expires": user(uid)["expires"]}
+                return self.send(200, json.dumps(body, ensure_ascii=False), headers=self.device_cookie(key))
             if parts == ["api", "auth"] and data.get("album"):       # гость по ссылке альбома с правкой
                 if too_many_fails(self.ip()):
                     return self.err(429, L("слишком много попыток, подожди 10 минут", "too many attempts, wait 10 minutes"))
@@ -649,7 +686,7 @@ class Handler(BaseHTTPRequestHandler):
                         note_fail(self.ip())
                         return self.err(401, L("это устройство отключено — привяжи его заново", "this device was removed — link it again"))
                     body = {"token": self.new_session(dev["owner"], data.get("token"), dev["id"]), "media": media_token(dev["owner"]),
-                            "lang": user_lang(dev["owner"])}
+                            "lang": user_lang(dev["owner"]), "expires": user(dev["owner"])["expires"]}
                     if not data.get("device"):
                         body["device"] = key        # пришёл по cookie (iPhone перенёс её в приложение) — ключ себе в localStorage
                     return self.send(200, json.dumps(body, ensure_ascii=False), headers=self.device_cookie(key))
@@ -764,6 +801,9 @@ class Handler(BaseHTTPRequestHandler):
                     if gb not in LIMITS_GB:
                         return self.err(400, "gb")
                     set_limit(target, gb)
+                    return self.js({"users": users_json()})
+                if parts[3] == "extend":
+                    beta.extend(target)
                     return self.js({"users": users_json()})
                 if parts[3] == "delete" and target != ADMIN:
                     n = delete_user(target)

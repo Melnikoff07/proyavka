@@ -61,20 +61,31 @@ def invite_open(code):
 JOIN_LOCK = threading.Lock()
 
 
+def next_web_uid():
+    """Номер для нового пользователя без Telegram (под JOIN_LOCK)."""
+    top = q("SELECT MAX(id) AS m FROM users WHERE id >= ?", (WEB_BASE,))[0]["m"]
+    used = q("SELECT MAX(used_by) AS m FROM invites WHERE used_by >= ?", (WEB_BASE,))[0]["m"]   # и удалённые: номер не переиспользуется
+    gone = q("SELECT MAX(id) AS m FROM beta_gone")[0]["m"]                                     # и ушедшие из беты
+    return max(top or WEB_BASE, used or WEB_BASE, gone or WEB_BASE, WEB_BASE) + 1
+
+
+def add_web_user(uid, name, invited_by=None, **cols):
+    cols = {"id": uid, "role": "user", "name": name, "lang": cur_lang(), "default_film": "auto",
+            "created": time.time(), "invited_by": invited_by, **cols}
+    run(f"INSERT INTO users({', '.join(cols)}) VALUES ({', '.join('?' * len(cols))})", tuple(cols.values()))
+    load_users()
+
+
 def join_by_invite(code, name, device_name):
     """Новый пользователь из «Проявки» по коду приглашения: номер с WEB_BASE, сразу и устройство."""
     name = re.sub(r"[\x00-\x1f<>]", "", str(name or "")).strip()[:40]
     if not name:
         raise ValueError(L("как тебя зовут?", "what is your name?"))
     with JOIN_LOCK:
-        top = q("SELECT MAX(id) AS m FROM users WHERE id >= ?", (WEB_BASE,))[0]["m"]
-        used = q("SELECT MAX(used_by) AS m FROM invites WHERE used_by >= ?", (WEB_BASE,))[0]["m"]   # и удалённые: номер не переиспользуется
-        uid = max(top or WEB_BASE, used or WEB_BASE, WEB_BASE) + 1
+        uid = next_web_uid()
         if not use_invite(code, uid):
             return None
-        run("INSERT INTO users(id, role, name, lang, default_film, created, invited_by) VALUES (?, 'user', ?, ?, 'auto', ?, ?)",
-            (uid, name, cur_lang(), time.time(), INVITED_BY.pop(uid, None)))
-        load_users()
+        add_web_user(uid, name, invited_by=INVITED_BY.pop(uid, None))
     log.info("новый пользователь %s (%d) по приглашению, без Telegram", name, uid)
     with speak(ADMIN):
         safe("sendMessage", chat_id=ADMIN, text=L("По приглашению пришёл", "Joined by invite") + f": {name}")

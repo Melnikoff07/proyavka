@@ -55,6 +55,9 @@ def init_db():
         ucols = {r[1] for r in db.execute("PRAGMA table_info(users)")}
         if "tg" not in ucols:
             db.execute("ALTER TABLE users ADD COLUMN tg INTEGER")       # чат в Telegram (пусто — без Telegram)
+        if "expires" not in ucols:                                       # открытая бета: когда слот освобождается
+            db.execute("ALTER TABLE users ADD COLUMN expires REAL")
+        db.execute("CREATE TABLE IF NOT EXISTS beta_gone(id INTEGER PRIMARY KEY, name TEXT, gone REAL)")
         if "media_epoch" not in ucols:                                   # растёт при отвязке устройства: старые ссылки на картинки гаснут
             db.execute("ALTER TABLE users ADD COLUMN media_epoch INTEGER DEFAULT 0")
         db.execute("""CREATE TABLE IF NOT EXISTS pairs(

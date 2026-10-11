@@ -26,7 +26,7 @@ import threading
 import time
 from pathlib import Path
 
-from proyavka import config
+from proyavka import beta, config
 from proyavka.botui import handle_updates
 from proyavka.config import LOCAL, RAW_MISSING, TMP, VPS, log
 from proyavka.database import init_db
@@ -77,6 +77,7 @@ def main():
     for p in TMP.iterdir():
         remove(str(p))
     threading.Thread(target=dispatcher, daemon=True, name="dispatcher").start()
+    beta.start()
     init_pools()
     threading.Thread(target=tg_worker, daemon=True, name="tg").start()
     start_web()

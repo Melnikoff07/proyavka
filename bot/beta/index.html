@@ -1,0 +1,679 @@
+<!doctype html>
+<html lang="ru" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Проявка — открытая бета</title>
+<meta name="description" content="Camera shoots, the server develops: film looks for your camera, delivered to your phone. Open beta — free 500 MB slot for 3 days.">
+<meta property="og:title" content="Proyavka — open beta">
+<meta property="og:description" content="Film for your camera: colour, grain, halation — delivered to your phone. Free 500 MB slot for 3 days.">
+<meta property="og:image" content="{{BASE}}/beta/film/super400.jpg">
+<meta property="og:type" content="website">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="icon" href="/icon-192.png">
+<meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#000000" media="(prefers-color-scheme: dark)">
+<style>
+  @font-face { font-family: "Inter Tight"; font-weight: 400 500; font-display: swap; src: url(/fonts/intertight-latin.woff2) format("woff2");
+    unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD; }
+  @font-face { font-family: "Inter Tight"; font-weight: 400 500; font-display: swap; src: url(/fonts/intertight-cyrillic.woff2) format("woff2");
+    unicode-range: U+0301, U+0400-045F, U+0490-0491, U+04B0-04B1, U+2116; }
+  @font-face { font-family: "Inter Tight"; font-weight: 400 500; font-display: swap; src: url(/fonts/intertight-cyrillic-ext.woff2) format("woff2");
+    unicode-range: U+0460-052F, U+1C80-1C8A, U+20B4, U+2DE0-2DFF, U+A640-A69F, U+FE2E-FE2F; }
+  :root {
+    --bg: #ffffff; --tile: #f2f1ef; --screen: #e9e7e3; --text: #000000; --muted: #858585; --rule: #e4e4e4;
+    --btn-bg: #000000; --btn-text: #ffffff; --acc: #e8441a;
+    --font: "Inter Tight", -apple-system, "SF Pro Text", "Helvetica Neue", Roboto, Arial, sans-serif;
+    --pad: 16px; --max: 1180px;
+  }
+  [data-theme="dark"] {
+    --bg: #000000; --tile: #121212; --screen: #262626; --text: #ffffff; --muted: #7d7d7d; --rule: #262626;
+    --btn-bg: #ffffff; --btn-text: #000000;
+  }
+  @media (min-width: 700px) { :root { --pad: 32px; } }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  html, body { margin: 0; background: var(--bg); color: var(--text); font: 400 15px/1.45 var(--font); -webkit-font-smoothing: antialiased; }
+  body { overflow-x: hidden; }
+  a { color: inherit; }
+  button { font: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer; }
+  button:focus-visible, a:focus-visible, input:focus-visible, summary:focus-visible { outline: 1.5px solid var(--text); outline-offset: 3px; }
+  html:not(.en) .en, html.en .ru { display: none !important; }
+  .cap { font-size: 11px; line-height: 1.2; font-weight: 500; letter-spacing: .05em; text-transform: uppercase; }
+  .muted { color: var(--muted); }
+  .wrap { max-width: var(--max); margin: 0 auto; padding: 0 var(--pad); }
+
+  /* шапка */
+  .top { position: sticky; top: 0; z-index: 20; background: color-mix(in srgb, var(--bg) 86%, transparent);
+    -webkit-backdrop-filter: blur(14px); backdrop-filter: blur(14px); border-bottom: 1px solid transparent; transition: border-color .2s; }
+  .top.scrolled { border-bottom-color: var(--rule); }
+  .top .wrap { display: flex; align-items: center; justify-content: space-between; height: 56px; padding-top: env(safe-area-inset-top, 0px); }
+  .brand { display: flex; align-items: center; gap: 10px; font-size: 19px; font-weight: 500; letter-spacing: -.03em; text-decoration: none; }
+  .badge { padding: 4px 7px 3px; border: 1px solid currentColor; border-radius: 99px; color: var(--acc); }
+  .top nav { display: flex; align-items: center; gap: 18px; }
+  .top nav a { text-decoration: none; }
+  .lang button { color: var(--muted); padding: 4px 0; }
+  .lang button[aria-pressed="true"] { color: var(--text); }
+  .hide-s { display: none; }
+  @media (min-width: 700px) { .hide-s { display: inline; } }
+
+  /* первый экран */
+  .hero { padding-top: 48px; padding-bottom: 28px; }
+  .eyebrow { display: flex; flex-wrap: wrap; gap: 6px 14px; align-items: center; }
+  .live { display: inline-flex; align-items: center; gap: 7px; }
+  .live i { width: 7px; height: 7px; border-radius: 50%; background: var(--acc); box-shadow: 0 0 0 0 var(--acc); animation: ping 2s infinite; }
+  @keyframes ping { 0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--acc) 55%, transparent); } 80%, 100% { box-shadow: 0 0 0 9px transparent; } }
+  h1 { margin: 18px 0 0; font-size: clamp(44px, 9.6vw, 116px); line-height: .92; font-weight: 500; letter-spacing: -.045em; max-width: 12ch; }
+  h1 em { font-style: normal; color: var(--acc); }
+  .lead { margin: 22px 0 0; max-width: 46ch; font-size: clamp(16px, 1.9vw, 19px); line-height: 1.45; }
+  .ctas { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 28px; }
+  .btn { display: inline-flex; align-items: center; justify-content: center; gap: 10px; height: 50px; padding: 0 24px; border-radius: 99px;
+    background: var(--btn-bg); color: var(--btn-text); font-size: 15px; font-weight: 500; text-decoration: none; transition: transform .15s; }
+  .btn:active { transform: scale(.97); }
+  .btn.ghost { background: none; color: var(--text); box-shadow: inset 0 0 0 1px var(--rule); }
+  .btn.acc { background: var(--acc); color: #fff; }
+  .btn:disabled { opacity: .4; cursor: default; transform: none; }
+  .btn .arr { transition: transform .2s; }
+  .btn:hover .arr { transform: translateX(3px); }
+
+  /* до / после */
+  .compare { position: relative; margin-top: 40px; border-radius: 18px; overflow: hidden; background: var(--tile); aspect-ratio: 3 / 2;
+    touch-action: pan-y; user-select: none; -webkit-user-select: none; cursor: ew-resize; }
+  .compare img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; display: block; pointer-events: none; }
+  @media (min-width: 900px) { .compare { aspect-ratio: 2 / 1; } }
+  .compare .after { clip-path: inset(0 0 0 var(--p, 50%)); transition: opacity .35s; }
+  .compare .after.loading { opacity: .35; }
+  .compare .handle { position: absolute; top: 0; bottom: 0; left: var(--p, 50%); width: 2px; margin-left: -1px; background: #fff; pointer-events: none; }
+  .compare .handle::after { content: "‹ ›"; position: absolute; top: 50%; left: 50%; width: 44px; height: 44px; margin: -22px 0 0 -22px; border-radius: 50%;
+    background: #fff; color: #000; display: grid; place-items: center; font-size: 18px; letter-spacing: 2px; box-shadow: 0 4px 18px rgba(0,0,0,.25); }
+  .compare .lbl { position: absolute; bottom: 12px; padding: 6px 9px 5px; border-radius: 99px; background: rgba(0,0,0,.55); color: #fff;
+    -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px); pointer-events: none; }
+  .compare .lbl.l { left: 12px; } .compare .lbl.r { right: 12px; }
+  .films { display: flex; gap: 8px; margin: 14px 0 0; overflow-x: auto; scrollbar-width: none; padding-bottom: 2px; }
+  .films::-webkit-scrollbar { display: none; }
+  .films button { flex: 0 0 auto; padding: 9px 14px 8px; border-radius: 99px; box-shadow: inset 0 0 0 1px var(--rule); white-space: nowrap; }
+  .films button[aria-pressed="true"] { background: var(--text); color: var(--bg); box-shadow: none; }
+  .filmdesc { margin: 10px 0 0; min-height: 1.45em; }
+
+  /* разделы */
+  section.wrap { padding-top: 72px; }
+  .sec-h { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; padding-bottom: 14px; border-bottom: 1px solid var(--text); }
+  h2 { margin: 26px 0 0; font-size: clamp(30px, 5.4vw, 60px); line-height: 1; font-weight: 500; letter-spacing: -.04em; max-width: 16ch; }
+  .feats { display: grid; grid-template-columns: 1fr; margin-top: 28px; border-top: 1px solid var(--rule); }
+  @media (min-width: 700px) { .feats { grid-template-columns: 1fr 1fr; } }
+  @media (min-width: 1000px) { .feats { grid-template-columns: repeat(4, 1fr); } }
+  .feat { padding: 20px 20px 24px 0; border-bottom: 1px solid var(--rule); }
+  @media (min-width: 700px) { .feat { padding-right: 28px; } }
+  .feat .n { color: var(--acc); }
+  .feat h3 { margin: 26px 0 8px; font-size: 19px; line-height: 1.15; font-weight: 500; letter-spacing: -.02em; }
+  .feat p { margin: 0; color: var(--muted); }
+
+  /* гайд */
+  .guide { display: grid; gap: 20px; margin-top: 28px; }
+  @media (min-width: 900px) { .guide { grid-template-columns: 1.45fr 1fr; gap: 40px; align-items: center; } }
+  .stage { position: relative; aspect-ratio: 8 / 5; border-radius: 18px; background: var(--tile); overflow: hidden; }
+  .stage svg [fill="rgb(17,17,17)"] { fill: var(--text); }
+  .stage svg [stroke="rgb(17,17,17)"] { stroke: var(--text); }
+  .stage svg [fill="rgb(250,250,250)"] { fill: var(--bg); }
+  .stage svg [stroke="rgb(250,250,250)"] { stroke: var(--bg); }
+  .stage svg [fill="rgb(242,241,239)"] { fill: var(--screen); }
+  .stage .play { position: absolute; right: 12px; bottom: 12px; width: 36px; height: 36px; border-radius: 50%; background: var(--bg);
+    box-shadow: inset 0 0 0 1px var(--rule); display: grid; place-items: center; font-size: 12px; }
+  .steps { display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; }
+  .steps button { height: 26px; display: flex; align-items: center; }
+  .steps button i { display: block; width: 100%; height: 3px; border-radius: 2px; background: var(--rule); overflow: hidden; }
+  .steps button i b { display: block; height: 100%; width: 0; background: var(--text); }
+  .step-n { margin-top: 18px; color: var(--acc); }
+  .step-t { margin: 10px 0 0; font-size: clamp(24px, 3.2vw, 36px); line-height: 1.05; font-weight: 500; letter-spacing: -.03em; }
+  .step-p { margin: 12px 0 0; color: var(--muted); max-width: 44ch; min-height: 4.4em; }
+  .step-anim { animation: rise .45s cubic-bezier(.2, .8, .2, 1); }
+  @keyframes rise { from { opacity: 0; transform: translateY(8px); } }
+  .alt { margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--rule); color: var(--muted); }
+
+  /* вопросы */
+  .faq { margin-top: 12px; }
+  .faq details { border-bottom: 1px solid var(--rule); }
+  .faq summary { list-style: none; display: flex; justify-content: space-between; gap: 20px; padding: 20px 0; cursor: pointer;
+    font-size: clamp(17px, 2vw, 21px); font-weight: 500; letter-spacing: -.02em; }
+  .faq summary::-webkit-details-marker { display: none; }
+  .faq summary::after { content: "+"; flex: 0 0 auto; font-weight: 400; transition: transform .25s; }
+  .faq details[open] summary::after { transform: rotate(45deg); }
+  .faq .a { padding: 0 0 22px; max-width: 70ch; color: var(--muted); }
+  .faq .a p { margin: 0 0 10px; }
+  .faq .a b { color: var(--text); font-weight: 500; }
+
+  /* финал */
+  .final { margin-top: 88px; }
+  .final::before { content: ""; display: block; border-top: 1px solid var(--text); margin-bottom: 40px; }
+  section.wrap.final { padding-top: 0; }
+  .final h2 { max-width: 14ch; }
+  .mini { display: flex; flex-wrap: wrap; gap: 4px; margin: 26px 0 0; max-width: 640px; }
+  .mini i { width: 22px; height: 15px; border-radius: 3px; background: var(--text); }
+  .mini i.free { background: none; box-shadow: inset 0 0 0 1.5px var(--muted); }
+  footer { margin-top: 88px; padding: 22px 0 calc(28px + env(safe-area-inset-bottom, 0px)); border-top: 1px solid var(--rule); }
+  footer .wrap { display: flex; flex-wrap: wrap; gap: 10px 22px; justify-content: space-between; }
+  footer nav { display: flex; flex-wrap: wrap; gap: 10px 22px; }
+
+  /* появление при прокрутке */
+  .rv { opacity: 0; transform: translateY(18px); transition: opacity .7s, transform .7s cubic-bezier(.2, .8, .2, 1); }
+  .rv.in { opacity: 1; transform: none; }
+
+  /* панель слотов */
+  .scrim { position: fixed; inset: 0; z-index: 50; background: rgba(0,0,0,.45); opacity: 0; transition: opacity .25s; }
+  .scrim.open { opacity: 1; }
+  .panel { position: fixed; z-index: 51; left: 0; right: 0; bottom: 0; max-height: 92dvh; overflow: auto; overscroll-behavior: contain;
+    background: var(--bg); border-radius: 22px 22px 0 0; padding: 10px var(--pad) calc(22px + env(safe-area-inset-bottom, 0px));
+    transform: translateY(100%); transition: transform .38s cubic-bezier(.2, .8, .2, 1); }
+  .panel.open { transform: none; }
+  @media (min-width: 760px) {
+    .panel { left: 50%; right: auto; bottom: auto; top: 50%; width: 680px; max-height: 88vh; border-radius: 22px; padding: 22px 30px 28px;
+      transform: translate(-50%, -46%) scale(.97); opacity: 0; transition: transform .3s cubic-bezier(.2, .8, .2, 1), opacity .25s; }
+    .panel.open { transform: translate(-50%, -50%); opacity: 1; }
+    .panel .grab { display: none; }
+  }
+  .grab { width: 38px; height: 4px; border-radius: 2px; background: var(--rule); margin: 0 auto 14px; }
+  .p-head { display: flex; justify-content: space-between; align-items: center; }
+  .x { width: 34px; height: 34px; border-radius: 50%; background: var(--tile); font-size: 18px; line-height: 1; }
+  .panel h3 { margin: 14px 0 0; font-size: 30px; line-height: 1; font-weight: 500; letter-spacing: -.035em; }
+  .panel .note { margin: 10px 0 0; color: var(--muted); }
+  .stats { display: flex; gap: 22px; margin: 18px 0 0; padding: 12px 0; border-top: 1px solid var(--rule); border-bottom: 1px solid var(--rule); }
+  .stats b { display: block; font-size: 24px; font-weight: 500; letter-spacing: -.03em; }
+  .slots { display: grid; grid-template-columns: repeat(auto-fill, minmax(100px, 1fr)); gap: 6px; margin: 18px 0 0; }
+  .slot { position: relative; aspect-ratio: 3 / 2; border-radius: 8px; padding: 8px 9px; display: flex; flex-direction: column; justify-content: space-between;
+    background: var(--tile); overflow: hidden; animation: rise .4s both; }
+  .slot .no { font-size: 10px; color: var(--muted); }
+  .slot .nick { font-weight: 500; font-size: 14px; line-height: 1.15; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .slot .left { font-size: 12px; color: var(--muted); white-space: nowrap; }
+  .slot .bar { position: absolute; left: 0; bottom: 0; height: 3px; background: var(--text); opacity: .7; }
+  .slot.free { background: none; box-shadow: inset 0 0 0 1.5px var(--rule); }
+  .slot.free .nick { color: var(--muted); font-weight: 400; }
+  .slot.next { box-shadow: inset 0 0 0 1.5px var(--acc); }
+  .slot.next .nick { color: var(--acc); }
+  .slot.me { background: var(--acc); color: #fff; }
+  .slot.me .no, .slot.me .left { color: rgba(255,255,255,.8); }
+  .slot.me .bar { background: #fff; }
+  .form { margin: 18px 0 0; }
+  .slot .nick, .slot .left { position: relative; }
+  .field { display: flex; gap: 8px; }
+  .field input { flex: 1; min-width: 0; height: 50px; padding: 0 16px; border: 0; border-radius: 99px; background: var(--tile); color: var(--text);
+    font: inherit; font-size: 16px; }
+  .field input::placeholder { color: var(--muted); }
+  .fine { margin: 10px 0 0; font-size: 12px; color: var(--muted); }
+  .error { margin: 10px 0 0; color: var(--acc); min-height: 1.2em; }
+  .done { margin: 18px 0 0; padding: 18px; border-radius: 14px; background: var(--tile); }
+  .done h4 { margin: 0; font-size: 20px; font-weight: 500; letter-spacing: -.02em; }
+  .done p { margin: 8px 0 14px; color: var(--muted); }
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation: none !important; transition: none !important; }
+    .rv { opacity: 1; transform: none; }
+  }
+</style>
+</head>
+<body>
+<header class="top" id="top">
+  <div class="wrap">
+    <a class="brand" href="#"><span class="ru">Проявка</span><span class="en">Proyavka</span><span class="badge cap"><span class="ru">бета</span><span class="en">beta</span></span></a>
+    <nav class="cap">
+      <a class="hide-s" href="#how"><span class="ru">Как это работает</span><span class="en">How it works</span></a>
+      <a class="hide-s" href="#faq">FAQ</a>
+      <a href="{{PROJECT}}" target="_blank" rel="noopener">GitHub</a>
+      <span class="lang"><button data-lang="ru" aria-pressed="true">RU</button> / <button data-lang="en" aria-pressed="false">EN</button></span>
+    </nav>
+  </div>
+</header>
+
+<main>
+  <div class="wrap hero">
+    <div class="eyebrow cap">
+      <span class="live"><i></i><span id="heroSlots"><span class="ru">Открытая бета</span><span class="en">Open beta</span></span></span>
+      <span class="muted"><span class="ru">500 МБ · 3 дня · бесплатно</span><span class="en">500 MB · 3 days · free</span></span>
+    </div>
+    <h1><span class="ru">Камера снимает. Сервер <em>проявляет.</em></span><span class="en">You shoot. The server <em>develops.</em></span></h1>
+    <p class="lead">
+      <span class="ru">Проявка превращает кадры с камеры в плёнку — цвет, зерно, халяция, засветы — и сама приносит их в телефон. Без проводов, без Lightroom, без подписок. Открытый код.</span>
+      <span class="en">Proyavka turns your camera's frames into film — colour, grain, halation, light leaks — and brings them to your phone by itself. No cables, no Lightroom, no subscriptions. Open source.</span>
+    </p>
+    <div class="ctas">
+      <button class="btn" data-join><span class="ru">Занять слот в бете</span><span class="en">Join the beta</span><span class="arr">→</span></button>
+      <a class="btn ghost" href="#how"><span class="ru">Как это работает</span><span class="en">How it works</span></a>
+    </div>
+
+    <div class="compare rv" id="compare" style="--p: 50%">
+      <img src="/beta/sample.jpg" alt="" width="1400" height="933">
+      <img class="after" id="after" src="/beta/film/super400.jpg" alt="" width="1400" height="933">
+      <span class="handle" aria-hidden="true"></span>
+      <span class="lbl l cap"><span class="ru">Как снято</span><span class="en">As shot</span></span>
+      <span class="lbl r cap" id="afterLbl">Super 400</span>
+    </div>
+    <div class="films cap" id="films" role="group" aria-label="Films"></div>
+    <p class="filmdesc muted" id="filmDesc"></p>
+  </div>
+
+  <section class="wrap" id="what">
+    <div class="sec-h cap"><span><span class="ru">Что внутри</span><span class="en">What's inside</span></span><span class="muted">01—08</span></div>
+    <h2 class="rv"><span class="ru">Плёночная проявка, которая работает сама.</span><span class="en">A film lab that runs by itself.</span></h2>
+    <div class="feats" id="feats">
+      <div class="feat rv"><div class="n cap">01</div>
+        <h3><span class="ru">Кадры прилетают сами</span><span class="en">Frames arrive by themselves</span></h3>
+        <p><span class="ru">Sony с PlayMemories — через наше приложение на камере, камеры с FTP — напрямую, фото с телефона — кнопкой «+».</span>
+           <span class="en">Sony with PlayMemories apps — via our camera app; FTP cameras — directly; phone photos — with the “+” button.</span></p></div>
+      <div class="feat rv"><div class="n cap">02</div>
+        <h3><span class="ru">25 плёнок</span><span class="en">25 films</span></h3>
+        <p><span class="ru">Негатив, слайд, кино, ч/б, процессы. Авто-выбор по сцене: ночь, закат, пасмурно, пейзаж.</span>
+           <span class="en">Negative, slide, cinema, b&amp;w, processes. Auto pick by scene: night, sunset, overcast, landscape.</span></p></div>
+      <div class="feat rv"><div class="n cap">03</div>
+        <h3><span class="ru">Своя плёнка</span><span class="en">Your own film</span></h3>
+        <p><span class="ru">Ползунки — экспозиция, цвет, свечение, зерно — с живым просмотром на твоём кадре. Делись кодом или бери из каталога сообщества.</span>
+           <span class="en">Sliders — exposure, colour, glow, grain — with a live preview on your frame. Share it as a code or grab one from the community catalog.</span></p></div>
+      <div class="feat rv"><div class="n cap">04</div>
+        <h3><span class="ru">Засветы и кадрирование</span><span class="en">Light leaks and crop</span></h3>
+        <p><span class="ru">12 засветов, дата на кадре, рамка негатива, кроп 1:1 / 4:5 / 3:2 / 16:9. Правка целого дня в пару касаний.</span>
+           <span class="en">12 light leaks, date stamp, negative frame, crop 1:1 / 4:5 / 3:2 / 16:9. Edit a whole day in a couple of taps.</span></p></div>
+      <div class="feat rv"><div class="n cap">05</div>
+        <h3><span class="ru">RAW и полный размер</span><span class="en">RAW and full size</span></h3>
+        <p><span class="ru">ARW, CR3, NEF, RAF, DNG. Скачивай файл или ZIP — с датой съёмки, EXIF и sRGB.</span>
+           <span class="en">ARW, CR3, NEF, RAF, DNG. Download a file or a ZIP — with the shooting date, EXIF and sRGB.</span></p></div>
+      <div class="feat rv"><div class="n cap">06</div>
+        <h3><span class="ru">Альбомы по ссылке</span><span class="en">Albums by link</span></h3>
+        <p><span class="ru">Выбери кадры — отправь ссылку. Смотреть и скачивать можно без входа и регистрации.</span>
+           <span class="en">Pick frames, send a link. Anyone can view and download them — no sign-up.</span></p></div>
+      <div class="feat rv"><div class="n cap">07</div>
+        <h3><span class="ru">Приложение без магазина</span><span class="en">An app without a store</span></h3>
+        <p><span class="ru">Ставится из браузера на iPhone, Android и компьютер. Уведомления о новых кадрах. Telegram — по желанию.</span>
+           <span class="en">Installs from the browser on iPhone, Android and desktop. Notifications for new frames. Telegram is optional.</span></p></div>
+      <div class="feat rv"><div class="n cap">08</div>
+        <h3><span class="ru">Свой сервер</span><span class="en">Your own server</span></h3>
+        <p><span class="ru">Открытый код (MIT). Понравится — поставь на свой VPS за пару долларов в месяц: без подписок и чужих облаков.</span>
+           <span class="en">Open source (MIT). Like it? Put it on your own VPS for a couple of dollars a month — no subscriptions, no third-party cloud.</span></p></div>
+    </div>
+  </section>
+
+  <section class="wrap" id="how">
+    <div class="sec-h cap"><span><span class="ru">Как это работает</span><span class="en">How it works</span></span><span class="muted"><span class="ru">с камерой</span><span class="en">with a camera</span></span></div>
+    <h2 class="rv"><span class="ru">От затвора до ленты — меньше минуты.</span><span class="en">From shutter to feed in under a minute.</span></h2>
+    <div class="guide">
+      <div class="stage rv" id="stage" aria-hidden="true"><button class="play" id="play" aria-label="Pause">❚❚</button></div>
+      <div>
+        <div class="steps" id="steps"></div>
+        <div id="stepText"></div>
+        <p class="alt"><span class="ru">Нет камеры с Wi‑Fi? Загружай фото с телефона или компьютера кнопкой «+ Добавить» — плёнка ляжет так же.</span>
+          <span class="en">No Wi‑Fi camera? Upload from your phone or computer with “+ Add” — the film is applied all the same.</span></p>
+      </div>
+    </div>
+  </section>
+
+  <section class="wrap" id="faq">
+    <div class="sec-h cap"><span>FAQ</span><span class="muted"><span class="ru">вопросы</span><span class="en">questions</span></span></div>
+    <div class="faq">
+      <details><summary><span class="ru">Что такое открытая бета?</span><span class="en">What is the open beta?</span></summary>
+        <div class="a"><p class="ru">Слот на моём сервере: <b>500 МБ на 3 дня, бесплатно</b>. Занимаешь свободный, придумываешь ник — и сразу попадаешь в Проявку. Через 3 дня аккаунт и кадры удаляются, слот достаётся следующему.</p>
+          <p class="en">A slot on my server: <b>500 MB for 3 days, free</b>. Take a free one, pick a nickname and you're in Proyavka right away. After 3 days the account and frames are deleted and the slot goes to the next person.</p></div></details>
+      <details><summary><span class="ru">Какие камеры подходят?</span><span class="en">Which cameras work?</span></summary>
+        <div class="a"><p class="ru"><b>Sony с приложениями PlayMemories</b> — a5000/a5100, a6000/a6300/a6500, a7 II / a7R II / a7S II, RX100 III–V, RX10 II/III и другие: ставишь наше приложение (по USB, один раз).</p>
+          <p class="ru"><b>Камеры с загрузкой по FTP</b> — Sony A7 IV, A7C II, A1, многие Fujifilm, Canon, Nikon: отправляют кадры сами.</p>
+          <p class="ru"><b>Любая другая камера или телефон</b> — загружай фото кнопкой «+ Добавить».</p>
+          <p class="en"><b>Sony with PlayMemories apps</b> — a5000/a5100, a6000/a6300/a6500, a7 II / a7R II / a7S II, RX100 III–V, RX10 II/III and more: install our app (over USB, once).</p>
+          <p class="en"><b>Cameras with FTP upload</b> — Sony A7 IV, A7C II, A1, many Fujifilm, Canon, Nikon: they send frames by themselves.</p>
+          <p class="en"><b>Any other camera or a phone</b> — upload with the “+ Add” button.</p></div></details>
+      <details><summary><span class="ru">Как подключить камеру?</span><span class="en">How do I connect my camera?</span></summary>
+        <div class="a"><p class="ru">В Проявке: <b>☰ → Настройки → Камера</b>. Там файл <b>config.txt</b> для приложения Sony и данные для FTP. Пошагово — в инструкциях на <a href="{{PROJECT}}/blob/main/docs/sony-app.ru.md" target="_blank" rel="noopener">GitHub</a>.</p>
+          <p class="en">In Proyavka: <b>☰ → Settings → Camera</b>. You'll find <b>config.txt</b> for the Sony app and the FTP details. Step by step — in the guides on <a href="{{PROJECT}}/blob/main/docs/sony-app.md" target="_blank" rel="noopener">GitHub</a>.</p></div></details>
+      <details><summary><span class="ru">Нужен ли Telegram?</span><span class="en">Do I need Telegram?</span></summary>
+        <div class="a"><p class="ru">Нет. Проявка — приложение в браузере, ставится на экран «Домой». Если удобнее в Telegram — привяжи его в настройках, кадры будут приходить и туда.</p>
+          <p class="en">No. Proyavka is a browser app you can add to your home screen. Prefer Telegram? Link it in the settings and frames will arrive there too.</p></div></details>
+      <details><summary><span class="ru">Сколько кадров влезет в 500 МБ?</span><span class="en">How many frames fit in 500 MB?</span></summary>
+        <div class="a"><p class="ru">Несколько десятков кадров с оригиналами. Когда место кончается, у самых старых кадров удаляются оригиналы — сами кадры с плёнкой остаются в ленте.</p>
+          <p class="en">A few dozen frames with originals. When space runs out, the oldest frames lose their originals — the developed frames stay in your feed.</p></div></details>
+      <details><summary><span class="ru">Что будет через 3 дня?</span><span class="en">What happens after 3 days?</span></summary>
+        <div class="a"><p class="ru">За 12 часов до конца придёт напоминание. Скачай то, что хочешь сохранить: выбери кадры → «Скачать» (ZIP). Потом аккаунт, кадры и свои плёнки удаляются насовсем. Код своей плёнки можно сохранить заранее — он не пропадёт.</p>
+          <p class="en">You'll get a reminder 12 hours before the end. Download what you want to keep: select frames → “Download” (ZIP). Then the account, frames and your films are deleted for good. Copy your film's share code beforehand — it stays valid anywhere.</p></div></details>
+      <details><summary><span class="ru">Что с моими фото?</span><span class="en">What about my photos?</span></summary>
+        <div class="a"><p class="ru">Лежат только на этом сервере и видны только тебе — и тем, кому ты сам отправишь ссылку на альбом. Никуда не передаются. Не загружай чужие фото и то, что нельзя публиковать.</p>
+          <p class="en">They stay on this server only and are visible only to you — and to people you send an album link to. Nothing is shared anywhere else. Please don't upload other people's photos or anything you couldn't publish.</p></div></details>
+      <details><summary><span class="ru">Нашёл баг или есть идея</span><span class="en">Found a bug or have an idea</span></summary>
+        <div class="a"><p class="ru">Пиши в <a href="{{PROJECT}}/issues" target="_blank" rel="noopener">Issues на GitHub</a><span class="tg-ru"> или в Telegram</span>. Ради этого бета и затевалась.</p>
+          <p class="en">Open an <a href="{{PROJECT}}/issues" target="_blank" rel="noopener">issue on GitHub</a><span class="tg-en"> or message me on Telegram</span>. That's what the beta is for.</p></div></details>
+    </div>
+  </section>
+
+  <section class="wrap final">
+    <div class="cap muted" id="finalCount"></div>
+    <h2 class="rv"><span class="ru">Займи слот, пока есть свободные.</span><span class="en">Grab a slot while there are free ones.</span></h2>
+    <div class="mini" id="mini" aria-hidden="true"></div>
+    <div class="ctas"><button class="btn acc" data-join><span class="ru">Занять слот</span><span class="en">Join the beta</span><span class="arr">→</span></button></div>
+  </section>
+</main>
+
+<footer>
+  <div class="wrap cap muted">
+    <span><span class="ru">Проявка — открытый код, MIT</span><span class="en">Proyavka — open source, MIT</span></span>
+    <nav><a href="{{PROJECT}}" target="_blank" rel="noopener">GitHub</a><a id="tgLink" hidden target="_blank" rel="noopener">Telegram</a><a href="/" id="openApp"><span class="ru">Открыть приложение</span><span class="en">Open the app</span></a></nav>
+  </div>
+</footer>
+
+<div class="scrim" id="scrim" hidden></div>
+<div class="panel" id="panel" role="dialog" aria-modal="true" aria-labelledby="pTitle" hidden>
+  <div class="grab"></div>
+  <div class="p-head"><span class="cap" style="color: var(--acc)"><span class="ru">Открытая бета</span><span class="en">Open beta</span></span>
+    <button class="x" id="close" aria-label="Close">×</button></div>
+  <h3 id="pTitle"><span class="ru">Слоты на сервере</span><span class="en">Server slots</span></h3>
+  <p class="note" id="pNote"></p>
+  <div class="stats" id="stats"></div>
+  <div id="pBottom"></div>
+  <div class="slots" id="slots"></div>
+</div>
+
+<script src="/beta/lottie.min.js"></script>
+<script>
+"use strict";
+const $ = (id) => document.getElementById(id);
+const CONTACT = "{{CONTACT}}";
+const DEV_KEY = "proyavka.device";
+function stored(k, v) {
+  try {
+    if (v === undefined) return localStorage.getItem(k);
+    if (v === null) localStorage.removeItem(k); else localStorage.setItem(k, v);
+  } catch (e) { return null; }
+}
+const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+
+/* ---------- язык и тема (те же ключи, что у приложения) ---------- */
+let LANG = stored("proyavka.beta.lang") || (/^(ru|uk|be|kk)\b/i.test(navigator.language || "") ? "ru" : "en");
+const T = (ru, en) => (LANG === "en" ? en : ru);
+function setLang(l) {
+  LANG = l;
+  document.documentElement.lang = l;
+  document.documentElement.classList.toggle("en", l === "en");
+  document.querySelectorAll("[data-lang]").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.lang === l)));
+  document.title = T("Проявка — открытая бета", "Proyavka — open beta");
+  renderFilms(); renderStep(step, true); renderStatus();
+  if (!$("panel").hidden) renderPanel();
+}
+document.querySelectorAll("[data-lang]").forEach((b) => (b.onclick = () => { stored("proyavka.beta.lang", b.dataset.lang); setLang(b.dataset.lang); }));
+function applyTheme() {
+  const pref = stored("proyavka.theme") || "auto";
+  const dark = pref === "auto" ? matchMedia("(prefers-color-scheme: dark)").matches : pref === "dark";
+  document.documentElement.dataset.theme = dark ? "dark" : "light";
+}
+applyTheme();
+matchMedia("(prefers-color-scheme: dark)").addEventListener("change", applyTheme);
+if (CONTACT) {
+  $("tgLink").href = `https://t.me/${CONTACT}`;
+  $("tgLink").hidden = false;
+} else document.querySelectorAll(".tg-ru, .tg-en").forEach((e) => e.remove());
+addEventListener("scroll", () => $("top").classList.toggle("scrolled", scrollY > 8), { passive: true });
+
+/* ---------- до / после ---------- */
+const FILMS = [
+  ["super400", "Super 400", "зеленоватые тени, бодрый цвет мыльницы", "greenish shadows, punchy point-and-shoot colour"],
+  ["portrait400", "Portrait 400", "тёплая кожа, мягкий контраст, пастель", "warm skin, soft contrast, pastel"],
+  ["golden200", "Golden 200", "тёплый жёлтый, сочные красные и жёлтые", "warm yellow, rich reds and yellows"],
+  ["cine250", "Cine 250D", "кинонегатив: бирюзовые тени, мягкие света", "cine negative: teal shadows, soft highlights"],
+  ["across100", "Across 100", "гладкая ч/б, тонкое зерно, длинные полутона", "smooth b&w, fine grain, long midtones"],
+  ["expired", "Expired", "выцветший цвет, тёплые света, много зерна", "faded colour, warm highlights, lots of grain"],
+];
+let film = 0;
+function renderFilms() {
+  $("films").replaceChildren(...FILMS.map(([k, name], i) => {
+    const b = document.createElement("button");
+    b.textContent = name;
+    b.setAttribute("aria-pressed", String(i === film));
+    b.onclick = () => pickFilm(i);
+    return b;
+  }));
+  const f = FILMS[film];
+  $("filmDesc").textContent = `${f[1]} — ${T(f[2], f[3])}. ` + T("Плёнку можно сменить в любой момент — оригинал хранится.", "Switch the film any time — the original is kept.");
+}
+function pickFilm(i) {
+  film = i;
+  const img = $("after"), f = FILMS[i];
+  img.classList.add("loading");
+  const pre = new Image();
+  pre.onload = pre.onerror = () => { img.src = pre.src; img.classList.remove("loading"); };
+  pre.src = `/beta/film/${f[0]}.jpg`;
+  $("afterLbl").textContent = f[1];
+  renderFilms();
+}
+FILMS.slice(1).forEach(([k]) => { const im = new Image(); im.src = `/beta/film/${k}.jpg`; });   // заранее, чтобы переключение было мгновенным
+(function compare() {
+  const box = $("compare");
+  let drag = false, nudged = false;
+  const at = (x) => { const r = box.getBoundingClientRect(); box.style.setProperty("--p", Math.max(0, Math.min(100, ((x - r.left) / r.width) * 100)) + "%"); };
+  box.addEventListener("pointerdown", (e) => { drag = true; nudged = true; box.setPointerCapture(e.pointerId); at(e.clientX); });
+  box.addEventListener("pointermove", (e) => { if (drag) at(e.clientX); });
+  box.addEventListener("pointerup", () => (drag = false));
+  box.addEventListener("pointercancel", () => (drag = false));
+  // подсказка: шторка сама качнётся, пока её не тронули
+  new IntersectionObserver((es, o) => {
+    if (!es[0].isIntersecting || nudged || matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+    o.disconnect();
+    const t0 = performance.now();
+    const tick = (t) => {
+      if (nudged) return;
+      const k = Math.min(1, (t - t0) / 2200);
+      box.style.setProperty("--p", (50 + Math.sin(k * Math.PI * 2) * 22 * (1 - k)) + "%");
+      if (k < 1) requestAnimationFrame(tick);
+    };
+    requestAnimationFrame(tick);
+  }, { threshold: .6 }).observe(box);
+})();
+
+/* ---------- гайд: Lottie по сценам ---------- */
+const SCENE = 96;
+const STEPS = [
+  ["Поставь приложение на камеру", "Install the app on the camera",
+   "Один раз, по USB, минут за десять: pmca-gui ставит «Проявку» на Sony с PlayMemories. Камерам с FTP приложение не нужно.",
+   "Once, over USB, about ten minutes: pmca-gui puts Proyavka on Sony cameras with PlayMemories apps. FTP cameras don't need it."],
+  ["config.txt на карту, Wi‑Fi — один раз", "config.txt on the card, Wi‑Fi once",
+   "Файл настроек — в Проявке: ☰ → Настройки → Камера. В приложении на камере выбираешь сеть: домашнюю или раздачу с телефона.",
+   "Get the settings file in Proyavka: ☰ → Settings → Camera. In the camera app, pick a network — home Wi‑Fi or your phone's hotspot."],
+  ["Снимай и отправляй", "Shoot and send",
+   "Снимаешь как обычно, потом «Проявка → Отправить новые»: камера сама включает Wi‑Fi и отправляет новые кадры по HTTPS.",
+   "Shoot as usual, then “Proyavka → Send new”: the camera turns on Wi‑Fi and sends new frames over HTTPS."],
+  ["Сервер проявляет плёнкой", "The server develops it on film",
+   "Цвет, зерно, халяция и засветы. Плёнка подбирается по сцене — или ставишь свою по умолчанию.",
+   "Colour, grain, halation and light leaks. The film is picked by scene — or set your own default."],
+  ["Кадр уже в телефоне", "The frame is on your phone",
+   "Через полминуты — в ленте и уведомлением. Меняй плёнку, кадрируй, скачивай, делись альбомом.",
+   "Half a minute later it's in your feed, with a notification. Change the film, crop, download, share an album."],
+];
+let step = 0, anim = null, paused = false;
+const reduce = matchMedia("(prefers-reduced-motion: reduce)").matches;
+$("steps").replaceChildren(...STEPS.map((s, i) => {
+  const b = document.createElement("button");
+  b.setAttribute("aria-label", `${i + 1}`);
+  b.innerHTML = "<i><b></b></i>";
+  b.onclick = () => { if (anim) { anim.goToAndPlay(i * SCENE + 1, true); if (paused) anim.pause(); } renderStep(i); };
+  return b;
+}));
+function renderStep(i, quiet) {
+  if (i === step && !quiet && $("stepText").childElementCount) return;
+  step = i;
+  const s = STEPS[i];
+  $("stepText").innerHTML = `<div class="step-n cap">${T("Шаг", "Step")} ${i + 1} / ${STEPS.length}</div>` +
+    `<h3 class="step-t">${esc(T(s[0], s[1]))}</h3><p class="step-p">${esc(T(s[2], s[3]))}</p>`;
+  if (!quiet) $("stepText").classList.remove("step-anim"), void $("stepText").offsetWidth, $("stepText").classList.add("step-anim");
+}
+function progress(frame) {
+  const bars = $("steps").querySelectorAll("b");
+  bars.forEach((b, i) => (b.style.width = Math.max(0, Math.min(1, (frame - i * SCENE) / SCENE)) * 100 + "%"));
+  const i = Math.min(STEPS.length - 1, Math.floor(frame / SCENE));
+  if (i !== step) renderStep(i);
+}
+renderStep(0, true);
+if (window.lottie) {
+  anim = lottie.loadAnimation({ container: $("stage"), renderer: "svg", loop: true, autoplay: false, path: "/beta/guide.json",
+                                rendererSettings: { preserveAspectRatio: "xMidYMid meet" } });
+  anim.addEventListener("enterFrame", (e) => progress(e.currentTime));
+  anim.addEventListener("DOMLoaded", () => {
+    $("stage").appendChild($("play"));
+    if (reduce) { paused = true; anim.goToAndStop(SCENE - 10, true); setPlay(); }
+  });
+  new IntersectionObserver((es) => { if (!paused) es[0].isIntersecting ? anim.play() : anim.pause(); }, { threshold: .3 }).observe($("stage"));
+}
+function setPlay() { $("play").textContent = paused ? "▶" : "❚❚"; $("play").setAttribute("aria-label", paused ? "Play" : "Pause"); }
+$("play").onclick = () => { paused = !paused; paused ? anim.pause() : anim.play(); setPlay(); };
+
+/* ---------- появление при прокрутке ---------- */
+const rv = new IntersectionObserver((es) => es.forEach((e) => { if (e.isIntersecting) { e.target.classList.add("in"); rv.unobserve(e.target); } }), { rootMargin: "0px 0px -8% 0px" });
+document.querySelectorAll(".rv").forEach((el, i) => { el.style.transitionDelay = (el.classList.contains("feat") ? (i % 4) * 70 : 0) + "ms"; rv.observe(el); });
+
+/* ---------- слоты ---------- */
+let S = null, me = null, joined = null, busy = false;
+const left = (sec) => {
+  const d = Math.floor(sec / 86400), h = Math.floor((sec % 86400) / 3600), m = Math.floor((sec % 3600) / 60);
+  if (d) return T(`${d} д ${h} ч`, `${d}d ${h}h`);
+  if (h) return T(`${h} ч ${m} мин`, `${h}h ${m}m`);
+  return T(`${Math.max(1, m)} мин`, `${Math.max(1, m)} min`);
+};
+const until = (ts) => new Date(ts * 1000).toLocaleString(LANG === "en" ? "en-GB" : "ru-RU", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
+async function api(path, body) {
+  const r = await fetch(path, body ? { method: "POST", headers: { "Content-Type": "application/json", ...(me ? { "X-Token": me.token } : {}) }, body: JSON.stringify(body) }
+                                   : { headers: me ? { "X-Token": me.token } : {} });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw Object.assign(new Error(j.error || r.statusText), { status: r.status });
+  return j;
+}
+async function loadStatus() {
+  try { S = await api("/api/beta"); } catch (e) { S = null; }
+  renderStatus();
+  if (!$("panel").hidden) renderPanel();
+}
+function renderStatus() {
+  if (!S) return;
+  const free = S.free;
+  $("heroSlots").textContent = free ? T(`Свободно ${free} из ${S.total} слотов`, `${free} of ${S.total} slots free`)
+                                    : T("Все слоты заняты", "All slots are taken");
+  $("finalCount").textContent = T(`Слоты · занято ${S.total - free} из ${S.total}`, `Slots · ${S.total - free} of ${S.total} taken`);
+  const cells = [];
+  for (let i = 0; i < Math.min(S.total, 120); i++) {
+    const c = document.createElement("i");
+    if (i >= S.users.length) c.className = "free";
+    cells.push(c);
+  }
+  $("mini").replaceChildren(...cells);
+  document.querySelectorAll("[data-join]").forEach((b) => {
+    const mine = joined || me;
+    b.querySelector(".ru").textContent = mine ? "Открыть мою Проявку" : free ? "Занять слот в бете" : "Посмотреть слоты";
+    b.querySelector(".en").textContent = mine ? "Open my Proyavka" : free ? "Join the beta" : "See the slots";
+  });
+}
+// уже в бете на этом устройстве? — тем же ключом, что и приложение
+async function whoAmI() {
+  const key = stored(DEV_KEY);
+  if (!key) return;
+  try { me = await api("/api/auth", { device: key }); } catch (e) { me = null; }
+}
+function renderPanel() {
+  if (!S) { $("pNote").textContent = T("Не удалось получить слоты. Обнови страницу.", "Couldn't load the slots. Reload the page."); return; }
+  const mine = joined || (me && me.expires);
+  $("pNote").textContent = T(`По ${Math.round(S.slot_mb)} МБ на ${S.days} дн. Занятые — с никами участников и временем, которое у них осталось.`,
+                             `${Math.round(S.slot_mb)} MB for ${S.days} days each. Taken slots show the nickname and the time left.`);
+  $("stats").innerHTML = `<div><b>${S.free}</b><span class="cap muted">${T("свободно", "free")}</span></div>` +
+    `<div><b>${S.total - S.free}</b><span class="cap muted">${T("занято", "taken")}</span></div>` +
+    `<div><b>${S.total}</b><span class="cap muted">${T("всего", "total")}</span></div>`;
+  const span = S.days * 86400;
+  const cells = [];
+  S.users.forEach((u, i) => {
+    const d = document.createElement("div");
+    d.className = "slot" + (u.me ? " me" : "");
+    d.style.animationDelay = Math.min(i, 30) * 18 + "ms";
+    d.innerHTML = `<span class="no cap">№${String(i + 1).padStart(2, "0")}${u.me ? " · " + T("ты", "you") : ""}</span>` +
+      `<span><div class="nick">${esc(u.name)}</div><div class="left">${left(u.left)}</div></span>` +
+      `<span class="bar" style="width:${Math.max(2, Math.min(100, (u.left / span) * 100))}%"></span>`;
+    cells.push(d);
+  });
+  for (let i = S.users.length; i < Math.min(S.total, 120); i++) {
+    const d = document.createElement("div");
+    const next = i === S.users.length && !mine;
+    d.className = "slot free" + (next ? " next" : "");
+    d.style.animationDelay = Math.min(i, 30) * 18 + "ms";
+    d.innerHTML = `<span class="no cap">№${String(i + 1).padStart(2, "0")}</span><span class="nick">${next ? T("твой →", "yours →") : T("свободно", "free")}</span>`;
+    if (next) d.onclick = () => $("nick") && $("nick").focus();
+    cells.push(d);
+  }
+  $("slots").replaceChildren(...cells);
+  const bottom = $("pBottom");
+  if (mine) {
+    const name = joined ? joined.name : (S.users.find((u) => u.me) || {}).name || "";
+    const exp = joined ? joined.expires : me.expires;
+    bottom.innerHTML = `<div class="done"><h4>${joined ? T(`Готово, ${esc(name)}!`, `You're in, ${esc(name)}!`) : T(`Ты уже в бете${name ? " — " + esc(name) : ""}`, `You're already in${name ? " — " + esc(name) : ""}`)}</h4>` +
+      `<p>${T(`Слот твой до ${until(exp)}. Камеру подключишь в ☰ → Настройки → Камера; фото с телефона — кнопкой «+ Добавить».`,
+              `The slot is yours until ${until(exp)}. Connect the camera in ☰ → Settings → Camera; phone photos — with “+ Add”.`)}</p>` +
+      `<a class="btn" href="/">${T("Открыть Проявку", "Open Proyavka")} <span class="arr">→</span></a></div>`;
+    return;
+  }
+  if (me) {                 // устройство уже вошло в Проявку (не в бете) — второй аккаунт поверх не заводим
+    bottom.innerHTML = `<div class="done"><h4>${T("Это устройство уже вошло в Проявку", "This device is already signed in to Proyavka")}</h4>` +
+      `<p>${T("Слот беты не нужен — у тебя уже есть аккаунт.", "You don't need a beta slot — you already have an account.")}</p>` +
+      `<a class="btn" href="/">${T("Открыть Проявку", "Open Proyavka")} <span class="arr">→</span></a></div>`;
+    return;
+  }
+  if (!S.free) {
+    bottom.innerHTML = `<div class="done"><h4>${T("Свободных слотов нет", "No free slots")}</h4><p>${S.next ? T(`Ближайший освободится через ${left(S.next)}. Загляни позже.`, `The next one frees up in ${left(S.next)}. Check back later.`) : T("Загляни позже.", "Check back later.")}</p></div>`;
+    return;
+  }
+  if (!$("nick")) {
+    bottom.innerHTML = `<div class="form"><div class="field"><input id="nick" maxlength="24" autocomplete="nickname" enterkeyhint="go" spellcheck="false">` +
+      `<button class="btn acc" id="take"></button></div><div class="error" id="perr" role="alert"></div><p class="fine" id="fine"></p></div>`;
+    $("take").onclick = take;
+    $("nick").onkeydown = (e) => { if (e.key === "Enter") take(); };
+  }
+  $("nick").placeholder = T("Твой ник", "Your nickname");
+  $("take").textContent = T(`Занять №${String(S.users.length + 1).padStart(2, "0")}`, `Take #${String(S.users.length + 1).padStart(2, "0")}`);
+  $("fine").textContent = T(`Ник увидят все на этой странице. Через ${S.days} дн. аккаунт и кадры удалятся — скачай нужное заранее. Не загружай чужие фото и то, что нельзя публиковать.`,
+                            `Everyone on this page will see your nickname. After ${S.days} days the account and frames are deleted — download what you need beforehand. Don't upload other people's photos or anything you couldn't publish.`);
+}
+async function take() {
+  if (busy) return;
+  const name = $("nick").value.trim();
+  $("perr").textContent = "";
+  if (name.length < 2) { $("perr").textContent = T("Ник — от 2 до 24 символов", "A nickname is 2 to 24 characters"); return $("nick").focus(); }
+  busy = true;
+  $("take").disabled = true;
+  try {
+    const ua = navigator.userAgent;
+    const device = /iPhone|iPad/.test(ua) ? "iPhone" : /Android/.test(ua) ? "Android" : /Mac/.test(ua) ? "Mac" : /Windows/.test(ua) ? "Windows" : "Browser";
+    const a = await api("/api/beta/join", { name, lang: LANG, device });
+    stored(DEV_KEY, a.device);
+    me = a;
+    joined = { name, expires: a.expires || Date.now() / 1000 + S.days * 86400 };
+    await loadStatus();
+    renderStatus();
+  } catch (e) {
+    $("perr").textContent = e.message;
+    if (e.status === 403) loadStatus();
+  } finally {
+    busy = false;
+    if ($("take")) $("take").disabled = false;
+  }
+}
+let lastFocus = null;
+function openPanel() {
+  if (joined || me) { location.href = "/"; return; }
+  lastFocus = document.activeElement;
+  $("scrim").hidden = $("panel").hidden = false;
+  renderPanel();
+  requestAnimationFrame(() => { $("scrim").classList.add("open"); $("panel").classList.add("open"); });
+  document.body.style.overflow = "hidden";
+  loadStatus();
+  setTimeout(() => { if ($("nick") && !matchMedia("(pointer: coarse)").matches) $("nick").focus(); }, 350);
+}
+function closePanel() {
+  $("scrim").classList.remove("open"); $("panel").classList.remove("open");
+  document.body.style.overflow = "";
+  setTimeout(() => { $("scrim").hidden = $("panel").hidden = true; }, 380);
+  if (lastFocus) lastFocus.focus();
+}
+document.querySelectorAll("[data-join]").forEach((b) => (b.onclick = openPanel));
+$("close").onclick = closePanel;
+$("scrim").onclick = closePanel;
+addEventListener("keydown", (e) => { if (e.key === "Escape" && !$("panel").hidden) closePanel(); });
+if (location.hash === "#join") openPanel();
+
+setLang(LANG);
+whoAmI().then(loadStatus);
+setInterval(() => { if (!document.hidden) loadStatus(); }, 30000);
+</script>
+</body>
+</html>

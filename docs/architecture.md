@@ -13,7 +13,8 @@
 | 6 | `state`, `looks`, `albums` | `state.json`; custom films and the community catalog (and the receiver that accepts films from other servers); albums by link |
 | 7 | `ingest`, `devices`, `camera` | receiving frames from the camera and the app; devices and the account API; the user's camera |
 | 8 | `invites`, `botui` | invitations and users; the bot in the chat |
-| 9 | `web` | the web server of the app |
+| 9 | `beta` | the open beta: the `/beta` page, slots, sign-up without an invite, expiry |
+| 10 | `web` | the web server of the app |
 
 Things worth knowing before you change something:
 

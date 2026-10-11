@@ -116,7 +116,17 @@ def _push_flush(uid):
     with speak(uid):
         body = (L("Проявлен новый кадр", "A new frame is developed") if n == 1 else
                 L(f"Проявлено {n} {plural_ru(n, 'новый кадр', 'новых кадра', 'новых кадров')}", f"{n} new frames developed"))
-        data = json.dumps({"title": L("Проявка", "Proyavka"), "body": body, "tag": "new-frames", "url": "/"}, ensure_ascii=False)
+    push_send(uid, body, "new-frames", subs)
+
+
+def push_send(uid, body, tag, subs=None):
+    """Уведомление на все устройства пользователя (или на subs). Текст — уже на его языке."""
+    if not webpush:
+        return
+    if subs is None:
+        subs = q("SELECT * FROM push_subs WHERE owner=?", (uid,))
+    with speak(uid):
+        data = json.dumps({"title": L("Проявка", "Proyavka"), "body": body, "tag": tag, "url": "/"}, ensure_ascii=False)
     sub_mail = "mailto:proyavka@" + (os.environ.get("DOMAIN") or "localhost")
     sent = 0
     for s in subs:

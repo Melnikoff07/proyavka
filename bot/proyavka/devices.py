@@ -217,7 +217,7 @@ def me_json(uid):
             "limit": storage_limit(uid) * 1e9, "frames": n["n"] or 0, "trash": n["t"] or 0, "orig_days": ORIG_DAYS,
             "telegram": {"bot": bot_name_safe(), "linked": bool(u.get("tg")),
                          "can_unlink": uid >= WEB_BASE and bool(u.get("tg"))},
-            "about": {"project": PROJECT_URL, "tg": CONTACT_TG}}
+            "about": {"project": PROJECT_URL, "tg": CONTACT_TG}, "expires": u.get("expires")}
 
 
 def set_me(uid, data):
@@ -248,7 +248,7 @@ def users_json():
     rows = q("SELECT u.*, (SELECT COUNT(*) FROM photos p WHERE p.owner=u.id AND p.hidden=0) AS n FROM users u "
              "ORDER BY u.role='admin' DESC, u.created")
     return [{"id": u["id"], "name": u["name"] or (L("Администратор", "Admin") if u["id"] == ADMIN else str(u["id"])), "admin": u["id"] == ADMIN, "frames": u["n"],
-             "used": sum(user_usage(u["id"]).values()), "limit": storage_limit(u["id"]) * 1e9, "telegram": bool(u["tg"])}
+             "used": sum(user_usage(u["id"]).values()), "limit": storage_limit(u["id"]) * 1e9, "telegram": bool(u["tg"]), "expires": u["expires"]}
             for u in rows]
 
 
