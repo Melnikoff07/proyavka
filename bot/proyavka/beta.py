@@ -73,11 +73,13 @@ def clean_nick(nick):
     return nick
 
 
-def join(nick, ip, device_name, lang=None):
+def join(nick, ip, device_name, lang=None, accept=False):
     """Занять свободный слот: новый пользователь без Telegram, сразу с устройством. -> (ключ, id, устройство)."""
     if not BETA:
         raise PermissionError(L("бета закрыта", "the beta is closed"))
     nick = clean_nick(nick)
+    if not accept:
+        raise ValueError(L("нужно согласие с условиями", "you need to accept the terms"))
     now = time.time()
     if ip:
         recent = [t for t in JOIN_IPS.get(ip, []) if now - t < 86400]
@@ -91,7 +93,7 @@ def join(nick, ip, device_name, lang=None):
             raise PermissionError(L("свободных слотов нет — загляни позже", "no free slots — check back later"))
         uid = next_web_uid()
         kw = {"lang": lang} if lang in ("ru", "en") else {}
-        add_web_user(uid, nick, storage_gb=SLOT_MB / 1000, expires=now + DAYS * 86400, **kw)
+        add_web_user(uid, nick, storage_gb=SLOT_MB / 1000, expires=now + DAYS * 86400, terms=now, **kw)
         _CACHE.clear()
     if ip:
         JOIN_IPS[ip] = recent + [now]
@@ -150,6 +152,37 @@ def loop():
         except Exception:
             log.exception("beta tick failed")
         time.sleep(60)
+
+
+# Типографика страниц: короткие предлоги, союзы и частицы не остаются в конце строки, тире не начинает строку,
+# число не отрывается от единицы. Только в тексте между тегами (не в атрибутах, скриптах и стилях).
+SHORT = ("в|во|и|с|со|к|ко|о|об|у|а|на|по|не|ни|за|из|от|до|для|без|при|но|же|ли|да|то|или|как|что|это|"
+         "a|an|the|of|to|in|on|at|by|or|and|is|it|no|for")
+TYPO = [(re.compile(rf"(?<![\w\-])({SHORT})[ \t]+(?=\S)", re.I), "\\1\u00a0"),
+        (re.compile(r"[ \t]+—"), "\u00a0—"),
+        (re.compile(r"(\d)[ \t]+(?=[^\d\s—–-])"), "\\1\u00a0")]
+SPLIT = re.compile(r"(<script\b.*?</script>|<style\b.*?</style>|<!--.*?-->|<[^>]*>)", re.S | re.I)
+
+
+def typo(html):
+    parts = SPLIT.split(html)
+    for i in range(0, len(parts), 2):
+        for rx, to in TYPO:
+            parts[i] = rx.sub(to, parts[i])
+    return "".join(parts)
+
+
+PAGES = {}
+
+
+def page(name):
+    """Страница беты с типографикой (кэш до изменения файла)."""
+    path = os.path.join(BETA_DIR, name)
+    mtime = os.path.getmtime(path)
+    if PAGES.get(name, (0,))[0] != mtime:
+        with open(path, encoding="utf-8") as f:
+            PAGES[name] = (mtime, typo(f.read()))
+    return PAGES[name][1]
 
 
 SAMPLE_LOCK = threading.Lock()

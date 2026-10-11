@@ -12,9 +12,9 @@ def check(name, ok):
     return ok
 
 
-def join(h, name, ip=None, lang="ru"):
+def join(h, name, ip=None, lang="ru", accept=True):
     hdr = {"Content-Type": "application/json", **({"X-Real-IP": ip} if ip else {})}
-    rq = urllib.request.Request(h.url + "/api/beta/join", data=json.dumps({"name": name, "lang": lang}).encode(), headers=hdr)
+    rq = urllib.request.Request(h.url + "/api/beta/join", data=json.dumps({"name": name, "lang": lang, "accept": accept}).encode(), headers=hdr)
     try:
         with urllib.request.urlopen(rq, timeout=60) as r:
             return {"_status": 200, "_cookie": r.headers.get("Set-Cookie", ""), **json.loads(r.read())}
@@ -30,11 +30,18 @@ if __name__ == "__main__":
     check(f"слоты видны без входа: {s.get('free')} из {s.get('total')}, {s.get('slot_mb')} МБ, {s.get('days')} дн.",
           s.get("total") == 3 and s.get("free") == 3 and s.get("slot_mb") == 500 and s.get("days") == 3 and s.get("users") == [])
     page = h.req("/beta", auth=False)
-    check("страница беты отдаётся, адрес сервера вписан", isinstance(page, bytes) and b"/api/beta/join" in page
+    check("страница беты отдаётся, адрес сервера вписан", isinstance(page, bytes) and b"/beta/beta.js" in page
           and b"{{BASE}}" not in page and h.url.encode() in page)
     guide = h.req("/beta/guide.json", auth=False)
     check(f"анимация-гайд — Lottie: {len(guide.get('layers', []))} слоёв, {guide.get('op')} кадров",
           isinstance(guide, dict) and guide.get("layers") and guide.get("op") == 480 and len(guide.get("assets", [])) == 2)
+    terms = h.req("/beta/terms", auth=False)
+    check("условия и политика конфиденциальности отдаются", isinstance(terms, bytes) and b"GDPR" in terms and b"{{" not in terms)
+    check("типографика: предлог не висит («в\u00a0», «на\u00a0»), тире не начинает строку",
+          "в\u00a0".encode() in page and "на\u00a0".encode() in page and "\u00a0—".encode() in page)
+    from proyavka import beta as b
+    check("типограф не трогает атрибуты и скрипты", b.typo('<a title="в доме">в доме</a><script>и в</script>')
+          == '<a title="в доме">в\u00a0доме</a><script>и в</script>')
     js = h.req("/beta/lottie.min.js", auth=False)
     check("плеер Lottie — свой, без внешних адресов", isinstance(js, bytes) and b"lottie" in js[:300])
     img = h.req("/beta/film/portrait400.jpg", auth=False)
@@ -43,12 +50,14 @@ if __name__ == "__main__":
           and h.req("/beta/film/sepia.jpg", auth=False).get("_status") == 404 and h.req("/beta/index.html", auth=False).get("_status") == 404)
 
     check("короткий ник — 400", join(h, "a")["_status"] == 400)
+    r = join(h, "без_согласия", ip="10.0.0.20", accept=False)
+    check(f"без согласия с условиями — 400 ({r.get('error')})", r["_status"] == 400)
     a = join(h, "Плёнка_42", ip="10.0.0.1")
     uid_a = database.q("SELECT id FROM users WHERE name='Плёнка_42'")[0]["id"]
     u = users.user(uid_a)
-    check(f"слот занят: номер {uid_a}, лимит {u['storage_gb']} ГБ, срок ~3 дня",
+    check(f"слот занят: номер {uid_a}, лимит {u['storage_gb']} ГБ, срок ~3 дня, согласие записано",
           a["_status"] == 200 and a.get("device") and uid_a > 900_000_000_000_000 and u["storage_gb"] == 0.5
-          and abs(u["expires"] - time.time() - 3 * 86400) < 60)
+          and abs(u["expires"] - time.time() - 3 * 86400) < 60 and abs(u["terms"] - time.time()) < 60)
     check("ключ устройства — и в cookie (iPhone перенесёт вход в приложение)", a["device"] in a["_cookie"])
     check("тот же ник в другом регистре — 400", join(h, "ПЛЁНКА_42", ip="10.0.0.2")["_status"] == 400)
     dev = h.post("/api/auth", {"device": a["device"]}, auth=False)

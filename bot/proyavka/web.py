@@ -307,7 +307,9 @@ class Handler(BaseHTTPRequestHandler):
                              {"Content-Disposition": disposition(download_name(ph))})
         return self.err(404, L("не найдено", "not found"))
 
-    BETA_FILES = {"guide.json": "application/json", "lottie.min.js": "text/javascript; charset=utf-8"}
+    BETA_FILES = {"guide.json": "application/json", "lottie.min.js": "text/javascript; charset=utf-8",
+                  "beta.js": "text/javascript; charset=utf-8", "beta.css": "text/css; charset=utf-8"}
+    BETA_PAGES = {(): "index.html", ("terms",): "terms.html"}
 
     def beta_get(self, rest):
         """/beta — страница открытой беты, /beta/<файл>, /beta/film/<плёнка>.jpg; /api/beta (rest=None) — слоты."""
@@ -315,13 +317,13 @@ class Handler(BaseHTTPRequestHandler):
             return self.err(404, L("не найдено", "not found"))
         if rest is None:
             return self.js(beta.status(self.authed({})))
-        if not rest:
-            page = Path(beta.BETA_DIR, "index.html").read_text(encoding="utf-8")
+        if tuple(rest) in self.BETA_PAGES:
+            page = beta.page(self.BETA_PAGES[tuple(rest)])
             base = config.WEBAPP_URL.rstrip("/")
             page = page.replace("{{BASE}}", base).replace("{{PROJECT}}", PROJECT_URL).replace("{{CONTACT}}", CONTACT_TG or "")
             return self.send(200, page, "text/html; charset=utf-8", "no-cache", {"Content-Security-Policy": CSP})
         if len(rest) == 1 and rest[0] in self.BETA_FILES:
-            return self.send(200, Path(beta.BETA_DIR, rest[0]).read_bytes(), self.BETA_FILES[rest[0]], "public, max-age=3600")
+            return self.send(200, Path(beta.BETA_DIR, rest[0]).read_bytes(), self.BETA_FILES[rest[0]], "no-cache")
         if rest == ["sample.jpg"]:
             return self.send(200, (COMMUNITY_BUNDLED.parent / "sample.jpg").read_bytes(), "image/jpeg", "public, max-age=86400")
         if len(rest) == 2 and rest[0] == "film" and rest[1].endswith(".jpg"):
@@ -660,7 +662,8 @@ class Handler(BaseHTTPRequestHandler):
                 if data.get("lang") in ("ru", "en"):
                     _CTX.lang = data["lang"]
                 try:
-                    key, uid, did = beta.join(data.get("name"), self.ip(), data.get("device") or "Browser", data.get("lang"))
+                    key, uid, did = beta.join(data.get("name"), self.ip(), data.get("device") or "Browser", data.get("lang"),
+                                              accept=data.get("accept") is True)
                 except PermissionError as e:
                     return self.err(403, str(e))
                 body = {"token": self.new_session(uid, did=did), "media": media_token(uid), "device": key, "lang": user_lang(uid),
