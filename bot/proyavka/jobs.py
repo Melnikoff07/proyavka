@@ -32,7 +32,7 @@ def job_prepare(src, work_path, edge):
     im = Image.open(src)
     taken, iso = read_exif(im)
     im.draft("RGB", (edge, edge))           # JPEG сразу декодируется в уменьшенном виде — в разы быстрее
-    im = fit(ImageOps.exif_transpose(to_srgb(im)).convert("RGB"), edge)
+    im = fit(to_srgb(ImageOps.exif_transpose(im)).convert("RGB"), edge)   # сначала поворот: to_srgb теряет EXIF
     taken = taken or datetime.now().strftime("%Y-%m-%d %H:%M")
     auto_key, reason = auto_pick(im, iso, int(taken[11:13]))
     save_atomic(im, work_path, 95)

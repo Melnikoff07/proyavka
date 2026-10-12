@@ -22,7 +22,7 @@ from .imaging import LEAKS, auto_reason, crop_tag, fingerprint, has, parse_crop
 from .pwa import CSP, SW_JS, app_icon, manifest
 from .database import get, q, run, upd
 from .users import ADMIN, DAILY_LIMIT, INVITE_DAYS, USERS, set_user, user, user_lang, user_luts, valid_look
-from .jobs import BASE_EDGES, job_full, job_preview, job_source
+from .jobs import BASE_EDGES, job_full, job_prepare, job_preview, job_source
 from .telegram import safe, uid_of_tg
 from .sessions import (
     DEV_COOKIE, SESSION_ALBUM, SESSIONS, SESSION_DEV, SESSION_TTL, album_media, album_media_token, file_token, file_uid,
@@ -951,6 +951,39 @@ def refilm_builtin():
     if rows:
         log.info("плёнки обновлены: перерисовываю %d кадров в фоне", len(rows))
     return len(rows)
+
+
+def fix_rotation():
+    """Однократно: кадры, принятые с потерянным поворотом (см. imaging.lost_rotation), подготовить заново из оригинала
+    и перерисовать. Кадрирование у них сбрасывается — оно было по лежачему кадру."""
+    from .config import BASE, WORK_EDGE
+    from .imaging import is_raw, lost_rotation
+    from .pools import FAST
+    mark = BASE / "rotation.fixed"
+    if mark.exists():
+        return 0
+    n = 0
+    for r in q("SELECT id, owner, src, work, hidden FROM photos WHERE src IS NOT NULL AND work IS NOT NULL ORDER BY id DESC"):
+        if is_raw(r["src"]) or not os.path.exists(r["src"]) or not lost_rotation(r["src"]):
+            continue
+        tmp = f"{r['work']}.fix.jpg"
+        try:
+            FAST.submit(job_prepare, r["src"], tmp, WORK_EDGE).result(timeout=300)
+            os.replace(tmp, r["work"])
+        except Exception as e:
+            remove(tmp)
+            log.warning("поворот #%d не починился: %s", r["id"], e)
+            continue
+        for f in PREVIEWS.glob(f"{r['id']}_*"):
+            remove(str(f))
+        run("UPDATE photos SET crop=NULL, rev=rev+1, updated=? WHERE id=?", (time.time(), r["id"]))
+        if not r["hidden"]:
+            schedule_view(r["id"], prio=2, chat=False, uid=r["owner"])
+        n += 1
+    mark.write_text("1\n", encoding="utf-8")
+    if n:
+        log.info("поворот: подготовил заново %d кадров", n)
+    return n
 
 
 def start_web():

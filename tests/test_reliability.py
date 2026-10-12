@@ -14,7 +14,7 @@ def check(name, ok):
     return ok
 
 
-def frame(seed, name, icc=None, color=None):
+def frame(seed, name, icc=None, color=None, orient=None):
     p = Path(harness.tempfile.mkdtemp()) / name
     if color:
         im = Image.new("RGB", (900, 600), color)
@@ -23,6 +23,10 @@ def frame(seed, name, icc=None, color=None):
     else:
         im = Image.fromarray(np.random.default_rng(seed).integers(0, 255, (600, 900, 3), dtype=np.uint8))
     kw = {"icc_profile": icc} if icc else {}
+    if orient:
+        ex = Image.Exif()
+        ex[0x0112] = orient
+        kw["exif"] = ex
     im.save(p, "JPEG", quality=95, **kw)
     return p
 
@@ -95,6 +99,23 @@ if __name__ == "__main__":
     px = lambda nm: Image.open(h.photos("SELECT work FROM photos WHERE name=?", (nm,))[0]["work"]).convert("RGB").getpixel((450, 300))
     a, b = px("P3.JPG"), px("PLAIN.JPG")
     check(f"Display P3 переведён в sRGB: {a}, без профиля как есть: {b}", a[0] < 15 and b[0] > 20 and abs(b[1] - 200) < 12)
+
+    # вертикальный кадр с iPhone: лежачий снимок + поворот в EXIF + Display P3 — поворот не теряется
+    h.drop(frame(11, "P3V.JPG", icc=icc_synth.p3_profile(), orient=6))
+    h.wait(lambda: h.photos("SELECT 1 FROM photos WHERE name='P3V.JPG' AND work IS NOT NULL"), timeout=60)
+    v = h.photos("SELECT * FROM photos WHERE name='P3V.JPG'")[0]
+    size = Image.open(v["work"]).size
+    check(f"вертикальный кадр Display P3 стоит вертикально: {size}", size[1] > size[0])
+    # принятый раньше с потерянным поворотом — чинится один раз при запуске
+    Image.open(v["work"]).transpose(Image.Transpose.ROTATE_90).save(v["work"], quality=92)
+    database.run("UPDATE photos SET crop='0.1,0.1,0.9,0.9' WHERE id=?", (v["id"],))
+    (web.config.BASE / "rotation.fixed").unlink(missing_ok=True)
+    check("починка нашла один кадр", web.fix_rotation() == 1)
+    v2 = h.photos("SELECT * FROM photos WHERE id=?", (v["id"],))[0]
+    size = Image.open(v2["work"]).size
+    check(f"после починки вертикально {size}, кадрирование сброшено, перерисовка",
+          size[1] > size[0] and not v2["crop"] and v2["rev"] > v["rev"])
+    check("второй раз не запускается", web.fix_rotation() == 0)
 
     # --- 5. оригиналы не удаляются по возрасту ---
     old = time.time() - 100 * 86400

@@ -46,6 +46,9 @@ English first, [по-русски — ниже](#журнал-изменений
 - Beta: at most `BETA_JOINS_PER_HOUR` (10) new slots an hour in total, and the per-address limit treats an IPv6 /64 network as one address.
 - On a single server the bot no longer needs sudo: camera accounts are created by the root service `proyavka-user@` through the socket `/run/proyavka-user.sock` (only the bot's group can use it), so the bot's service can forbid privilege escalation altogether. The SSH path (home + server) still uses sudo for this one script.
 
+### Fixes
+- Portrait photos from an iPhone (Display P3) no longer turn sideways: since 1.6 the colour conversion to sRGB dropped the EXIF rotation. Frames already received this way are prepared again from the original once, on the first start after the update (their crop is reset).
+
 ## 1.6 — 2026-10-10
 
 ### Films
@@ -231,6 +234,9 @@ English first, [по-русски — ниже](#журнал-изменений
 - У кэша превью есть предел (`PREVIEW_CACHE_GB`, 3 ГБ; старое уходит первым), а при нехватке места на диске весь кэш удаляется раньше, чем чьи-то кадры.
 - Бета: не больше `BETA_JOINS_PER_HOUR` (10) новых слотов в час на всех, а предел «с одного адреса» считает сеть IPv6 /64 одним адресом.
 - На одном сервере боту больше не нужен sudo: камеры пользователей заводит root-служба `proyavka-user@` через сокет `/run/proyavka-user.sock` (доступ только у группы бота), поэтому службе бота можно вовсе запретить повышение прав. Путь «дом + сервер» по SSH по-прежнему зовёт этот один скрипт через sudo.
+
+### Исправления
+- Вертикальные снимки с iPhone (Display P3) больше не ложатся набок: с 1.6 перевод цвета в sRGB терял поворот из EXIF. Уже принятые так кадры один раз, при первом запуске после обновления, готовятся заново из оригинала (кадрирование у них сбрасывается).
 
 ## 1.6 — 2026-10-10
 

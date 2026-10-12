@@ -419,6 +419,22 @@ def to_srgb(im):
     return out
 
 
+def lost_rotation(path):
+    """Кадр приняли с потерянным поворотом: у него поворот в EXIF и профиль не sRGB (Display P3 с iPhone), а в 1.6
+    перевод в sRGB шёл раньше поворота и терял EXIF — вертикальный кадр ложился горизонтально."""
+    try:
+        with Image.open(path) as im:
+            if im.getexif().get(0x0112) not in (2, 3, 4, 5, 6, 7, 8):
+                return False
+            icc = im.info.get("icc_profile")
+            if not icc or im.mode not in ("RGB", "RGBA"):
+                return False
+            desc = ImageCms.getProfileDescription(ImageCms.ImageCmsProfile(io.BytesIO(icc)))
+    except Exception:
+        return False
+    return "srgb" not in desc.lower()
+
+
 def open_src(path, need=None):
     """Оригинал, повёрнутый как надо и в sRGB. need — нужная длинная сторона (JPEG декодируется сразу уменьшенным)."""
     if is_raw(path):
@@ -426,7 +442,7 @@ def open_src(path, need=None):
     im = Image.open(path)
     if need:
         im.draft("RGB", (need, need))
-    return ImageOps.exif_transpose(to_srgb(im))
+    return to_srgb(ImageOps.exif_transpose(im))   # сначала поворот: перевод в sRGB даёт новую картинку без EXIF
 
 
 def read_exif(im):
