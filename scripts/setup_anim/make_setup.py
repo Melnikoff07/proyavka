@@ -290,16 +290,66 @@ def hl_row(doc, idx, t, t_out, color, o_val=18):
 
 # ---------------- сцены ----------------
 def scene_install(doc, T, t0, t1):
-    L = (212, 228)                        # ноутбук
-    cam = doc.layer("cam-rig", ty=3, ip=t0, op=t1, p=(606, 236), s=62)
-    # экран камеры: полоса установки, потом значок приложения с галочкой
-    doc.layer("cam-ok", check_badge(26, "cok"), ip=t0, op=t1, parent=cam, p=(-44 + 26, 28 - 26), s=pop(t0 + 108, 10))
+    L = (232, 236)                        # середина экрана ноутбука
+    C = (612, 250)                        # камера
+    CS = .62
+    go, done = t0 + 28, t0 + 98           # передача: нажатие кнопки → конец
+    cx, cy = L
+
+    # курсор: к кнопке, нажатие, в сторону (поверх всего)
+    btn = (cx, cy + 60)
+    doc.layer("cursor", [group(path([(0, 0), (0, 21), (5, 16.5), (9, 25), (13, 23.2), (9, 14.8), (15.5, 14.8)], closed=True),
+                               fill(LCD), stroke(rgb(255, 255, 255), 2), nm="arrow")], ip=t0, op=t1,
+              p=an((t0 + 6, [cx + 104, cy + 6]), (t0 + 22, [btn[0] + 14, btn[1] - 4]), (go + 14, [btn[0] + 14, btn[1] - 4]), (go + 34, [cx + 96, cy + 40])),
+              s=an((t0 + 22, [100, 100]), (t0 + 24, [86, 86]), (t0 + 28, [100, 100])), o=fade(t0 + 4, t0 + 10, t1 - 10, t1 - 4))
+
+    # окно pmca-gui: заголовок, вкладка, выбранный файл, полоса, кнопка
+    doc.label("pmca-gui", cx, cy - 69, 13, T_DARK, t0, t1, weight=500, align="center")
+    doc.label("Install app", cx - 118, cy - 36, 13, T_ACC, t0, t1, weight=500)
+    doc.label("Proyavka.apk", cx - 90, cy - 2, 14, T_DARK, t0, t1, weight=500)
+    doc.label("Install selected app", cx, btn[1], 13, T_WHITE, t0, t1, weight=500, align="center")
+    doc.label(T["task_ok"], cx, cy + 30, 13, T_DARK, done + 6, t1, align="center", o=an((done + 6, 0), (done + 12, 100)))
+    doc.layer("pmca-ok", check_badge(16, "pok"), ip=t0, op=t1, p=(cx - 98, cy + 30), s=pop(done + 6, 10))
+    doc.layer("pmca-file", [group(*file_shape(), s=62, nm="doc")], ip=t0, op=t1, p=(cx - 104, cy - 2))
+    doc.layer("pmca", [
+        group(rect(236, 6, 3, p=(118, 0)), fill(ACC), p=(cx - 118, cy + 30), s=an((go, [0, 100]), (done, [100, 100]), ease=G.SOFT),
+              o=fade(go - 2, go, done + 2, done + 6), nm="prog"),
+        group(rect(236, 6, 3, p=(cx, cy + 30)), fill(WIN_LINE), o=fade(go - 4, go, done + 2, done + 6), nm="track"),
+        group(rect(152, 28, 14, p=(0, 0)), fill(ACC), s=an((t0 + 22, [100, 100]), (t0 + 24, [93, 93]), (t0 + 28, [100, 100])),
+              p=btn, nm="button"),
+        group(rect(236, 30, 7, p=(cx, cy - 2)), fill(ACC, 12), nm="file-row"),
+        group(rect(62, 2, 1, p=(cx - 88, cy - 24)), fill(ACC), nm="tab-line"),
+        group(*[ellipse(9, p=(cx - 122 + 13 * k, cy - 69)) for k in range(3)], fill(WIN_LINE), nm="ctl"),
+        group(rect(268, 1.5, 0, p=(cx, cy - 54)), fill(WIN_LINE), nm="title-line"),
+        group(rect(268, 15, 0, p=(cx, cy - 61.5)), fill(WIN_BAR), nm="bar-low"),
+        group(rect(268, 30, 8, p=(cx, cy - 69)), fill(WIN_BAR), nm="bar"),
+        group(rect(268, 168, 8, p=L), fill(WIN), nm="win"),
+    ], ip=t0, op=t1, o=an((t0, 0), (t0 + 6, 100)))
+    doc.layer("laptop", [
+        group(path([(cx - 210, cy + 114), (cx + 210, cy + 114), (cx + 194, cy + 130), (cx - 194, cy + 130)], closed=True), fill(INK), nm="base"),
+        group(rect(320, 214, 14, p=L), stroke(INK, 5), fill(PAPER), nm="screen"),
+    ], ip=t0, op=t1, o=an((t0, 0), (t0 + 6, 100)))
+
+    # кабель и импульсы данных по нему (три подряд, пока идёт полоса)
+    c0, c1 = (cx + 162, cy + 80), (C[0] - 170 * CS - 8, C[1] + 32)
+    wire = dict(outs=[[50, 34], [0, 0]], ins=[[0, 0], [-64, 0]])
+    tA, tB, tC = go + 2, go + 24, go + 46
+    e = an((tA, 0), (tA + 18, 100, "h"), (tB, 0), (tB + 18, 100, "h"), (tC, 0), (tC + 18, 100), ease=G.SOFT)
+    s = an((tA + 7, 0), (tA + 25, 100, "h"), (tB, 0, "h"), (tB + 7, 0), (tB + 25, 100, "h"), (tC, 0, "h"), (tC + 7, 0), (tC + 25, 100), ease=G.SOFT)
+    doc.layer("pulse", [group(path([c0, c1], **wire), {"ty": "tm", "s": s, "e": e, "o": st(0), "m": 1}, stroke(ACC, 6), nm="pulse")],
+              ip=t0, op=t1)
+    doc.layer("cable", [group(path([c0, c1], **wire), trim(an((t0 + 4, 0), (t0 + 20, 100))), stroke(INK, 5), nm="cable"),
+                        group(rect(16, 12, 3, p=(c1[0] + 2, c1[1])), fill(INK), o=fade(t0 + 18, t0 + 20), nm="plug")], ip=t0, op=t1)
+
+    # камера: полоса установки, потом значок приложения с галочкой
+    cam = doc.layer("cam-rig", ty=3, ip=t0, op=t1, p=C, s=CS * 100)
+    doc.layer("cam-ok", check_badge(26, "cok"), ip=t0, op=t1, parent=cam, p=(-44 + 26, 28 - 26), s=pop(done + 10, 10))
     doc.layer("cam-icon", [group(ellipse(14), fill(LCD_UI), nm="core"), group(ellipse(28), fill(ACC, 75), nm="halo"),
-                           group(rect(54, 54, 15), fill(LCD_DIM), nm="sq")], ip=t0, op=t1, parent=cam, p=(-44, 28), s=pop(t0 + 100, 12))
-    doc.layer("cam-bar", [group(rect(110, 8, 4, p=(55, 0)), fill(ACC), nm="fill")], ip=t0, op=t1, parent=cam, p=(-99, 60),
-              s=an((t0 + 72, [0, 100]), (t0 + 98, [100, 100]), ease=G.SOFT), o=an((t0 + 70, 0), (t0 + 72, 100), (t0 + 98, 100), (t0 + 104, 0)))
-    doc.layer("cam-track", [group(rect(110, 8, 4), fill(LCD_UI, 18), nm="track")], ip=t0, op=t1, parent=cam, p=(-44, 60),
-              o=an((t0 + 68, 0), (t0 + 72, 100), (t0 + 98, 100), (t0 + 104, 0)))
+                           group(rect(54, 54, 15), fill(LCD_DIM), nm="sq")], ip=t0, op=t1, parent=cam, p=(-44, 28), s=pop(done + 2, 12))
+    doc.layer("cam-bar", [group(rect(110, 8, 4, p=(55, 0)), fill(ACC), nm="fill")], ip=t0, op=t1, parent=cam, p=(-99, 28),
+              s=an((go + 10, [0, 100]), (done, [100, 100]), ease=G.SOFT), o=an((go + 8, 0), (go + 10, 100), (done, 100), (done + 4, 0)))
+    doc.layer("cam-track", [group(rect(110, 8, 4), fill(LCD_UI, 18), nm="track")], ip=t0, op=t1, parent=cam, p=(-44, 28),
+              o=an((go + 6, 0), (go + 10, 100), (done, 100), (done + 4, 0)))
     doc.layer("cam", [
         group(rect(196, 132, 12, p=(-44, 28)), stroke(INK, 5), fill(LCD), nm="lcd"),
         group(ellipse(66, p=(112, 40)), stroke(INK, 5), nm="dial"),
@@ -308,33 +358,6 @@ def scene_install(doc, T, t0, t1):
         group(rect(340, 220, 26), stroke(INK, 5), fill(PAPER), nm="body"),
         group(rect(56, 16, 8, p=(112, -114)), stroke(INK, 5), fill(PAPER), nm="shutter"),
     ], ip=t0, op=t1, parent=cam, o=an((t0, 0), (t0 + 6, 100)))
-    # файл едет по кабелю
-    chip(doc, "Proyavka.apk", [(t0 + 26, [L[0], L[1] - 20]), (t0 + 40, [L[0] + 40, L[1] + 70]), (t0 + 66, [470, 300]), (t0 + 74, [520, 262])],
-         t0 + 24, t0 + 78, s_keys=an((t0 + 66, [100, 100]), (t0 + 74, [40, 40])), o=fade(t0 + 24, t0 + 28, t0 + 70, t0 + 76))
-    # кабель USB
-    doc.layer("cable", [group(path([(L[0] + 160, 300), (606 - 105 - 8, 268)], outs=[[60, 30], [0, 0]], ins=[[0, 0], [-70, 40]]),
-                              trim(an((t0 + 4, 0), (t0 + 20, 100))), stroke(INK, 5), nm="cable"),
-                        group(rect(16, 12, 3, p=(606 - 105 - 6, 268)), fill(INK), o=fade(t0 + 18, t0 + 20), nm="plug")], ip=t0, op=t1)
-    # окно pmca-gui на экране ноутбука
-    wx, wy = L[0], L[1] - 26
-    doc.label("pmca-gui", wx - 112, wy - 64, 15, T_DARK, t0, t1, weight=500)
-    doc.label("Install app", wx - 112, wy - 34, 14, T_ACC, t0, t1, weight=500)
-    doc.label("Install selected app", wx, wy + 52, 14, T_WHITE, t0, t1, weight=500, align="center")
-    doc.label(T["task_ok"], wx - 112, wy + 20, 13, T_DARK, t0 + 106, t1, o=an((t0 + 106, 0), (t0 + 112, 100)))
-    doc.layer("pmca", [
-        group(rect(150, 30, 15, p=(wx, wy + 52)), fill(ACC), s=an((t0 + 18, [100, 100]), (t0 + 21, [92, 92]), (t0 + 26, [100, 100])),
-              a=(wx, wy + 52), p=(wx, wy + 52), nm="button"),
-        group(rect(224, 6, 3, p=(112, 0)), fill(ACC), p=(wx - 112, wy + 0), s=an((t0 + 24, [0, 100]), (t0 + 98, [100, 100]), ease=G.SOFT),
-              o=fade(t0 + 22, t0 + 24, t0 + 100, t0 + 104), nm="prog"),
-        group(rect(224, 6, 3, p=(wx, wy)), fill(rgb(222, 219, 212)), o=fade(t0 + 20, t0 + 24, t0 + 100, t0 + 104), nm="track"),
-        group(rect(60, 2, 1, p=(wx - 82, wy - 24)), fill(ACC), nm="tab-line"),
-        group(rect(256, 1.5, 0, p=(wx, wy - 48)), fill(rgb(222, 219, 212)), nm="title-line"),
-        group(rect(256, 160, 8, p=(wx, wy)), fill(WIN), nm="win"),
-    ], ip=t0, op=t1, o=an((t0, 0), (t0 + 6, 100)))
-    doc.layer("laptop", [
-        group(path([(L[0] - 200, L[1] + 106), (L[0] + 200, L[1] + 106), (L[0] + 184, L[1] + 122), (L[0] - 184, L[1] + 122)], closed=True), fill(INK), nm="base"),
-        group(rect(300, 206, 14, p=(L[0], L[1] - 4)), stroke(INK, 5), fill(PAPER), nm="screen"),
-    ], ip=t0, op=t1, o=an((t0, 0), (t0 + 6, 100)))
 
 
 def scene_card(doc, T, t0, t1, cert):
