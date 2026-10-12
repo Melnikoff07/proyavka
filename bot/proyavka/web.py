@@ -156,6 +156,13 @@ UPLOADS_AT_ONCE = 3
 BUSY_LOCK = threading.Lock()
 
 
+# открытая бета: новичок с адреса сайта (не Telegram, не приложение на экране «Домой», без ключа устройства) уходит на /beta
+# первым же скриптом страницы — до отрисовки приложения, без мигания
+BETA_GO = (b'<script>try { if (!location.hash && !localStorage.getItem("proyavka.device") && window.parent === window '
+           b'&& !window.TelegramWebviewProxy && !matchMedia("(display-mode: standalone)").matches && !navigator.standalone) '
+           b'location.replace("/beta"); } catch (e) {}</script>')
+
+
 class Handler(BaseHTTPRequestHandler):
     server_version = "filmbot"
     timeout = 120                      # молчащее соединение (медленная атака, оборванная связь) не держит поток вечно
@@ -437,6 +444,8 @@ class Handler(BaseHTTPRequestHandler):
                     return self.err(500, "webapp.html not found next to filmbot.py")
                 page = WEBAPP_HTML.read_bytes().replace(b'<html lang="ru"', f'<html lang="{LANG}"'.encode(), 1)
                 page = page.replace(b"{{UIV}}", str(ui_version()).encode())
+                if beta.BETA:
+                    page = page.replace(b"<head>", b"<head>\n" + BETA_GO, 1)
                 return self.send(200, page, "text/html; charset=utf-8", headers={"Content-Security-Policy": CSP})
             if parts == ["manifest.webmanifest"]:
                 return self.send(200, json.dumps(manifest(), ensure_ascii=False), "application/manifest+json", "max-age=3600")

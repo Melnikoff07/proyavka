@@ -24,7 +24,7 @@ def join(h, name, ip=None, lang="ru", accept=True):
 
 if __name__ == "__main__":
     h = harness.start(port=8124, extra_env={"BETA": "1", "BETA_SLOTS": "3", "MIN_FREE_GB": "0", "STORAGE_GB": "0.1"})
-    from proyavka import beta, database, users      # после start: настройки читаются из окружения при импорте
+    from proyavka import beta, database, users, web     # после start: настройки читаются из окружения при импорте
 
     s = h.get("/api/beta", auth=False)
     check(f"слоты видны без входа: {s.get('free')} из {s.get('total')}, {s.get('slot_mb')} МБ, {s.get('days')} дн.",
@@ -114,8 +114,24 @@ if __name__ == "__main__":
     nid = database.q("SELECT id FROM users WHERE name='новый'")[0]["id"]
     check(f"номер ушедших не переиспользуется: {nid}", b["_status"] == 200 and nid > uid_a + 2)
 
+    check("главная: новичка сразу на /beta (скрипт до отрисовки)", web.BETA_GO in h.req("/", auth=False))
+    check("срок беты: дата — последний день включительно", beta._until("2026-11-04") - beta._until("2026-11-04T00:00") == 86400
+          and beta._until("2026-11-05T00:00+03:00") == 1793826000 and beta._until("") == 0)
+    beta.UNTIL = time.time() + 3600
+    beta._CACHE.clear()
+    r = join(h, "под конец", ip="10.0.0.11")
+    left = users.user(database.q("SELECT id FROM users WHERE name='под конец'")[0]["id"])["expires"] - time.time()
+    check(f"слот под конец беты — до её конца ({left:.0f} с)", r["_status"] == 200 and 3500 < left <= 3600
+          and h.get("/api/beta", auth=False)["until"] == beta.UNTIL)
+    check("на странице — срок для таймера", f"until: {beta.UNTIL:.0f}".encode() in h.req("/beta", auth=False))
+    beta.UNTIL = time.time() - 1
+    r = join(h, "опоздал", ip="10.0.0.12")
+    check(f"бета закончилась — слотов нет ({r.get('error')})", r["_status"] == 403)
+    beta.UNTIL = 0
+
     beta.BETA = False
     check("бета выключена: страница и слоты — 404", h.req("/beta", auth=False).get("_status") == 404
           and h.get("/api/beta", auth=False).get("_status") == 404)
+    check("бета выключена: главная без перехода на /beta", web.BETA_GO not in h.req("/", auth=False))
     check("бета выключена: занять слот нельзя", join(h, "поздний", ip="10.0.0.10")["_status"] == 403)
     harness.done()

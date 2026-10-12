@@ -24,6 +24,8 @@ English first, [по-русски — ниже](#журнал-изменений
 ### Open beta
 - An optional open beta for a public server (`BETA=1`): the `/beta` page describes the project (a before/after slider on the shared sample with six films, features, an animated Lottie guide "how it works with a camera", FAQ) and lets visitors take a free slot without an invite — pick a nickname and you are signed in. Each slot has its own storage (`BETA_SLOT_MB`, 500 MB) and lifetime (`BETA_DAYS`, 3 days); the number of slots follows the free disk space (minus space promised to other users and `MIN_FREE_GB`), capped by `BETA_SLOTS` (30). Everyone sees the taken slots with nicknames and time left. Testers get a reminder (Telegram, notifications) 12 hours before the end; then the account and its frames are deleted and the slot frees up. The admin can extend a slot in Settings → Users. At most two slots per address a day.
 - The app shows beta testers how much time is left, and the sign-in screen links to the beta when it is on.
+- `BETA_UNTIL` — when the whole beta ends: the page counts down to it, and after it no one can take a slot.
+- The beta page has a light / dark switch; the theme and language are set before the page is drawn, and a newcomer at the site address goes to the beta page before the app appears — no flash on the way in.
 - Push notifications: the sending part is a separate function (`push.push_send`) usable for any message.
 
 ### Protection against load from strangers
@@ -197,6 +199,8 @@ English first, [по-русски — ниже](#журнал-изменений
 ### Открытая бета
 - Необязательная открытая бета для публичного сервера (`BETA=1`): страница `/beta` рассказывает о проекте (шторка «до/после» на общем образце с шестью плёнками, возможности, анимированный гайд Lottie «как это работает с камерой», вопросы) и даёт занять свободный слот без приглашения — придумал ник и сразу внутри. У слота своё место (`BETA_SLOT_MB`, 500 МБ) и срок (`BETA_DAYS`, 3 дня); число слотов идёт от свободного места на диске (за вычетом обещанного остальным и `MIN_FREE_GB`), не больше `BETA_SLOTS` (30). Занятые слоты видны всем — ники и сколько осталось. За 12 часов до конца приходит напоминание (Telegram, уведомления), потом аккаунт с кадрами удаляется и слот освобождается. Администратор может продлить слот в «Настройки → Пользователи». С одного адреса — не больше двух слотов в сутки.
 - В приложении участник беты видит, сколько у него осталось, а экран входа ведёт на бету, когда она включена.
+- `BETA_UNTIL` — когда кончается вся бета: страница показывает обратный отсчёт, после него занять слот нельзя.
+- На странице беты — переключатель светлой и тёмной темы; тема и язык ставятся до отрисовки, а новичок с адреса сайта попадает на страницу беты раньше, чем появится приложение, — без мигания при входе.
 - Уведомления: отправка вынесена в отдельную функцию (`push.push_send`) для любых сообщений.
 
 ### Защита от нагрузки чужими людьми

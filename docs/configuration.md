@@ -40,6 +40,7 @@ One `NAME=value` per line. After editing: `sudo systemctl restart proyavka-bot`.
 | `BETA_SLOT_MB` | `500` | storage per beta slot |
 | `BETA_DAYS` | `3` | how long a slot lives; then the account and its frames are deleted |
 | `BETA_SLOTS` | `30` | at most this many slots, even if the disk has room for more |
+| `BETA_UNTIL` | — | when the beta ends: a date (the last day, inclusive) or an ISO date and time (`2026-11-04T23:59+03:00`). The page shows a countdown, slots taken near the end last only until it, and after it nobody can join |
 | `INGEST_THREADS` | auto | how many incoming frames are prepared at once (1 on one core, 2 from two cores); users are served in turn |
 | `BETA_JOINS_PER_HOUR` | `10` | new beta slots per hour in total (0 — no limit) |
 | `RENDER_BURST` | `90` | new renders (uncached previews, live editor preview) a user can request in a row |

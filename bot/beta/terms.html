@@ -9,6 +9,16 @@
 <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
 <meta name="theme-color" content="#000000" media="(prefers-color-scheme: dark)">
 <link rel="stylesheet" href="/beta/beta.css">
+<script>/* тема и язык — до отрисовки, без мигания */
+(function () {
+  const get = (k) => { try { return localStorage.getItem(k); } catch (e) { return null; } };
+  const t = get("proyavka.theme") || "auto", l = get("proyavka.beta.lang") || (/^(ru|uk|be|kk)\b/i.test(navigator.language || "") ? "ru" : "en");
+  const d = document.documentElement;
+  d.dataset.theme = (t === "auto" ? matchMedia("(prefers-color-scheme: dark)").matches : t === "dark") ? "dark" : "light";
+  d.lang = l;
+  d.classList.toggle("en", l === "en");
+})();
+</script>
 </head>
 <body>
 <header class="top" id="top">
@@ -17,6 +27,7 @@
     <nav class="cap">
       <a class="hide-s" href="/beta"><span class="ru">← К бете</span><span class="en">← Back to the beta</span></a>
       <span class="lang"><button data-lang="ru" aria-pressed="true">RU</button><button data-lang="en" aria-pressed="false">EN</button></span>
+      <button class="theme" id="themeBtn" type="button" aria-label="Тема"><svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><circle cx="8" cy="8" r="6.4" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M8 1.6a6.4 6.4 0 0 1 0 12.8z" fill="currentColor"/></svg></button>
     </nav>
   </div>
 </header>
@@ -161,9 +172,18 @@
 "use strict";
 (function () {
   const get = (k) => { try { return localStorage.getItem(k); } catch (e) { return null; } };
-  const pref = get("proyavka.theme") || "auto";
-  const dark = pref === "auto" ? matchMedia("(prefers-color-scheme: dark)").matches : pref === "dark";
-  document.documentElement.dataset.theme = dark ? "dark" : "light";
+  const sysDark = matchMedia("(prefers-color-scheme: dark)");
+  const applyTheme = () => {
+    const pref = get("proyavka.theme") || "auto";
+    document.documentElement.dataset.theme = (pref === "auto" ? sysDark.matches : pref === "dark") ? "dark" : "light";
+  };
+  applyTheme();
+  sysDark.addEventListener("change", applyTheme);
+  document.getElementById("themeBtn").onclick = () => {     // светлая ⇄ тёмная; совпала с системной — снова «как в системе»
+    const dark = document.documentElement.dataset.theme !== "dark";
+    try { localStorage.setItem("proyavka.theme", dark === sysDark.matches ? "auto" : dark ? "dark" : "light"); } catch (e) {}
+    applyTheme();
+  };
   const contact = "{{CONTACT}}";
   document.querySelectorAll(".tgl").forEach((a) => { a.href = `https://t.me/${contact}`; a.textContent = "@" + contact; });
   if (!/^\w+$/.test(contact)) document.querySelectorAll(".tg").forEach((e) => e.remove());
@@ -172,6 +192,7 @@
     document.documentElement.classList.toggle("en", l === "en");
     document.querySelectorAll("[data-lang]").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.lang === l)));
     document.title = l === "en" ? "Proyavka — terms and privacy" : "Проявка — условия и конфиденциальность";
+    document.getElementById("themeBtn").setAttribute("aria-label", l === "en" ? "Light or dark theme" : "Светлая или тёмная тема");
     document.querySelectorAll(".doc-body nav a").forEach((a) => { a.href = a.getAttribute("href").replace(/-en$/, "") + (l === "en" ? "-en" : ""); });
   };
   document.querySelectorAll("[data-lang]").forEach((b) => (b.onclick = () => { try { localStorage.setItem("proyavka.beta.lang", b.dataset.lang); } catch (e) {} setLang(b.dataset.lang); }));

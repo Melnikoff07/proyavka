@@ -2,6 +2,7 @@
 const $ = (id) => document.getElementById(id);
 const CONTACT = /^\w+$/.test((window.BETA || {}).contact || "") ? window.BETA.contact : "";
 const DEV_KEY = "proyavka.device";
+const UNTIL = +(window.BETA || {}).until || 0;            // конец беты (секунды), 0 — без срока
 function stored(k, v) {
   try {
     if (v === undefined) return localStorage.getItem(k);
@@ -25,6 +26,8 @@ function setLang(l) {
   document.documentElement.classList.toggle("en", l === "en");
   document.querySelectorAll("[data-lang]").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.lang === l)));
   document.title = T("Проявка — открытая бета", "Proyavka — open beta");
+  $("themeBtn").setAttribute("aria-label", T("Светлая или тёмная тема", "Light or dark theme"));
+  tickUntil();
   renderFilms(); renderStep(step, true); renderStatus();
   if (!$("panel").hidden) renderPanel();
 }
@@ -36,6 +39,23 @@ function applyTheme() {
 }
 applyTheme();
 matchMedia("(prefers-color-scheme: dark)").addEventListener("change", applyTheme);
+$("themeBtn").onclick = () => {          // светлая ⇄ тёмная; совпала с системной — снова «как в системе»
+  const dark = document.documentElement.dataset.theme !== "dark";
+  stored("proyavka.theme", dark === matchMedia("(prefers-color-scheme: dark)").matches ? "auto" : dark ? "dark" : "light");
+  applyTheme();
+};
+/* сколько осталось до конца беты: дни и часы:минуты:секунды */
+function tickUntil() {
+  if (!UNTIL) return;
+  const s = Math.max(0, Math.round(UNTIL - Date.now() / 1000));
+  const p2 = (n) => String(n).padStart(2, "0");
+  const end = new Date((UNTIL - 1) * 1000).toLocaleDateString(LANG === "en" ? "en-GB" : "ru-RU", { day: "numeric", month: "long", year: "numeric" });
+  $("until").innerHTML = s ? `${T("До конца беты", "Beta ends in")} <b class="num">${Math.floor(s / 86400)}${T("\u00a0д", "d")} ${p2(Math.floor(s % 86400 / 3600))}:${p2(Math.floor(s % 3600 / 60))}:${p2(s % 60)}</b>`
+                           : T("Бета закончилась", "The beta is over");
+  $("until").title = T(`Бета работает до ${end}`, `The beta runs until ${end}`);
+  $("until").hidden = false;
+}
+setInterval(tickUntil, 1000);
 document.querySelectorAll(".tgl").forEach((a) => (a.href = `https://t.me/${CONTACT}`));
 if (!CONTACT) document.querySelectorAll(".tg").forEach((e) => e.remove());
 addEventListener("scroll", () => $("top").classList.toggle("scrolled", scrollY > 8), { passive: true });

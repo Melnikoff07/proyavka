@@ -16,6 +16,16 @@
 <meta name="theme-color" content="#000000" media="(prefers-color-scheme: dark)">
 <link rel="preload" href="/fonts/intertight-cyrillic.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="stylesheet" href="/beta/beta.css">
+<script>/* тема и язык — до отрисовки, без мигания */
+(function () {
+  const get = (k) => { try { return localStorage.getItem(k); } catch (e) { return null; } };
+  const t = get("proyavka.theme") || "auto", l = get("proyavka.beta.lang") || (/^(ru|uk|be|kk)\b/i.test(navigator.language || "") ? "ru" : "en");
+  const d = document.documentElement;
+  d.dataset.theme = (t === "auto" ? matchMedia("(prefers-color-scheme: dark)").matches : t === "dark") ? "dark" : "light";
+  d.lang = l;
+  d.classList.toggle("en", l === "en");
+})();
+</script>
 </head>
 <body>
 <header class="top" id="top">
@@ -26,6 +36,7 @@
       <a class="hide-s" href="#faq"><span class="ru">Вопросы</span><span class="en">FAQ</span></a>
       <a class="hide-s" href="{{PROJECT}}" target="_blank" rel="noopener">GitHub</a>
       <span class="lang"><button data-lang="ru" aria-pressed="true">RU</button><button data-lang="en" aria-pressed="false">EN</button></span>
+      <button class="theme" id="themeBtn" type="button" aria-label="Тема"><svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><circle cx="8" cy="8" r="6.4" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M8 1.6a6.4 6.4 0 0 1 0 12.8z" fill="currentColor"/></svg></button>
     </nav>
   </div>
 </header>
@@ -34,6 +45,7 @@
   <div class="wrap hero">
     <div class="eyebrow cap">
       <span class="live"><i></i><span class="ru">Открытая бета</span><span class="en">Open beta</span></span>
+      <span class="until" id="until" hidden></span>
       <span class="muted"><span class="ru">Открытый код · свой сервер</span><span class="en">Open source · self-hosted</span></span>
     </div>
     <h1>
@@ -198,7 +210,7 @@
   <div class="slots" id="slots"></div>
 </div>
 
-<script>window.BETA = { contact: "{{CONTACT}}", guide: "/beta/guide.json" };</script>
+<script>window.BETA = { contact: "{{CONTACT}}", guide: "/beta/guide.json", until: {{UNTIL}} };</script>
 <script src="/beta/lottie.min.js"></script>
 <script src="/beta/beta.js"></script>
 </body>

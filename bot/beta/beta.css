@@ -63,6 +63,10 @@ h1, h2, h3, h4 { margin: 0; font-weight: 500; text-wrap: balance; }
 .lang { display: flex; gap: 6px; }
 .lang button { color: var(--muted); padding: 6px 0; }
 .lang button[aria-pressed="true"] { color: var(--text); }
+.theme { display: grid; place-items: center; width: 32px; height: 32px; margin: 0 -8px 0 -6px; border-radius: 50%; }
+.theme:hover { background: var(--tile); }
+.theme svg { transition: transform .45s cubic-bezier(.2, .8, .2, 1); }
+[data-theme="dark"] .theme svg { transform: rotate(180deg); }
 .hide-s { display: none; }
 @media (min-width: 760px) { .hide-s { display: inline; } }
 
@@ -84,6 +88,8 @@ h1, h2, h3, h4 { margin: 0; font-weight: 500; text-wrap: balance; }
 .eyebrow { display: flex; flex-wrap: wrap; gap: 6px 18px; align-items: center; }
 .live { display: inline-flex; align-items: center; gap: 8px; }
 .live i { width: 7px; height: 7px; border-radius: 50%; background: var(--acc); animation: ping 2.2s infinite; }
+.until { color: var(--muted); }
+.until b { margin-left: 4px; color: var(--text); font-weight: 500; }
 @keyframes ping { 0% { box-shadow: 0 0 0 0 rgba(255, 74, 28, .5); } 80%, 100% { box-shadow: 0 0 0 9px rgba(255, 74, 28, 0); } }
 /* две фразы — две строки равной ширины: кегль от ширины колонки, без переносов внутри фразы */
 h1 { margin-top: var(--s3); font-size: min(12cqi, 152px); line-height: .9; letter-spacing: -.05em; font-weight: 500; margin-left: -.04em; }

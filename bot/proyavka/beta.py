@@ -30,6 +30,19 @@ JOINS_PER_IP = 2                                            # новых сло�
 JOINS_PER_HOUR = int(os.environ.get("BETA_JOINS_PER_HOUR", "10"))   # всего новых слотов в час: ботам не занять все разом
 WARN_HOURS = 12                                             # за сколько предупредить, что слот кончается
 
+
+def _until(v):
+    """BETA_UNTIL — конец беты: дата (последний день включительно) или дата и время ISO 8601; без пояса — время сервера."""
+    v = (v or "").strip()
+    if not v:
+        return 0
+    from datetime import datetime, timedelta
+    d = datetime.fromisoformat(v)
+    return (d + timedelta(days=1) if len(v) == 10 else d).timestamp()
+
+
+UNTIL = _until(os.environ.get("BETA_UNTIL"))                 # после него новых слотов нет; таймер на странице
+
 LANDING_FILMS = ["super400", "portrait400", "golden200", "cine250", "across100", "expired"]
 
 BETA_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "beta")   # bot/beta/
@@ -75,7 +88,7 @@ def status(me=None):
     users = [{"name": r["name"], "left": max(0, int(r["expires"] - now)), "me": r["id"] == me}
              for r in rows if r["expires"] > now]
     return {"on": True, "slot_mb": SLOT_MB, "days": DAYS, "total": max(total, len(users)), "free": max(0, total - len(users)),
-            "users": users, "next": min((u["left"] for u in users), default=0)}
+            "users": users, "next": min((u["left"] for u in users), default=0), "until": UNTIL}
 
 
 def clean_nick(nick):
@@ -93,6 +106,8 @@ def join(nick, ip, device_name, lang=None, accept=False):
     if not accept:
         raise ValueError(L("нужно согласие с условиями", "you need to accept the terms"))
     now = time.time()
+    if UNTIL and now >= UNTIL:
+        raise PermissionError(L("бета закончилась", "the beta is over"))
     ip = ip_key(ip) if ip else ip
     if ip:
         recent = [t for t in JOIN_IPS.get(ip, []) if now - t < 86400]
@@ -110,7 +125,7 @@ def join(nick, ip, device_name, lang=None, accept=False):
         JOIN_TIMES.append(now)
         uid = next_web_uid()
         kw = {"lang": lang} if lang in ("ru", "en") else {}
-        add_web_user(uid, nick, storage_gb=SLOT_MB / 1000, expires=now + DAYS * 86400, terms=now, **kw)
+        add_web_user(uid, nick, storage_gb=SLOT_MB / 1000, expires=min(now + DAYS * 86400, UNTIL or float("inf")), terms=now, **kw)
         _CACHE.clear()
     if ip:
         JOIN_IPS[ip] = recent + [now]
@@ -200,7 +215,7 @@ def page(name):
     браузер хранит их год и не скачивает заново, а новая версия получает новый адрес."""
     path = os.path.join(BETA_DIR, name)
     vers = {a: int(os.path.getmtime(os.path.join(BETA_DIR, a))) for a in ASSETS}
-    mtime = (os.path.getmtime(path), tuple(vers.values()))
+    mtime = (os.path.getmtime(path), tuple(vers.values()), UNTIL)
     if PAGES.get(name, (0,))[0] != mtime:
         with open(path, encoding="utf-8") as f:
             text = f.read()
@@ -209,7 +224,7 @@ def page(name):
         days = f"{DAYS:g}"
         for k, v in {"SLOT_RU": f"{size} {'ГБ' if gb else 'МБ'}", "SLOT_EN": f"{size} {'GB' if gb else 'MB'}",
                      "DAYS_RU": f"{days} {plural_ru(int(DAYS), 'день', 'дня', 'дней') if DAYS == int(DAYS) else 'дня'}",
-                     "DAYS_EN": f"{days} day{'' if DAYS == 1 else 's'}"}.items():
+                     "DAYS_EN": f"{days} day{'' if DAYS == 1 else 's'}", "UNTIL": f"{UNTIL:.0f}"}.items():
             text = text.replace("{{" + k + "}}", v)
         for a, v in vers.items():
             text = text.replace(f'/beta/{a}"', f'/beta/{a}?v={v}"')

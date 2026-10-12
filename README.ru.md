@@ -1,3 +1,5 @@
+<a href="https://proyavka.app/beta"><img src="docs/banner.svg" alt="Проявка — открытая бета: попробовать бесплатно на proyavka.app" width="100%"></a>
+
 # Проявка
 
 [English](README.md) · **Русский**
