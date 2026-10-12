@@ -3,6 +3,9 @@ const $ = (id) => document.getElementById(id);
 const CONTACT = /^\w+$/.test((window.BETA || {}).contact || "") ? window.BETA.contact : "";
 const DEV_KEY = "proyavka.device";
 const UNTIL = +(window.BETA || {}).until || 0;            // конец беты (секунды), 0 — без срока
+// на iPhone Safari и значок на экране «Домой» не делят хранилище: вход из одного не виден в другом
+const IOS = /iPhone|iPad|iPod/.test(navigator.userAgent) || (/Macintosh/.test(navigator.userAgent) && navigator.maxTouchPoints > 1);
+const STANDALONE = matchMedia("(display-mode: standalone)").matches || navigator.standalone === true;
 function stored(k, v) {
   try {
     if (v === undefined) return localStorage.getItem(k);
@@ -256,6 +259,10 @@ function renderPanel() {
     bottom.innerHTML = `<div class="done"><h4>${joined ? T(`Готово, ${esc(name)}!`, `You're in, ${esc(name)}!`) : T(`Ты уже в бете${name ? " — " + esc(name) : ""}`, `You're already in${name ? " — " + esc(name) : ""}`)}</h4>` +
       `<p>${T(`Слот твой до ${until(exp)}. Камеру подключишь в ☰ → Настройки → Камера; фото с телефона — кнопкой «+ Добавить».`,
               `The slot is yours until ${until(exp)}. Connect the camera in ☰ → Settings → Camera; phone photos — with “+ Add”.`)}</p>` +
+      (joined ? `<p class="keep">${T("Вход хранится в этом браузере — почты и пароля нет. Чтобы открыть Проявку на другом устройстве: ☰ → Настройки → «Привязать устройство».",
+                                     "Your sign-in lives in this browser — there is no email or password. To open Proyavka on another device: ☰ → Settings → Link a device.") +
+                (IOS && !STANDALONE ? " " + T("На iPhone значок на экране «Домой» не видит вход из Safari — привяжи его так же.",
+                                              "On iPhone the Home Screen icon does not see the Safari sign-in — link it the same way.") : "")}</p>` : "") +
       `<a class="btn" href="/">${T("Открыть Проявку", "Open Proyavka")} <span class="arr">→</span></a></div>`;
     return;
   }
@@ -273,13 +280,18 @@ function renderPanel() {
     bottom.innerHTML = `<div class="form"><div class="field"><input id="nick" maxlength="24" autocomplete="nickname" enterkeyhint="go" spellcheck="false">` +
       `<button class="btn acc" id="take"></button></div>` +
       `<label class="agree"><input type="checkbox" id="agree"><span id="agreeText"></span></label>` +
-      `<div class="error" id="perr" role="alert"></div><p class="fine" id="fine"></p></div>`;
+      `<div class="error" id="perr" role="alert"></div><p class="keep" id="iosTip" hidden></p><p class="fine" id="fine"></p></div>`;
     $("take").onclick = take;
     $("nick").onkeydown = (e) => { if (e.key === "Enter") take(); };
   }
   $("agreeText").innerHTML = T(`Мне есть 16 лет, я принимаю <a href="/beta/terms" target="_blank">условия и политику конфиденциальности</a>`,
                                `I am 16 or older and accept the <a href="/beta/terms" target="_blank">terms and privacy policy</a>`);
   $("nick").placeholder = T("Твой ник", "Your nickname");
+  if (IOS && !STANDALONE) {         // занять слот лучше сразу в приложении со значка: из Safari вход туда не перейдёт
+    $("iosTip").hidden = false;
+    $("iosTip").textContent = T("На iPhone: сначала в Safari «Поделиться» → «На экран „Домой“», открой значок и займи слот там — Safari и значок не делят вход. Если страница открыта внутри Telegram или Instagram, этого пункта нет: сперва «Открыть в Safari».",
+                                "On iPhone: first in Safari tap Share → Add to Home Screen, open the icon and take the slot there — Safari and the icon don't share the sign-in. Inside Telegram or Instagram that option is missing: choose Open in Safari first.");
+  }
   $("take").textContent = T(`Занять №${String(S.users.length + 1).padStart(2, "0")}`, `Take #${String(S.users.length + 1).padStart(2, "0")}`);
   $("fine").textContent = T(`Ник увидят все на этой странице. Через ${S.days} дн. аккаунт и кадры удалятся — скачай нужное заранее.`,
                             `Everyone on this page will see your nickname. After ${S.days} days the account and frames are deleted — download what you need beforehand.`);
