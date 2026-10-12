@@ -1556,6 +1556,7 @@ function setImmersive(on) {
   const panel = v.querySelector(".panel");
   v.style.setProperty("--ph", panel.offsetHeight + "px");
   v.classList.toggle("immersive", on);
+  if (on) wantFull();                                           // на весь экран — скорее всего будут приближать: полный размер заранее
   setTimeout(() => { if (zoom.s > 1) zoomApply(); }, 420);       // кадр стал крупнее — пересчитать границы сдвига
   if (on && !stored("proyavka.immersiveHint")) {
     stored("proyavka.immersiveHint", "1");

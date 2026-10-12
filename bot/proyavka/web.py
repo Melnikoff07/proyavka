@@ -200,15 +200,10 @@ class Handler(BaseHTTPRequestHandler):
         return tok
 
     def send_full(self, ph):
-        """Кадр в полном размере файлом — «Скачать» вне Telegram."""
-        from .pools import HEAVY
+        """Кадр в полном размере файлом — «Скачать» вне Telegram. Тот же файл, что для зума и альбомов: из кэша,
+        рисуется раз на правку (повторное скачивание и скачивание после зума — сразу)."""
         if has(ph["work"]) or has(ph["src"]):
-            out = TMP / f"dl_{ph['id']}_{secrets.token_hex(4)}.jpg"
-            try:
-                HEAVY.submit(job_full, ph, str(out)).result(timeout=300)
-                body = out.read_bytes()
-            finally:
-                remove(str(out))
+            body = full_file(ph).read_bytes()
         elif has(ph["view"]):                  # исходник удалён ради места — отдаём то, что осталось
             body = Path(ph["view"]).read_bytes()
         else:
