@@ -354,32 +354,76 @@ def has(path):
     return bool(path) and os.path.exists(path)
 
 
-# Кадрирование: доли кадра "x,y,w,h" после поворота по EXIF (так кадр и виден). Применяется до плёнки,
-# поэтому зерно, оверлей, дата и рамка ложатся уже на кадрированное фото.
+# Кадрирование: "x,y,w,h" или "x,y,w,h,r,t" — доли кадра после поворота по EXIF (так кадр и виден), r — поворот
+# на 0/90/180/270° по часовой, t — наклон (выравнивание горизонта) в градусах по часовой, от −45 до 45. Рамка задана
+# в долях уже повёрнутого кадра; наклонённый кадр сперва уменьшается до самого большого прямоугольника тех же пропорций
+# без пустых углов. Без поворота строка прежняя, из четырёх чисел. Применяется до плёнки, поэтому зерно, оверлей,
+# дата и рамка ложатся уже на кадрированное фото.
+TILT_MAX = 45.0
+
+
 def parse_crop(v):
     if v in (None, "", False, []):
         return None
     if isinstance(v, str):
         v = v.split(",")
     try:
-        x, y, w, h = (float(t) for t in v)
+        nums = [float(t) for t in v]
     except (TypeError, ValueError):
         raise ValueError(L("неверная рамка кадрирования", "invalid crop"))
-    if not all(map(math.isfinite, (x, y, w, h))):
+    if len(nums) not in (4, 6) or not all(map(math.isfinite, nums)):
         raise ValueError(L("неверная рамка кадрирования", "invalid crop"))
+    x, y, w, h = nums[:4]
+    r, t = (nums[4], nums[5]) if len(nums) == 6 else (0.0, 0.0)
+    if r % 90 or abs(t) > TILT_MAX:
+        raise ValueError(L("неверный поворот кадра", "invalid rotation"))
+    r, t = int(r) % 360, round(t, 1) + 0.0         # + 0.0: без «-0.0»
     x, y = min(max(x, 0.0), 1.0), min(max(y, 0.0), 1.0)
     w, h = min(w, 1.0 - x), min(h, 1.0 - y)
     if w < 0.05 or h < 0.05:
         raise ValueError(L("слишком маленькая рамка", "crop is too small"))
+    turn = f",{r},{t:.1f}" if r or t else ""
     if x < 0.002 and y < 0.002 and w > 0.996 and h > 0.996:
-        return None                              # весь кадр — значит без кадрирования
-    return f"{x:.4f},{y:.4f},{w:.4f},{h:.4f}"
+        if not turn:
+            return None                          # весь кадр без поворота — значит без кадрирования
+        x, y, w, h = 0.0, 0.0, 1.0, 1.0
+    return f"{x:.4f},{y:.4f},{w:.4f},{h:.4f}{turn}"
+
+
+def crop_parts(crop):
+    """(x, y, w, h, поворот, наклон) из строки кадрирования."""
+    v = [float(t) for t in crop.split(",")]
+    return (*v[:4], int(v[4]) if len(v) > 4 else 0, v[5] if len(v) > 5 else 0.0)
+
+
+def tilt_scale(W, H, t):
+    """Во сколько раз уменьшить кадр W×H, наклонённый на t°, чтобы в него влез прямоугольник тех же пропорций."""
+    a = math.radians(abs(t))
+    c, s = math.cos(a), math.sin(a)
+    return min(W / (W * c + H * s), H / (W * s + H * c))
+
+
+def turn_img(img, r, t):
+    """Повернуть на r (0/90/180/270, по часовой) и наклонить на t° по часовой с обрезкой пустых углов."""
+    if r:
+        img = img.transpose({90: Image.Transpose.ROTATE_270, 180: Image.Transpose.ROTATE_180,
+                             270: Image.Transpose.ROTATE_90}[r])
+    if t:
+        if img.mode not in ("RGB", "L"):
+            img = img.convert("RGB")
+        W, H = img.size
+        k = tilt_scale(W, H, t)
+        img = img.rotate(-t, resample=Image.BICUBIC, expand=False)
+        cw, ch = W * k, H * k
+        img = img.crop((math.ceil((W - cw) / 2), math.ceil((H - ch) / 2), math.floor((W + cw) / 2), math.floor((H + ch) / 2)))
+    return img
 
 
 def crop_img(img, crop):
     if not crop:
         return img
-    x, y, w, h = map(float, crop.split(","))
+    x, y, w, h, r, t = crop_parts(crop)
+    img = turn_img(img, r, t)
     W, H = img.size
     return img.crop((round(x * W), round(y * H), round((x + w) * W), round((y + h) * H)))
 
@@ -404,7 +448,7 @@ def source_image(ph, mode):
         img = crop_img(Image.open(ph["work"]), crop)
         if crop and mode == "work" and max(img.size) < WORK_EDGE * 0.75 and has(ph["src"]):
             # сильный кроп: из рабочей копии вышло бы мыльно — берём оригинал, декодируя его сразу уменьшенным
-            x, y, w, h = map(float, crop.split(","))
+            x, y, w, h = crop_parts(crop)[:4]
             img = fit(crop_img(open_src(ph["src"], int(WORK_EDGE / max(w, h))), crop).convert("RGB"), WORK_EDGE)
         return img.convert("RGB")
     key = (ph["id"], VIEW_EDGE, crop)

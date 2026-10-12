@@ -58,9 +58,9 @@ def help_text(uid):
         lines.append(L("• Кнопка «Проявка» слева от поля ввода — лента-приложение со свайпами и превью плёнок.",
                        "• The Proyavka button next to the input field — feed app with swipes and live film previews."))
         lines.append(L("  Там же: «+» — фото с телефона, долгое нажатие на кадр — выбрать несколько (плёнка, оверлей, "
-                       "удаление пачкой), «Кадр» — кадрирование, «Оверлей» — режим наложения, прозрачность и свои картинки.",
+                       "удаление пачкой), «Кадрировать» — кадрирование и поворот, «Оверлей» — режим наложения, прозрачность и свои картинки.",
                        "  There: \"+\" adds phone photos, long-press a frame to select several (film, overlay, delete at once), "
-                       "\"Crop\" crops, \"Overlay\" sets the blend mode, opacity and your own images."))
+                       "\"Crop\" crops and rotates, \"Overlay\" sets the blend mode, opacity and your own images."))
     lines += ["", L("Плёнки:", "Films:")]
     for k, p in PRESETS.items():
         lines.append(f"{p['name']} — {tr(p['when'])}: {tr(p['desc'])}")

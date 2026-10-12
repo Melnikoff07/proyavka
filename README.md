@@ -14,7 +14,7 @@ Take a shot, and half a minute later it's in your feed already "on film": colour
 - your own LUTs: add a `.cube` file and it joins the film list; each user has their own, nobody else sees them
 - frames arrive by themselves: over FTP from cameras that support it, or via the app for Sony PlayMemories cameras; phone photos via the "+" button
 - RAW (ARW, CR3, NEF, RAF, DNG…) out of the box; with RAW+JPEG the JPEG is used
-- crop (free, 1:1, 4:5, 3:2, 16:9) and batch edits: select a day's frames and change the film or overlay, or delete them at once; deleted frames stay in the trash while there is space
+- crop (free, 1:1, 4:5, 3:2, 16:9), rotate by 90° and straighten, and batch edits: select a day's frames and change the film or overlay, or delete them at once; deleted frames stay in the trash while there is space
 - full-size files: download one or a ZIP on a computer, save straight to Photos on iPhone; exported files carry the shooting date, camera and exposure (no GPS) and an sRGB profile, so the gallery files them by the date taken. Originals are kept until space runs out
 - **no Telegram needed:** the app installs on a phone from the browser (iPhone: Share → Add to Home Screen; Android and computers: Install in Chrome or Edge); devices sign in with a one-time code or QR. Prefer Telegram? Connect a bot at setup or later in the settings — frames then also arrive in the chat with film buttons
 - notifications when new frames are developed (switch them on or off per device), light / dark / auto / burger theme

@@ -83,4 +83,40 @@ if __name__ == "__main__":
     check(f"после сброса снова весь кадр: {vw}×{vh}", abs(vw / vh - W0 / H0) < 0.01)
     r = h.post(f"/api/photo/{pid}", {"crop": [0, 0, 1, 1]})
     check("рамка во весь кадр = без кадрирования", r.get("crop") is None and not r.get("pending"))
+
+    # поворот на 90° и наклон: хранятся в той же рамке, x,y,w,h — в долях уже повёрнутого кадра
+    import numpy as np
+    from proyavka import imaging
+    for bad in ([0, 0, 1, 1, 45, 0], [0, 0, 1, 1, 90, 46], [0, 0, 1, 1, 90], [0, 0, 1, 1, 90, float("inf")]):
+        r = h.post(f"/api/photo/{pid}", {"crop": bad})
+        check(f"неверный поворот отклонён {bad}: {r.get('_status')}", r.get("_status") == 400)
+    check("старая рамка без поворота — прежняя строка", imaging.parse_crop([0.1, 0.1, 0.5, 0.5, 0, 0]) == "0.1000,0.1000,0.5000,0.5000")
+    check("−90 = 270", imaging.parse_crop([0, 0, 1, 1, -90, 0]) == "0.0000,0.0000,1.0000,1.0000,270,0.0")
+    r = h.post(f"/api/photo/{pid}", {"crop": [0, 0, 1, 1, 90, 0]})
+    check(f"весь кадр, повёрнутый на 90°: {r.get('crop')}", r.get("crop") == [0, 0, 1, 1, 90, 0] and r.get("pending"))
+    h.wait(lambda: (lambda p: p["rendered_rev"] == p["rev"])(database.get(pid)), timeout=60)
+    vw, vh = Image.open(database.get(pid)["view"]).size
+    check(f"экран повёрнут: {vw}×{vh} (исходник {W0}×{H0})", abs(vw / vh - H0 / W0) < 0.01)
+    p0 = h.get(f"/img/preview/{pid}/original?st=100&m={MEDIA}&c=0,0,1,1,90,0")
+    pw, ph_ = Image.open(__import__("io").BytesIO(p0)).size
+    check(f"превью по ссылке тоже повёрнуто: {pw}×{ph_}", (pw < ph_) == (W0 > H0))
+    src = Image.open(ph["work"]).convert("RGB")
+    cw_ = imaging.crop_img(src, "0.0000,0.0000,1.0000,1.0000,90,0.0")
+    check("90° по часовой: левый верхний угол уходит вправо вверх",
+          np.abs(np.asarray(cw_.crop((cw_.width - 4, 0, cw_.width, 4)), dtype=float).mean()
+                 - np.asarray(src.crop((0, src.height - 4, 4, src.height)), dtype=float).mean()) < 30)
+    tilt = imaging.crop_img(Image.new("RGB", (900, 600), (200, 200, 200)), "0.0000,0.0000,1.0000,1.0000,0,7.5")
+    a = np.asarray(tilt, dtype=float)
+    k = imaging.tilt_scale(900, 600, 7.5)
+    check(f"наклон 7,5°: {tilt.size}, без пустых углов (минимум {a.min():.0f})",
+          abs(tilt.size[0] - 900 * k) <= 2 and abs(tilt.size[0] / tilt.size[1] - 1.5) < 0.01 and a.min() > 150)
+    r = h.post(f"/api/photo/{pid}", {"crop": [0.1, 0.2, 0.5, 0.5, 270, -3.25]})
+    check(f"рамка с поворотом и наклоном: {r.get('crop')}", r.get("crop") == [0.1, 0.2, 0.5, 0.5, 270, -3.2])
+    h.wait(lambda: (lambda p: p["rendered_rev"] == p["rev"])(database.get(pid)), timeout=60)
+    ph = database.get(pid)
+    pools.HEAVY.submit(jobs.job_full, ph, str(full)).result()
+    fw, fh = Image.open(full).size
+    check(f"полный файл с поворотом и наклоном: {fw}×{fh}", abs(fw / fh - (H0 / W0)) < 0.02)
+    r = h.post(f"/api/photo/{pid}", {"crop": None})
+    check("сброс снимает и поворот", r.get("crop") is None)
     harness.done()

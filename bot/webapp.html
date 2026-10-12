@@ -236,6 +236,12 @@
   .ratios { display: flex; gap: 18px; overflow-x: auto; padding: 4px var(--pad) 6px; scrollbar-width: none; }
   .ratios::-webkit-scrollbar { display: none; }
   .ratios .opt { flex: 0 0 auto; }
+  /* поворот на 90° и наклон (выравнивание горизонта) */
+  .turnrow { display: flex; align-items: flex-end; gap: 10px; padding: 0 var(--pad) 10px; }
+  .turnrow .ed-sl { flex: 1; padding: 0; min-width: 0; }
+  .turnrow .ed-sl .v { color: var(--text); font-size: 13px; }
+  .turnrow .rot { width: 44px; height: 44px; flex: 0 0 auto; border-radius: 50%; background: var(--raise); color: var(--text);
+                  display: grid; place-items: center; font-size: 20px; line-height: 1; }
   .vtitle { display: flex; align-items: flex-end; gap: 10px; padding: 0 var(--pad) 14px; }
   .vtitle .vbig { font-size: 52px; line-height: .78; font-weight: 500; letter-spacing: -.06em; }
   .vtitle .vt { display: flex; flex-direction: column; gap: 4px; min-width: 0; padding-bottom: 1px; }
@@ -701,6 +707,12 @@
     </div>
     </div>
     <div id="cropui" hidden>
+      <div class="turnrow">
+        <button class="rot" id="cRotL" aria-label="Повернуть влево на 90°" data-i18n-aria="Rotate left 90°">⟲</button>
+        <div class="ed-sl"><div class="row"><span class="cap muted" data-i18n="Straighten">Наклон</span><span class="v cap" id="cTiltVal">0°</span></div>
+          <input type="range" id="cTilt" min="-45" max="45" step="0.5" value="0" aria-label="Наклон кадра" data-i18n-aria="Straighten the frame"></div>
+        <button class="rot" id="cRotR" aria-label="Повернуть вправо на 90°" data-i18n-aria="Rotate right 90°">⟳</button>
+      </div>
       <div class="ratios cap" id="ratios" role="group" aria-label="Пропорции" data-i18n-aria="Aspect ratio"></div>
       <div class="actions">
         <button class="link cap" id="cReset" data-i18n="Reset">Сбросить</button>
@@ -3689,7 +3701,9 @@ $("lvNext").onclick = () => { if (lv && lv.i < cm.looks.length - 1) { lv.i++; re
 
 
 /* ---------- кадрирование ---------- */
-// рамка в долях некадрированного кадра; ratio — ширина/высота в пикселях (0 — свободно)
+// рамка в долях некадрированного (но уже повёрнутого) кадра; ratio — ширина/высота в пикселях (0 — свободно);
+// r — поворот 0/90/180/270 по часовой, t — наклон в градусах по часовой. Повёрнутый исходник рисуется здесь же, на canvas,
+// той же геометрией, что и на сервере (crop_img): наклонённый кадр уменьшается до прямоугольника без пустых углов
 let crop = null, drag = null;
 const CROP_MIN = 0.08;
 const RATIOS = [{ key: "free", name: () => T("Свободно", "Free"), r: 0 }, { key: "orig", name: () => T("Исходные", "Original"), r: -1 },
@@ -3701,7 +3715,7 @@ function enterCrop() {
   const p = photos[cur];
   if (!p || p.archived) return;
   const c = p.crop || [0, 0, 1, 1];
-  crop = { x: c[0], y: c[1], w: c[2], h: c[3], ratio: 0, key: "free", W: 0, H: 0 };
+  crop = { x: c[0], y: c[1], w: c[2], h: c[3], r: c[4] || 0, t: c[5] || 0, ratio: 0, key: "free", W: 0, H: 0, src: null };
   syncViewerCompare();
   $("vmain").hidden = true;
   $("cropui").hidden = false;
@@ -3711,18 +3725,73 @@ function enterCrop() {
   const pre = new Image();
   pre.onload = () => {
     if (!crop || img.dataset.want !== src) return;
-    crop.W = pre.naturalWidth; crop.H = pre.naturalHeight;
-    img.src = src;
-    img.onload = () => { img.onload = null; $("stage").classList.remove("busy"); $("cropbox").hidden = false; drawCrop(); };
+    crop.src = pre;
+    turnSource(() => { $("stage").classList.remove("busy"); $("cropbox").hidden = false; drawCrop(); });
   };
   pre.onerror = () => { toast(T("Не удалось открыть исходник", "Could not load the original")); exitCrop(); };
   pre.src = src;
+  showTilt();
   renderRatios();
   syncHistory();
 }
+let turnBusy = false, turnAgain = null, turnBlob = "";
+/* исходник с поворотом и наклоном -> картинка на экране; пока рисуется прошлый вариант, новый ждёт (ползунок не копит очередь) */
+function turnSource(done) {
+  if (!crop || !crop.src) return;
+  if (turnBusy) { turnAgain = done || turnAgain || (() => {}); return; }
+  const im = crop.src, img = $("vimg");
+  const show = (src, W, H) => {
+    img.onload = () => {
+      img.onload = null; turnBusy = false;
+      if (crop) { crop.W = W; crop.H = H; drawCrop(); if (done) done(); }
+      if (turnAgain) { const d = turnAgain; turnAgain = null; turnSource(d); }
+    };
+    img.dataset.want = src;
+    if (img.getAttribute("src") === src && img.complete) img.onload(); else img.src = src;
+  };
+  turnBusy = true;
+  if (!crop.r && !crop.t) return show(im.src, im.naturalWidth, im.naturalHeight);
+  let W = im.naturalWidth, H = im.naturalHeight;
+  if (crop.r % 180) [W, H] = [H, W];
+  const a = Math.abs(crop.t) * Math.PI / 180, cs = Math.cos(a), sn = Math.sin(a);
+  const k = crop.t ? Math.min(W / (W * cs + H * sn), H / (W * sn + H * cs)) : 1;
+  const cw = Math.max(1, Math.floor(W * k)), ch = Math.max(1, Math.floor(H * k));
+  const cv = document.createElement("canvas");
+  cv.width = cw; cv.height = ch;
+  const g = cv.getContext("2d");
+  g.translate(cw / 2, ch / 2);
+  g.rotate((crop.r + crop.t) * Math.PI / 180);
+  g.drawImage(im, -im.naturalWidth / 2, -im.naturalHeight / 2);
+  cv.toBlob((b) => {
+    if (!b || !crop) { turnBusy = false; return; }
+    if (turnBlob) URL.revokeObjectURL(turnBlob);
+    turnBlob = URL.createObjectURL(b);
+    show(turnBlob, cw, ch);
+  }, "image/jpeg", 0.88);
+}
+function showTilt() {
+  const r = $("cTilt");
+  r.value = crop.t;
+  rangeFill(r);
+  $("cTiltVal").textContent = `${crop.t > 0 ? "+" : crop.t < 0 ? "−" : ""}${String(Math.abs(crop.t)).replace(".", LANG === "ru" ? "," : ".")}°`;
+}
+// поворот на 90°: рамка — снова на весь кадр (в нужных пропорциях, если они выбраны)
+function rotateCrop(d) {
+  if (!crop || !crop.src) return;
+  crop.r = (crop.r + d + 360) % 360;
+  Object.assign(crop, { x: 0, y: 0, w: 1, h: 1 });
+  haptic();
+  turnSource(() => { const o = RATIOS.find((x) => x.key === crop.key); if (o && o.key !== "free") setRatio(o, true); });
+}
+$("cRotL").onclick = () => rotateCrop(-90);
+$("cRotR").onclick = () => rotateCrop(90);
+$("cTilt").oninput = () => { if (!crop) return; crop.t = Number($("cTilt").value); showTilt(); turnSource(); };
+$("cTilt").ondblclick = () => { if (!crop) return; crop.t = 0; showTilt(); turnSource(); haptic(); };
 function exitCrop(silent) {
   if (!crop) return;
   crop = null; drag = null;
+  turnAgain = null;
+  if (turnBlob) { URL.revokeObjectURL(turnBlob); turnBlob = ""; }
   $("cropbox").hidden = true;
   $("cropui").hidden = true;
   $("vmain").hidden = false;
@@ -3751,11 +3820,11 @@ function renderRatios() {
     b.onclick = () => setRatio(o);
     return b;
   }), Object.assign(document.createElement("button"), {
-    className: "opt", textContent: "↻", title: T("Повернуть рамку", "Rotate the frame"),
+    className: "opt", textContent: "⇄", title: T("Повернуть рамку", "Rotate the frame"),
     onclick: () => { if (crop.ratio > 0 && crop.ratio !== 1) { crop.ratio = 1 / crop.ratio; fitRatio(); haptic(); } },
   }));
 }
-function setRatio(o) {
+function setRatio(o, quiet) {
   if (!crop.W) return;
   crop.key = o.key;
   let r = o.r < 0 ? crop.W / crop.H : o.r;
@@ -3763,7 +3832,7 @@ function setRatio(o) {
   crop.ratio = r;
   if (r) fitRatio();
   renderRatios();
-  haptic();
+  if (!quiet) haptic();
 }
 /* самая большая рамка нужных пропорций с центром там же, где была */
 function fitRatio() {
@@ -3810,11 +3879,18 @@ $("cropbox").addEventListener("pointermove", (e) => {
 
 $("bCrop").onclick = enterCrop;
 $("cCancel").onclick = () => exitCrop();
-$("cReset").onclick = () => { if (!crop) return; Object.assign(crop, { x: 0, y: 0, w: 1, h: 1, ratio: 0, key: "free" }); renderRatios(); drawCrop(); haptic(); };
+$("cReset").onclick = () => {
+  if (!crop) return;
+  const turned = crop.r || crop.t;
+  Object.assign(crop, { x: 0, y: 0, w: 1, h: 1, r: 0, t: 0, ratio: 0, key: "free" });
+  showTilt(); renderRatios(); haptic();
+  if (turned) turnSource(); else drawCrop();
+};
 $("cDone").onclick = () => {
   if (!crop) return;
-  const full = crop.x < 0.002 && crop.y < 0.002 && crop.w > 0.996 && crop.h > 0.996;
-  const c = full ? null : [crop.x, crop.y, crop.w, crop.h].map((v) => Math.round(v * 10000) / 10000);
+  const full = crop.x < 0.002 && crop.y < 0.002 && crop.w > 0.996 && crop.h > 0.996, turned = crop.r || crop.t;
+  const box = full ? [0, 0, 1, 1] : [crop.x, crop.y, crop.w, crop.h].map((v) => Math.round(v * 10000) / 10000);
+  const c = full && !turned ? null : turned ? box.concat([crop.r, crop.t]) : box;
   const p = photos[cur], same = JSON.stringify(p.crop || null) === JSON.stringify(c);
   exitCrop(true);
   if (same) return refreshViewerImage();
