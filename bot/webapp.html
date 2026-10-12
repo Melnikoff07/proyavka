@@ -2296,7 +2296,7 @@ $("stTrashBtn").onclick = () => { if (!$("stTrash").hidden) $("stTrash").hidden 
 
 /* ---------- мастер подключения камеры: тип камеры → шаги с анимацией, кнопками файлов и частыми ошибками ---------- */
 const UIV = "{{UIV}}";                       // версия анимаций (подставляет сервер)
-const SU = { anim: null, marks: {}, path: null, i: 0, cam: null, loading: null };
+const SU = { anim: null, marks: {}, kind: null, path: null, i: 0, cam: null, loading: null };
 const PMCA = { win: "https://github.com/ma1co/Sony-PMCA-RE/releases/download/v0.18/pmca-gui-v0.18-win.exe",
                mac: "https://github.com/ma1co/Sony-PMCA-RE/releases/download/v0.18/pmca-gui-v0.18-osx.dmg" };
 const suPath = (...items) => `<span class="su-path">${items.map((x) => `<b>${esc(x)}</b>`).join("<i>›</i>")}</span>`;
@@ -2425,15 +2425,38 @@ async function suPlay(seg) {
 
 function suRender() {
   const body = $("suBody");
+  if (!SU.path && !SU.kind) {
+    // сначала — чем человек снимает: с телефона в мастер камеры не отправляем (раньше там и бросали)
+    $("suBars").innerHTML = "";
+    suPlay(null);
+    body.innerHTML = `<div class="su-n cap">${T("Добро пожаловать", "Welcome")}</div><h2 class="su-h">${T("Чем снимаешь?", "What do you shoot with?")}</h2>` +
+      `<p class="su-lead">${T("Плёнка ляжет на любые фото. Камеру можно подключить и потом — в настройках.", "The film works on any photo. You can connect a camera later in Settings.")}</p>` +
+      `<div class="su-opts su-kind">` +
+      `<button class="su-opt" data-kind="phone"><b>${T("Телефон", "Phone")}</b><span>${T("Выбери фото из галереи — через пару секунд они проявятся.", "Pick photos from your gallery — they'll be developed in a few seconds.")}</span><i>→</i></button>` +
+      `<button class="su-opt" data-kind="camera"><b>${T("Камера", "Camera")}</b><span>${T("Sony, Fujifilm, Canon, Nikon… Подключим, и кадры будут прилетать сами.", "Sony, Fujifilm, Canon, Nikon… We'll connect it and frames will arrive by themselves.")}</span><i>→</i></button>` +
+      `</div>`;
+    body.querySelectorAll("[data-kind]").forEach((b) => (b.onclick = () => {
+      if (b.dataset.kind === "phone") {
+        $("picker").click();             // в том же нажатии — иначе браузер не откроет выбор файлов
+        closeSetup();
+        toast(T("Выбери фото — плёнка ляжет сама", "Pick photos — the film is applied by itself"));
+        return;
+      }
+      SU.kind = "camera";
+      suRender();
+    }));
+    $("setup").scrollTop = 0;
+    return;
+  }
   if (!SU.path) {
     $("suBars").innerHTML = "";
     suPlay("install");
-    body.innerHTML = `<div class="su-n cap">${T("Первый шаг", "First step")}</div><h2 class="su-h">${T("Подключим камеру", "Let's connect your camera")}</h2>` +
+    body.innerHTML = `<div class="su-n cap">${T("Камера", "Camera")}</div><h2 class="su-h">${T("Подключим камеру", "Let's connect your camera")}</h2>` +
       `<p class="su-lead">${T("Один раз, от двух до десяти минут. Потом кадры будут прилетать в ленту сами.", "Once, two to ten minutes. After that frames will arrive in your feed by themselves.")}</p>` +
       `<div class="su-opts">` +
       `<button class="su-opt" data-path="sony"><b>${T("Sony с приложениями", "Sony with apps")}</b><span>${T("a5000/a5100, a6000/a6300/a6500, a7 II, RX100 III–V, RX10 II/III… В меню камеры есть пункт «Приложение».", "a5000/a5100, a6000/a6300/a6500, a7 II, RX100 III–V, RX10 II/III… The camera menu has an Application item.")}</span><i>→</i></button>` +
       `<button class="su-opt" data-path="ftp"><b>${T("Камера с отправкой по FTP", "A camera with FTP transfer")}</b><span>${T("Sony A7 IV, A7C II, A1, ZV-E1, многие Fujifilm, Canon и Nikon.", "Sony A7 IV, A7C II, A1, ZV-E1, many Fujifilm, Canon and Nikon.")}</span><i>→</i></button>` +
-      `<button class="su-opt quiet" data-path="none"><b>${T("Без камеры", "No camera")}</b><span>${T("Буду загружать фото с телефона или компьютера кнопкой «+».", "I'll upload photos from my phone or computer with the “+” button.")}</span><i>+</i></button>` +
+      `<button class="su-opt quiet" data-path="none"><b>${T("Другая камера", "Another camera")}</b><span>${T("Без Wi‑Fi или не из списка — загружай фото кнопкой «+».", "No Wi‑Fi or not on the list — upload photos with the “+” button.")}</span><i>+</i></button>` +
       `</div>`;
     body.querySelectorAll("[data-path]").forEach((b) => (b.onclick = async () => {
       const path = b.dataset.path;
@@ -2463,11 +2486,14 @@ function suRender() {
 function suBackStep() {
   if (SU.path && SU.i > 0) SU.i--;
   else if (SU.path) SU.path = null;
+  else if (SU.kind && !SU.direct) SU.kind = null;
   else return closeSetup();
   suRender();
 }
-function openSetup() {
+function openSetup(camera = false) {
   SU.path = null;
+  SU.kind = camera ? "camera" : null;     // из настроек «Подключить камеру» — сразу к камерам
+  SU.direct = camera;
   SU.i = 0;
   $("setup").hidden = false;
   document.body.style.overflow = "hidden";
@@ -2484,7 +2510,7 @@ async function closeSetup() {
 }
 $("suBack").onclick = suBackStep;
 $("suSkip").onclick = () => closeSetup();
-$("stSetup").onclick = () => openSetup();
+$("stSetup").onclick = () => openSetup(true);
 // первая встреча: кадров ещё нет и мастер не проходили — показать сразу
 async function maybeSetup() {
   if (GUEST || total) return;

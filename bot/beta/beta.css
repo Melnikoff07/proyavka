@@ -67,6 +67,8 @@ h1, h2, h3, h4 { margin: 0; font-weight: 500; text-wrap: balance; }
 .theme:hover { background: var(--tile); }
 .theme svg { transition: transform .45s cubic-bezier(.2, .8, .2, 1); }
 [data-theme="dark"] .theme svg { transform: rotate(180deg); }
+.no-cam { display: flex; gap: 10px; align-items: baseline; margin: 18px 0 0; color: var(--muted); font-size: var(--fs-small); line-height: 1.45; max-width: 46ch; }
+.no-cam i { font-style: normal; color: var(--acc); font-weight: 600; }
 .hide-s { display: none; }
 @media (min-width: 760px) { .hide-s { display: inline; } }
 
