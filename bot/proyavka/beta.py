@@ -181,7 +181,15 @@ def page(name):
     mtime = os.path.getmtime(path)
     if PAGES.get(name, (0,))[0] != mtime:
         with open(path, encoding="utf-8") as f:
-            PAGES[name] = (mtime, typo(f.read()))
+            text = f.read()
+        gb = SLOT_MB >= 1000
+        size = f"{SLOT_MB / 1000:g}" if gb else f"{SLOT_MB:g}"
+        days = f"{DAYS:g}"
+        for k, v in {"SLOT_RU": f"{size} {'ГБ' if gb else 'МБ'}", "SLOT_EN": f"{size} {'GB' if gb else 'MB'}",
+                     "DAYS_RU": f"{days} {plural_ru(int(DAYS), 'день', 'дня', 'дней') if DAYS == int(DAYS) else 'дня'}",
+                     "DAYS_EN": f"{days} day{'' if DAYS == 1 else 's'}"}.items():
+            text = text.replace("{{" + k + "}}", v)
+        PAGES[name] = (mtime, typo(text))
     return PAGES[name][1]
 
 
