@@ -179,8 +179,7 @@ async function loadStatus() {
 function renderStatus() {
   if (!S) return;
   const free = S.free;
-  $("factSlots").textContent = free ? T(`${free} из ${S.total} свободно`, `${free} of ${S.total} free`)
-                                    : T("Все слоты заняты", "All slots are taken");
+  $("factSlots").textContent = `${free} / ${S.total}`;
   $("finalCount").textContent = T(`Слоты · занято ${S.total - free} из ${S.total}`, `Slots · ${S.total - free} of ${S.total} taken`);
   const cells = [];
   for (let i = 0; i < Math.min(S.total, 120); i++) {

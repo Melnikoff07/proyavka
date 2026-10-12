@@ -4,6 +4,13 @@ English first, [по-русски — ниже](#журнал-изменений
 
 ## Unreleased
 
+### New look
+- The app has a new visual system: a warm light-grey background with lighter cards, one accent taken from the app icon (the orange halation glow), pill-shaped buttons and round icon buttons, and one way to show a choice everywhere — it is filled, not underlined or framed. The dark theme stays black; the burger theme is unchanged.
+- Feed: photos fill their tiles (rounded, 4:5; when a day has an odd number of frames, the first one is wide), the frame number and film sit on the photo, each day starts with a large date numeral, the “+” button is an orange circle, and the Gallery / Community tabs moved to the bottom, within thumb reach.
+- Frame view: controls sit in a rounded bottom panel with the frame number in large type, the chosen film is filled with the accent, strength is six dots with the value shown large, and the date / border / before-after toggles are pills.
+- Settings are grouped into cards, every choice is a segmented pill, storage shows large with a thick bar. Film editor: category pills, thin sliders that fill from zero.
+- The beta page uses the same palette.
+
 ### Open beta
 - An optional open beta for a public server (`BETA=1`): the `/beta` page describes the project (a before/after slider on the shared sample with six films, features, an animated Lottie guide "how it works with a camera", FAQ) and lets visitors take a free slot without an invite — pick a nickname and you are signed in. Each slot has its own storage (`BETA_SLOT_MB`, 500 MB) and lifetime (`BETA_DAYS`, 3 days); the number of slots follows the free disk space (minus space promised to other users and `MIN_FREE_GB`), capped by `BETA_SLOTS` (30). Everyone sees the taken slots with nicknames and time left. Testers get a reminder (Telegram, notifications) 12 hours before the end; then the account and its frames are deleted and the slot frees up. The admin can extend a slot in Settings → Users. At most two slots per address a day.
 - The app shows beta testers how much time is left, and the sign-in screen links to the beta when it is on.
@@ -152,6 +159,13 @@ English first, [по-русски — ниже](#журнал-изменений
 # Журнал изменений
 
 ## Не выпущено
+
+### Новый вид
+- У приложения новая визуальная система: тёплый светло-серый фон и светлые карточки, один акцент из значка (оранжевый ореол халяции), кнопки-пилюли и круглые кнопки, и один способ показать выбор везде — заливкой, а не подчёркиванием или рамкой. Тёмная тема осталась чёрной, «Бургер» не менялся.
+- Лента: фото на всю плитку (скруглённые, 4:5; если кадров за день нечётное число, первый — широкий), номер кадра и плёнка — на самом фото, день начинается крупной цифрой даты, «+» — оранжевый круг, вкладки «Галерея / Сообщество» — внизу, под большим пальцем.
+- Просмотр кадра: управление в скруглённой нижней панели, номер кадра крупно, выбранная плёнка залита акцентом, сила — шесть точек и крупное значение, «Дата / Рамка / До-после» — пилюли.
+- Настройки собраны в карточки, любой выбор — сегмент-пилюля, место крупно и толстой полосой. Редактор плёнки: категории-пилюли, тонкие ползунки с заливкой от нуля.
+- Страница беты — в той же палитре.
 
 ### Открытая бета
 - Необязательная открытая бета для публичного сервера (`BETA=1`): страница `/beta` рассказывает о проекте (шторка «до/после» на общем образце с шестью плёнками, возможности, анимированный гайд Lottie «как это работает с камерой», вопросы) и даёт занять свободный слот без приглашения — придумал ник и сразу внутри. У слота своё место (`BETA_SLOT_MB`, 500 МБ) и срок (`BETA_DAYS`, 3 дня); число слотов идёт от свободного места на диске (за вычетом обещанного остальным и `MIN_FREE_GB`), не больше `BETA_SLOTS` (30). Занятые слоты видны всем — ники и сколько осталось. За 12 часов до конца приходит напоминание (Telegram, уведомления), потом аккаунт с кадрами удаляется и слот освобождается. Администратор может продлить слот в «Настройки → Пользователи». С одного адреса — не больше двух слотов в сутки.

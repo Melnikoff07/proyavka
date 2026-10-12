@@ -9,8 +9,8 @@
 @font-face { font-family: "Inter Tight"; font-weight: 400 500; font-display: swap; src: url(/fonts/intertight-cyrillic-ext.woff2) format("woff2");
   unicode-range: U+0460-052F, U+1C80-1C8A, U+20B4, U+2DE0-2DFF, U+A640-A69F, U+FE2E-FE2F; }
 :root {
-  --bg: #ffffff; --tile: #f3f2f0; --screen: #e9e7e3; --text: #0b0b0b; --muted: #7c7c7c; --rule: #e2e2e2;
-  --btn-bg: #0b0b0b; --btn-text: #ffffff; --acc: #e8441a;
+  --bg: #ebe8e3; --tile: #f6f5f2; --screen: #e2dfd9; --text: #141312; --muted: #7f7b74; --rule: #d7d3cc;
+  --btn-bg: #141312; --btn-text: #f6f5f2; --acc: #ff4a1c;
   --dot-core: #ff5a1f; --dot-glow: 255, 72, 24;
   --font: "Inter Tight", -apple-system, "SF Pro Text", "Helvetica Neue", Roboto, Arial, sans-serif;
   /* шкала 1.25: 12.8 · 16 · 20 · 25 · 31 · 39 */
@@ -20,8 +20,8 @@
   --s1: 8px; --s2: 16px; --s3: 24px; --s4: 40px; --s5: 64px; --s6: 104px;
 }
 [data-theme="dark"] {
-  --bg: #000000; --tile: #111111; --screen: #262626; --text: #f5f5f5; --muted: #828282; --rule: #262626;
-  --btn-bg: #f5f5f5; --btn-text: #000000; --dot-core: #fff8ec;
+  --bg: #000000; --tile: #161615; --screen: #2a2927; --text: #f1efea; --muted: #8b877f; --rule: #2a2927;
+  --btn-bg: #f1efea; --btn-text: #000000; --acc: #ff5a26; --dot-core: #fff8ec;
 }
 @media (min-width: 700px) { :root { --pad: 40px; --gap: 24px; } }
 @media (min-width: 1100px) { :root { --pad: 56px; } }
@@ -84,7 +84,7 @@ h1, h2, h3, h4 { margin: 0; font-weight: 500; text-wrap: balance; }
 .eyebrow { display: flex; flex-wrap: wrap; gap: 6px 18px; align-items: center; }
 .live { display: inline-flex; align-items: center; gap: 8px; }
 .live i { width: 7px; height: 7px; border-radius: 50%; background: var(--acc); animation: ping 2.2s infinite; }
-@keyframes ping { 0% { box-shadow: 0 0 0 0 rgba(232, 68, 26, .5); } 80%, 100% { box-shadow: 0 0 0 9px rgba(232, 68, 26, 0); } }
+@keyframes ping { 0% { box-shadow: 0 0 0 0 rgba(255, 74, 28, .5); } 80%, 100% { box-shadow: 0 0 0 9px rgba(255, 74, 28, 0); } }
 /* две фразы — две строки равной ширины: кегль от ширины колонки, без переносов внутри фразы */
 h1 { margin-top: var(--s3); font-size: min(12cqi, 152px); line-height: .9; letter-spacing: -.05em; font-weight: 500; margin-left: -.04em; }
 html.en h1 { font-size: min(14.2cqi, 180px); }
@@ -96,8 +96,8 @@ h1 .dot { animation: halo 2.6s .9s ease-out both; }
 .hero-row { margin-top: clamp(28px, 4.4vw, 56px); padding-top: var(--s3); border-top: 1px solid var(--text); row-gap: var(--s4); }
 .lead { font-size: var(--fs-lead); line-height: 1.42; letter-spacing: -.01em; max-width: 42ch; }
 .hero-copy .ctas { margin-top: var(--s4); }
-.facts { margin: 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--s3) var(--gap); align-content: start; }
-.facts div { display: flex; flex-direction: column; gap: 6px; }
+.facts { margin: 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; align-content: start; }
+.facts div { display: flex; flex-direction: column; gap: 10px; background: var(--tile); border-radius: 18px; padding: 14px 16px 16px; }
 .facts dt { color: var(--muted); }
 .facts dd { margin: 0; font-size: var(--fs-h3); line-height: 1.2; letter-spacing: -.015em; font-feature-settings: "kern", "tnum"; }
 @media (min-width: 900px) {
@@ -106,7 +106,7 @@ h1 .dot { animation: halo 2.6s .9s ease-out both; }
 }
 
 /* до / после */
-.compare { position: relative; margin-top: clamp(48px, 7vw, 96px); border-radius: 16px; overflow: hidden; background: var(--tile); aspect-ratio: 3 / 2;
+.compare { position: relative; margin-top: clamp(48px, 7vw, 96px); border-radius: 22px; overflow: hidden; background: var(--tile); aspect-ratio: 3 / 2;
   touch-action: pan-y; user-select: none; -webkit-user-select: none; cursor: ew-resize; }
 @media (min-width: 900px) { .compare { aspect-ratio: 2 / 1; } }
 .compare img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; display: block; pointer-events: none; }
@@ -147,7 +147,7 @@ h2 { font-size: var(--fs-h2); line-height: 1.02; letter-spacing: -.035em; max-wi
 
 /* гайд */
 .guide { margin-top: var(--s5); row-gap: var(--s4); align-items: center; }
-.stage { position: relative; aspect-ratio: 8 / 5; border-radius: 16px; background: var(--tile); overflow: hidden; }
+.stage { position: relative; aspect-ratio: 8 / 5; border-radius: 22px; background: var(--tile); overflow: hidden; }
 .stage svg [fill="rgb(17,17,17)"] { fill: var(--text); }
 .stage svg [stroke="rgb(17,17,17)"] { stroke: var(--text); }
 .stage svg [fill="rgb(250,250,250)"] { fill: var(--bg); }
