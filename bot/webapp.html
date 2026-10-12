@@ -249,11 +249,11 @@
   .seg .tab[aria-selected="true"] { background: var(--btn-bg); color: var(--btn-text); text-decoration: none; }
   .leakrow { padding: 12px var(--pad) 0; }
   .leakrow[hidden] { display: none; }
-  .filmacts { display: flex; gap: 8px; padding: 12px var(--pad) 0; overflow-x: auto; scrollbar-width: none; }
-  .filmacts::-webkit-scrollbar { display: none; }
+  .filmacts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; padding: 12px var(--pad) 0; }
   .filmacts[hidden] { display: none; }
-  .filmacts .pill { flex: 0 0 auto; display: inline-flex; align-items: center; gap: 7px; color: var(--text); }
-  .filmacts .pill i { font-style: normal; color: var(--acc); }
+  .filmacts .pill { display: flex; align-items: center; justify-content: center; gap: 7px; padding: 9px 8px; min-height: 46px;
+                    border-radius: 14px; font-size: 13px; line-height: 1.15; text-align: left; color: var(--text); }
+  .filmacts .pill i { font-style: normal; color: var(--acc); font-size: 15px; flex: 0 0 auto; }
   .pill { background: var(--raise); padding: 10px 16px; font-size: 14px; font-weight: 500; border-radius: 99px; }
   .panel .opts.cap, .panel .line .label { font-size: 12px; }
   /* зум кадра и стрелки между кадрами */
