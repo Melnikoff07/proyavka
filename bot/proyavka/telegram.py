@@ -16,9 +16,9 @@ from .config import BASE, TMP, log
 from .i18n import L, cur_lang, speak, tr
 from .util import remove, save_atomic
 from .film import PRESETS, pname
-from .imaging import LEAKS, auto_reason, font, has
+from .imaging import BLENDS, LEAKS, auto_reason, font, has, overlay_name
 from .database import EDIT_LOCK, run, upd
-from .users import USERS, udir, user_luts
+from .users import USERS, udir, user_luts, user_overlays
 
 
 # Telegram необязателен: бота может не быть вовсе, а у пользователя может не быть привязанного чата.
@@ -138,7 +138,12 @@ def caption(ph):
         meta.append(f"ISO {ph['iso']}")
     if ph["auto_reason"]:
         meta.append(L("авто", "auto") + f": {auto_reason(ph)} → {pname(ph['auto_key'])}")
-    leak = " · " + L("засвет", "leak") + f": {tr(LEAKS.get(ph.get('leak_kind') or 'edge', ('',))[0])}" if ph["leak"] else ""
+    leak = ""
+    if ph["leak"]:
+        leak = " · " + L("оверлей", "overlay") + f": {overlay_name(ph.get('leak_kind') or 'edge')}"
+        blend, opacity = ph.get("ov_blend") or "screen", ph.get("ov_opacity") or 100
+        if (blend, opacity) != ("screen", 100):
+            leak += f" ({tr(BLENDS.get(blend, BLENDS['screen']))}, {opacity}%)"
     return f"#{ph['id']} · {pname(ph['preset'], ph['owner'])} · {ph['strength']}%{leak}\n" + " · ".join(meta)
 
 
@@ -151,7 +156,7 @@ def main_kb(ph):
         [btn(f"🎞 {pname(ph['preset'], ph['owner'])} ▾", f"m:{pid}"), btn(L("🔍 Сравнить", "🔍 Compare"), f"c:{pid}")],
         [btn("➖", f"s:{pid}:-"), btn(L("Сила", "Strength") + f" {ph['strength']}%", "x"), btn("➕", f"s:{pid}:+")],
         [btn(on("stamp") + L("📅 Дата", "📅 Date"), f"t:{pid}:stamp"), btn(on("frame") + L("🖼 Рамка", "🖼 Frame"), f"t:{pid}:frame"),
-         btn(on("leak") + L("✨ Засвет ▾", "✨ Leak ▾"), f"lm:{pid}")],
+         btn(on("leak") + L("✨ Оверлей ▾", "✨ Overlay ▾"), f"lm:{pid}")],
         [btn(L("⬇️ Файл", "⬇️ File"), f"f:{pid}"), btn(L("🗑 Удалить", "🗑 Delete"), f"del:{pid}")],
     ]}
 
@@ -175,10 +180,10 @@ def preset_kb(ph, prefix="p"):
 def leak_kb(ph):
     pid = ph["id"]
     cur = (ph.get("leak_kind") or "edge") if ph["leak"] else ""
-    keys = list(LEAKS)
-    rows = [[btn(("• " if cur == k else "") + tr(LEAKS[k][0]), f"l:{pid}:{k}") for k in keys[i:i + 3]]
+    keys = list(LEAKS) + [f"ov{r['id']}" for r in user_overlays(ph["owner"])]     # встроенные засветы и свои картинки
+    rows = [[btn(("• " if cur == k else "") + overlay_name(k), f"l:{pid}:{k}") for k in keys[i:i + 3]]
             for i in range(0, len(keys), 3)]
-    rows.append([btn(("• " if not cur else "") + L("Без засвета", "No leak"), f"l:{pid}:"), btn(L("↻ Сдвинуть", "↻ Shift"), f"ls:{pid}")])
+    rows.append([btn(("• " if not cur else "") + L("Без оверлея", "No overlay"), f"l:{pid}:"), btn(L("↻ Сдвинуть", "↻ Shift"), f"ls:{pid}")])
     rows.append([btn(L("← Назад", "← Back"), f"b:{pid}")])
     return {"inline_keyboard": rows}
 

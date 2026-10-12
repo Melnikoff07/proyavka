@@ -18,7 +18,7 @@ db = None                        # открывается в init_db() толь�
 
 
 def init_db():
-    from .users import load_luts, load_users
+    from .users import load_luts, load_overlays, load_users
     global db
     db = sqlite3.connect(DB_PATH, check_same_thread=False, timeout=5)
     db.row_factory = sqlite3.Row
@@ -38,7 +38,7 @@ def init_db():
         for col, decl in (("rev", "INTEGER DEFAULT 0"), ("rendered_rev", "INTEGER DEFAULT 0"), ("updated", "REAL DEFAULT 0"),
                           ("leak_kind", "TEXT DEFAULT 'edge'"), ("leak_seed", "INTEGER DEFAULT 0"), ("fp", "TEXT"),
                           ("msg_at", "REAL"), ("crop", "TEXT"), ("owner", "INTEGER"),
-                          ("deleted_at", "REAL")):
+                          ("deleted_at", "REAL"), ("ov_blend", "TEXT DEFAULT 'screen'"), ("ov_opacity", "INTEGER DEFAULT 100")):
             if col not in cols:
                 db.execute(f"ALTER TABLE photos ADD COLUMN {col} {decl}")
         # несколько пользователей: все кадры прежних версий — администратора (того, кто ставил бота)
@@ -48,6 +48,8 @@ def init_db():
             storage_gb REAL, cam_token TEXT, ftp_pass TEXT, created REAL, invited_by INTEGER)""")
         db.execute("""CREATE TABLE IF NOT EXISTS luts(
             id INTEGER PRIMARY KEY AUTOINCREMENT, owner INTEGER, name TEXT, size INTEGER, created REAL)""")
+        db.execute("""CREATE TABLE IF NOT EXISTS overlays(
+            id INTEGER PRIMARY KEY AUTOINCREMENT, owner INTEGER, name TEXT, w INTEGER, h INTEGER, created REAL)""")
         db.execute("""CREATE TABLE IF NOT EXISTS submissions(
             id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, by TEXT, params TEXT, h TEXT, created REAL, ip TEXT, status TEXT)""")
         db.execute("""CREATE TABLE IF NOT EXISTS invites(
@@ -92,6 +94,7 @@ def init_db():
         db.commit()
     load_users()
     load_luts()
+    load_overlays()
 
 
 def q(sql, args=()):

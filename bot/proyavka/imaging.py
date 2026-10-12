@@ -1,21 +1,23 @@
-"""Обработка кадра: открытие оригиналов (в том числе RAW), кадрирование, засветы, дата и рамка, листы-превью, автовыбор плёнки."""
+"""Обработка кадра: открытие оригиналов (в том числе RAW), кадрирование, оверлеи (засветы и свои картинки), дата и рамка,
+листы-превью, автовыбор плёнки."""
 
 import hashlib
 import io
 import math
 import numpy as np
 import os
+import re
 import threading
 from PIL import Image, ImageChops, ImageCms, ImageDraw, ImageFilter, ImageFont, ImageOps
 from datetime import datetime
 from pathlib import Path
 
-from .config import FULL_EDGE, LUMA, RAW_EXTS, VIEW_EDGE, WORK_EDGE
+from .config import BASE, CHAT_ID, FULL_EDGE, LUMA, RAW_EXTS, VIEW_EDGE, WORK_EDGE
 from .i18n import L, tr
 from .film import PRESETS, film, fit, look, par_resize, pname
 
 
-# ================= засветы =================
+# ================= оверлеи: встроенные засветы =================
 FIRE = [(0.0, (0.55, 0.05, 0.02)), (0.35, (0.95, 0.25, 0.05)), (0.7, (1.0, 0.6, 0.15)), (1.0, (1.0, 0.92, 0.7))]
 RED = [(0.0, (0.5, 0.02, 0.02)), (0.6, (1.0, 0.15, 0.05)), (1.0, (1.0, 0.55, 0.3))]
 PINK = [(0.0, (0.45, 0.04, 0.2)), (0.6, (1.0, 0.3, 0.45)), (1.0, (1.0, 0.78, 0.82))]
@@ -129,6 +131,174 @@ def light_leak(img, kind="edge", seed=0):
     return ImageChops.screen(img, leak_layer(img.size[0], img.size[1], kind, seed))
 
 
+# ================= оверлеи: свои картинки, режим наложения, прозрачность =================
+# Оверлей кадра — встроенный засвет (ключ из LEAKS) или своя картинка пользователя ("ov<id>": засвет, пыль, текстура бумаги).
+# Ложится режимом наложения с прозрачностью. У встроенных засветов чёрный фон: в «Экране», «Добавлении» и «Замене светлым»
+# он ничего не меняет, а в остальных режимах маской служит яркость самого засвета — иначе чёрный фон залил бы кадр.
+BLENDS = {
+    "screen": L("Экран", "Screen"),
+    "add": L("Добавление", "Add"),
+    "lighten": L("Светлее", "Lighten"),
+    "overlay": L("Перекрытие", "Overlay"),
+    "soft": L("Мягкий свет", "Soft light"),
+    "multiply": L("Умножение", "Multiply"),
+    "normal": L("Обычный", "Normal"),
+}
+BLACK_NEUTRAL = {"screen", "add", "lighten"}
+OPACITIES = range(5, 101, 5)        # прозрачность шагом 5 %: варианты превью в кэше не плодятся без меры
+OV_RE = re.compile(r"ov[1-9][0-9]{0,8}")
+OV_NAMES, OV_OWNER = {}, {}         # "ov<id>" -> название, владелец (заполняет users.load_overlays)
+OV_MAX_COUNT = 20
+OV_MAX_BYTES = 30 * 1024 * 1024
+OV_EDGE = 2400                      # своя картинка хранится не больше этого: на кадр она всё равно растягивается
+OV_CACHE = {}                       # путь -> ((mtime, size), Image) — в процессах-работниках
+OV_LOCK = threading.Lock()
+
+
+def is_overlay(key):
+    return bool(key) and OV_RE.fullmatch(str(key)) is not None
+
+
+def overlay_dir(owner):
+    return (BASE if owner == CHAT_ID else BASE / "users" / str(owner)) / "overlays"
+
+
+def overlay_file(owner, key):
+    """Своя картинка: .png — с прозрачностью, .jpg — без неё. None — нет такой (удалена или чужая)."""
+    if not is_overlay(key) or owner is None:
+        return None
+    for ext in (".png", ".jpg"):
+        p = overlay_dir(owner) / f"{key}{ext}"
+        if p.is_file():
+            return p
+    return None
+
+
+def overlay_name(key):
+    if key in LEAKS:
+        return tr(LEAKS[key][0])
+    return OV_NAMES.get(key) or (L("Свой оверлей", "Own overlay") if is_overlay(key) else "")
+
+
+def save_overlay(data, d, key):
+    """Загруженная картинка -> файл оверлея (уменьшенная до OV_EDGE). Возвращает (путь, ширина, высота)."""
+    try:
+        im = Image.open(io.BytesIO(data))
+        w, h = im.size
+        if w * h > 120_000_000:
+            raise ValueError("too big")
+        im.load()
+    except (OSError, ValueError, Image.DecompressionBombError, SyntaxError):
+        raise ValueError(L("не получилось открыть картинку — нужен JPEG, PNG или WebP", "could not open the image — JPEG, PNG or WebP needed"))
+    if min(im.size) < 16:
+        raise ValueError(L("картинка слишком маленькая", "the image is too small"))
+    im = ImageOps.exif_transpose(im)
+    alpha = im.mode in ("RGBA", "LA", "PA") or (im.mode == "P" and "transparency" in im.info)
+    im = im.convert("RGBA" if alpha else "RGB")
+    if alpha and im.getchannel("A").getextrema()[0] == 255:     # прозрачности на деле нет — хранить как JPEG
+        im, alpha = im.convert("RGB"), False
+    im.thumbnail((OV_EDGE, OV_EDGE), Image.LANCZOS)
+    d.mkdir(parents=True, exist_ok=True)
+    path = d / f"{key}{'.png' if alpha else '.jpg'}"
+    tmp = d / f"{key}.tmp{path.suffix}"
+    if alpha:
+        im.save(tmp, "PNG", optimize=False, compress_level=6)
+    else:
+        im.save(tmp, "JPEG", quality=93)
+    os.replace(tmp, path)
+    return path, im.size[0], im.size[1]
+
+
+def _overlay_image(path):
+    st = os.stat(path)
+    sig = (st.st_mtime_ns, st.st_size)
+    with OV_LOCK:
+        hit = OV_CACHE.get(str(path))
+        if hit and hit[0] == sig:
+            return hit[1]
+    im = Image.open(path)
+    im = im.convert("RGBA" if im.mode in ("RGBA", "LA", "PA", "P") and path.suffix == ".png" else "RGB")
+    with OV_LOCK:
+        OV_CACHE[str(path)] = (sig, im)
+        while len(OV_CACHE) > 4:
+            OV_CACHE.pop(next(iter(OV_CACHE)))
+    return im
+
+
+def overlay_layer(path, w, h, variant=0):
+    """Своя картинка на кадр: повёрнута под ориентацию кадра, растянута с обрезкой по центру (как «заполнить»);
+    «Другой вариант» (variant) отражает её по-разному, начиная с картинки как есть."""
+    im = _overlay_image(path)
+    if im.size[0] != im.size[1] and (im.size[0] > im.size[1]) != (w > h) and w != h:
+        im = im.transpose(Image.Transpose.ROTATE_90)
+    v = variant % 4
+    if v == 1:
+        im = im.transpose(Image.Transpose.FLIP_LEFT_RIGHT)
+    elif v == 2:
+        im = im.transpose(Image.Transpose.FLIP_TOP_BOTTOM)
+    elif v == 3:
+        im = im.transpose(Image.Transpose.ROTATE_180)
+    return ImageOps.fit(im, (w, h), Image.BILINEAR)
+
+
+def _blend(img, layer, mode):
+    if mode == "add":
+        return ImageChops.add(img, layer)
+    if mode == "lighten":
+        return ImageChops.lighter(img, layer)
+    if mode == "multiply":
+        return ImageChops.multiply(img, layer)
+    if mode == "overlay":
+        return ImageChops.overlay(img, layer)
+    if mode == "soft":
+        return ImageChops.soft_light(img, layer)
+    if mode == "normal":
+        return layer
+    return ImageChops.screen(img, layer)
+
+
+def apply_overlay(img, kind, seed=0, blend="screen", opacity=100, owner=None, variant=0):
+    """Наложить оверлей на кадр. seed — форма встроенного засвета, variant — отражение своей картинки.
+    Своей картинки уже нет (удалили) — кадр как есть."""
+    blend = blend if blend in BLENDS else "screen"
+    opacity = max(0, min(100, int(opacity if opacity is not None else 100)))
+    if not opacity:
+        return img
+    w, h = img.size
+    mask = None
+    if is_overlay(kind):
+        path = overlay_file(owner, kind)
+        if not path:
+            return img
+        layer = overlay_layer(path, w, h, variant)
+        if layer.mode == "RGBA":
+            layer, mask = layer.convert("RGB"), layer.getchannel("A")
+    else:
+        layer = leak_layer(w, h, kind, seed)
+        if blend == "normal":
+            # засвет уже домножен на свою яркость: «обычное» наложение — сам свет поверх кадра, притушенного под ним
+            r, g, b = layer.split()
+            a = ImageChops.lighter(ImageChops.lighter(r, g), b)
+            out = ImageChops.add(layer, ImageChops.multiply(img, ImageOps.invert(a).convert("RGB")))
+            return out if opacity >= 100 else Image.blend(img, out, opacity / 100)
+        if blend not in BLACK_NEUTRAL:
+            r, g, b = layer.split()
+            mask = ImageChops.lighter(ImageChops.lighter(r, g), b)
+    out = _blend(img, layer, blend)
+    if mask is not None:
+        if opacity < 100:
+            mask = mask.point([v * opacity // 100 for v in range(256)])
+        return Image.composite(out, img, mask)
+    return out if opacity >= 100 else Image.blend(img, out, opacity / 100)
+
+
+def frame_overlay(img, ph, kind=None):
+    """Оверлей кадра по его настройкам (kind — другой оверлей для превью ленты)."""
+    return apply_overlay(img, kind or ph.get("leak_kind") or "edge", leak_seed(ph), ph.get("ov_blend") or "screen",
+                         ph.get("ov_opacity") if ph.get("ov_opacity") is not None else 100, ph.get("owner"),
+                         int(ph.get("leak_seed") or 0))
+
+
 FONT_FILES = ["/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
               "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"]
 
@@ -185,7 +355,7 @@ def has(path):
 
 
 # Кадрирование: доли кадра "x,y,w,h" после поворота по EXIF (так кадр и виден). Применяется до плёнки,
-# поэтому зерно, засвет, дата и рамка ложатся уже на кадрированное фото.
+# поэтому зерно, оверлей, дата и рамка ложатся уже на кадрированное фото.
 def parse_crop(v):
     if v in (None, "", False, []):
         return None
@@ -255,7 +425,7 @@ def render(ph, full=False, mode=None):
     key = ph["preset"]
     out = look(img, ph, key, ph["strength"], ph["id"], fit=mode == "view")
     if ph["leak"]:
-        out = light_leak(out, ph.get("leak_kind") or "edge", leak_seed(ph))
+        out = frame_overlay(out, ph)
     if ph["stamp"]:
         out = date_stamp(out, ph["taken"])
     if ph["frame"]:

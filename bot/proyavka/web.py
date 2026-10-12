@@ -18,10 +18,10 @@ from .config import COMMUNITY_BUNDLED, CONTACT_TG, LANG, PROJECT_URL, PREVIEWS, 
 from .i18n import L, tr, _CTX
 from .util import disposition, download_name, qr_svg, remove
 from .film import LUT_MAX_BYTES, PRESETS, canon, clean_params, params_json, parse_look_code, pname
-from .imaging import LEAKS, auto_reason, crop_tag, fingerprint, has, parse_crop
+from .imaging import BLENDS, OPACITIES, OV_MAX_BYTES, auto_reason, crop_tag, fingerprint, has, is_overlay, overlay_name, parse_crop
 from .pwa import CSP, SW_JS, app_icon, manifest
 from .database import get, q, run, upd
-from .users import ADMIN, DAILY_LIMIT, INVITE_DAYS, USERS, set_user, user, user_lang, user_luts, valid_look
+from .users import ADMIN, DAILY_LIMIT, INVITE_DAYS, USERS, set_user, user, user_lang, user_luts, valid_look, valid_overlay
 from .jobs import BASE_EDGES, job_full, job_prepare, job_preview, job_source
 from .telegram import safe, uid_of_tg
 from .sessions import (
@@ -30,9 +30,10 @@ from .sessions import (
 )
 from .push import LAST_POLL, push_key, push_subscribe
 from .scheduler import (
-    EXPORTING, apply_changes, batch_step, batch_track, export_photo, jobs_in_work, schedule_view,
+    EXPORTING, apply_changes, batch_step, batch_track, export_photo, jobs_in_work, opacity_value, schedule_view,
 )
 from .photos import BATCH_MAX, batch_ids, delete_photos, hide_photo, purge_trash, restore_photo
+from .overlays import add_overlay, blends_json, delete_overlay, overlays_json
 from .looks import (
     HUB_DIR, RateLimit, add_look, add_lut, community_add, community_image, community_json,
     community_preview, delete_lut, edit_look, hub_decide, hub_pending, hub_raw, hub_receive, look_flags,
@@ -61,28 +62,30 @@ def photo_json(ph):
             "auto_key": ph["auto_key"], "auto_reason": auto_reason(ph) if ph["auto_reason"] else "",
             "strength": ph["strength"], "stamp": bool(ph["stamp"]), "frame": bool(ph["frame"]),
             "leak": (ph.get("leak_kind") or "edge") if ph["leak"] else "",
-            "leak_seed": int(ph.get("leak_seed") or 0), "archived": not has(ph["work"]), "original": has(ph["src"]),
+            "leak_seed": int(ph.get("leak_seed") or 0), "ov_blend": ph.get("ov_blend") or "screen",
+            "ov_opacity": ph.get("ov_opacity") or 100, "archived": not has(ph["work"]), "original": has(ph["src"]),
             "ready": bool(v), "v": v, "pending": (ph["rev"] or 0) != (ph["rendered_rev"] or 0),
             "exporting": EXPORTING.get(ph["id"], 0) > 0, "hidden": bool(ph["hidden"]),
             "crop": [float(t) for t in ph["crop"].split(",")] if ph.get("crop") else None}
 
 
-def preview_file(ph, key, strength, leak="", lseed=0, crop=None):
+def preview_file(ph, key, strength, leak="", lseed=0, crop=None, blend="screen", opacity=100):
     from .pools import FAST
-    tag = (f"_{leak}{lseed}" if leak else "") + crop_tag(crop)
+    look = f"-{blend}{opacity}" if leak and (blend, opacity) != ("screen", 100) else ""
+    tag = (f"_{leak}-{lseed}{look}" if leak else "") + crop_tag(crop)
     path = PREVIEWS / f"{ph['id']}_{key}_{strength}{tag}.jpg"
     if path.exists():
         return path
     render_budget(ph["owner"])
-    snap = dict(ph, leak_seed=lseed, crop=crop)
+    snap = dict(ph, leak_seed=lseed, crop=crop, ov_blend=blend, ov_opacity=opacity)
     return Path(FAST.submit(job_preview, snap, key, strength, str(path), leak).result(timeout=120))
 
 
 def batch_edit(ids, changes, uid, guest=False):
-    """Плёнка, засвет, сила для многих кадров: в базу сразу, рисуются очередью (срочность 1)."""
+    """Плёнка, оверлей, сила для многих кадров: в базу сразу, рисуются очередью (срочность 1)."""
     if not isinstance(changes, dict):
         raise ValueError(L("нет изменений", "no changes"))
-    changes = {k: v for k, v in changes.items() if k in ("preset", "strength", "leak")}
+    changes = {k: v for k, v in changes.items() if k in ("preset", "strength", "leak", "ov_blend", "ov_opacity")}
     if not changes:
         raise ValueError(L("нет изменений", "no changes"))
     if "preset" in changes and changes["preset"] != "auto" and not valid_look(canon(str(changes["preset"])), uid):
@@ -91,16 +94,25 @@ def batch_edit(ids, changes, uid, guest=False):
         raise ValueError(L("неизвестная плёнка", "unknown film"))      # свои плёнки хозяина гостю не показываются
     if "strength" in changes and changes["strength"] not in STRENGTHS:
         raise ValueError(L("неверная сила", "invalid strength"))
-    if "leak" in changes and changes["leak"] not in ("", None, *LEAKS):
-        raise ValueError(L("неизвестный засвет", "unknown light leak"))
+    if "leak" in changes and changes["leak"] not in ("", None) and not (
+            isinstance(changes["leak"], str) and valid_overlay(changes["leak"], uid) and not (guest and is_overlay(changes["leak"]))):
+        raise ValueError(L("неизвестный оверлей", "unknown overlay"))          # свои картинки хозяина гостю тоже не показываются
+    if "ov_blend" in changes and (not isinstance(changes["ov_blend"], str) or changes["ov_blend"] not in BLENDS):
+        raise ValueError(L("неизвестный режим наложения", "unknown blend mode"))
+    if "ov_opacity" in changes:
+        opacity_value(changes["ov_opacity"])
     parts = []
     if "preset" in changes:
         parts.append(L("авто по ситуации", "auto by scene") if changes["preset"] == "auto" else pname(canon(changes["preset"])))
     if "strength" in changes:
         parts.append(L("сила", "strength") + f" {changes['strength']}%")
     if "leak" in changes:
-        parts.append(L("засвет", "leak") + f": {tr(LEAKS[changes['leak']][0])}" if changes["leak"] in LEAKS
-                     else L("без засвета", "no leak"))
+        parts.append(L("оверлей", "overlay") + f": {overlay_name(changes['leak'])}" if changes["leak"]
+                     else L("без оверлея", "no overlay"))
+    if "ov_blend" in changes:
+        parts.append(tr(BLENDS[changes["ov_blend"]]))
+    if "ov_opacity" in changes:
+        parts.append(L("непрозрачность", "opacity") + f" {int(changes['ov_opacity'])}%")
     live = [pid for pid in ids if has((get(pid) or {}).get("work"))]
     bid = None if guest else batch_track(live, ", ".join(parts), uid)   # до постановки в очередь; хозяину о правке гостя не пишем
     queued = 0
@@ -499,8 +511,8 @@ class Handler(BaseHTTPRequestHandler):
                            "when": f"LUT {r['size']}³" if r["size"] else L("Своя плёнка", "Your film"),
                            **look_flags(uid, f"lut{r['id']}")}
                           for r in ([] if self.album else user_luts(uid))]
-                leaks = [{"key": k, "name": tr(v[0]), "desc": tr(v[1])} for k, v in LEAKS.items()]
-                return self.js({"presets": items, "strengths": STRENGTHS, "leaks": leaks})
+                return self.js({"presets": items, "strengths": STRENGTHS, "leaks": overlays_json(uid, guest=bool(self.album)),
+                                "blends": blends_json()})
             if parts == ["api", "me"]:
                 return self.js(me_json(uid))
             if parts == ["api", "community"]:
@@ -628,14 +640,17 @@ class Handler(BaseHTTPRequestHandler):
                 strength = int((qs.get("st") or ["100"])[0])
                 leak = (qs.get("lk") or [""])[0]
                 lseed = int((qs.get("ls") or ["0"])[0])
+                blend = (qs.get("lb") or ["screen"])[0]
+                opacity = int((qs.get("lo") or ["100"])[0])
                 if (not ph or not valid_look(key, uid) or strength not in STRENGTHS
-                        or (leak and leak not in LEAKS) or not 0 <= lseed < 1_000_000):
+                        or (leak and (not valid_overlay(leak, uid) or (self.album and is_overlay(leak))))
+                        or not 0 <= lseed < 1_000_000 or blend not in BLENDS or opacity not in OPACITIES):
                     return self.err(404, L("нет такого превью", "no such preview"))
                 if not has(ph["work"]):
                     return self.err(410, L("кадр в архиве", "frame is archived"))
                 # рамка берётся из ссылки: превью для только что выбранной рамки может прийти раньше самой правки
                 crop = parse_crop((qs.get("c") or [""])[0])
-                return self.file(str(preview_file(ph, key, strength, leak, lseed, crop)))
+                return self.file(str(preview_file(ph, key, strength, leak, lseed, crop, blend, opacity)))
             if len(parts) == 3 and parts[:2] == ["img", "source"]:
                 ph = self.mine(parts[2], uid)
                 if not ph or ph["hidden"] or not has(ph["work"]):
@@ -672,10 +687,15 @@ class Handler(BaseHTTPRequestHandler):
                     self.drain(max(0, int(self.headers.get("Content-Length") or 0)))
                     return self.err(403 if uid else 401, L("нужна авторизация через Telegram", "Telegram authorization required"))
                 length = self.content_length()
-                if not (qs.get("lut") or [""])[0] and over_daily(uid):
+                if not (qs.get("lut") or qs.get("overlay") or [""])[0] and over_daily(uid):
                     self.drain(length)
                     return self.err(400, L(f"за сутки уже {DAILY_LIMIT} кадров — это предел, завтра можно снова",
                                            f"{DAILY_LIMIT} frames in 24 hours is the limit, try again tomorrow"))
+                if (qs.get("overlay") or [""])[0]:      # свой оверлей (картинка)
+                    if length > OV_MAX_BYTES:
+                        self.drain(length)
+                        return self.err(400, L("картинка больше 30 МБ", "the image is larger than 30 MB"))
+                    return self.js(add_overlay(uid, (qs.get("name") or [""])[0], self.rfile.read(length)))
                 if (qs.get("lut") or [""])[0]:          # свой LUT (.cube)
                     if length > LUT_MAX_BYTES:
                         return self.err(400, L("файл LUT больше 16 МБ", "the LUT file is larger than 16 MB"))
@@ -871,6 +891,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self.js({"url": link, "code": show_code(code), "qr": qr_svg(link), "ttl": PAIR_TTL})
             if len(parts) == 4 and parts[:2] == ["api", "device"] and parts[3] == "delete" and parts[2].isdigit():
                 return self.js({"ok": bool(drop_device(uid, int(parts[2])))})
+            if len(parts) == 4 and parts[:2] == ["api", "overlay"] and parts[3] == "delete":
+                return self.js({"ok": True, "moved": delete_overlay(uid, parts[2])})
             if len(parts) == 4 and parts[:2] == ["api", "lut"] and parts[3] == "delete":
                 return self.js({"ok": True, "moved": delete_lut(uid, parts[2])})
             if len(parts) >= 3 and parts[:2] == ["api", "photo"]:
@@ -881,6 +903,8 @@ class Handler(BaseHTTPRequestHandler):
                 if action == "edit":
                     if self.album and str(data.get("preset") or "original") not in ("auto", "original", *PRESETS):
                         raise ValueError(L("неизвестная плёнка", "unknown film"))
+                    if self.album and is_overlay(data.get("leak")):
+                        raise ValueError(L("неизвестный оверлей", "unknown overlay"))
                     return self.js(photo_json(apply_changes(ph, data, sync_tg=False, chat=not self.album)))
                 if action == "file":
                     export_photo(ph["id"])

@@ -9,7 +9,7 @@ from .config import COMMUNITY_BUNDLED, PREVIEWS, VIEW_EDGE
 from .util import save_atomic
 from .film import PRESETS, film, fit, look, preset_lut
 from .imaging import (
-    auto_pick, contact_sheet, crop_img, crop_tag, is_raw, leak_seed, light_leak, open_raw, raw_exif,
+    auto_pick, contact_sheet, crop_img, crop_tag, frame_overlay, is_raw, open_raw, raw_exif,
     read_exif, render, srgb_icc, to_srgb,
 )
 
@@ -132,7 +132,7 @@ def job_preview(ph, key, strength, path, leak=""):
     base = preview_base(ph)
     out = look(base, ph, key, strength, ph["id"], fit=True)
     if leak:
-        out = light_leak(out, leak, leak_seed(ph))
+        out = frame_overlay(out, ph, leak)
     return save_atomic(out, path, 84)
 
 

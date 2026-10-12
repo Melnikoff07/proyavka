@@ -5,20 +5,20 @@
 **English** · [Русский](README.ru.md)
 
 **Film development for your digital camera — on your phone, your computer, or in Telegram.**
-Take a shot, and half a minute later it's in your feed already "on film": colour, grain, halation, light leaks, a point-and-shoot date stamp. Change the film and strength any time, with live previews of every film. Use it as an app (browser, iPhone, Android, Windows, Mac) — Telegram is optional.
+Take a shot, and half a minute later it's in your feed already "on film": colour, grain, halation, overlays, a point-and-shoot date stamp. Change the film and strength any time, with live previews of every film. Use it as an app (browser, iPhone, Android, Windows, Mac) — Telegram is optional.
 
 *Proyavka* (проявка) is Russian for "film development".
 
 - 25 films, each with its own character (negative, slide, cinema, b&w, processes), plus automatic choice by scene (night, sunset, overcast, landscape)
-- 12 light leaks, date stamp, negative frame, strength from 25 to 150 %
+- overlays: 12 light leaks or your own images (PNG with transparency too), each with a blend mode and opacity; date stamp, negative frame, strength from 25 to 150 %
 - your own LUTs: add a `.cube` file and it joins the film list; each user has their own, nobody else sees them
 - frames arrive by themselves: over FTP from cameras that support it, or via the app for Sony PlayMemories cameras; phone photos via the "+" button
 - RAW (ARW, CR3, NEF, RAF, DNG…) out of the box; with RAW+JPEG the JPEG is used
-- crop (free, 1:1, 4:5, 3:2, 16:9) and batch edits: select a day's frames and change the film or leak, or delete them at once; deleted frames stay in the trash while there is space
+- crop (free, 1:1, 4:5, 3:2, 16:9) and batch edits: select a day's frames and change the film or overlay, or delete them at once; deleted frames stay in the trash while there is space
 - full-size files: download one or a ZIP on a computer, save straight to Photos on iPhone; exported files carry the shooting date, camera and exposure (no GPS) and an sRGB profile, so the gallery files them by the date taken. Originals are kept until space runs out
 - **no Telegram needed:** the app installs on a phone from the browser (iPhone: Share → Add to Home Screen; Android and computers: Install in Chrome or Edge); devices sign in with a one-time code or QR. Prefer Telegram? Connect a bot at setup or later in the settings — frames then also arrive in the chat with film buttons
 - notifications when new frames are developed (switch them on or off per device), light / dark / auto / burger theme
-- share albums by link: pick a day or any frames, send the link — anyone can view and download them without signing in; delete the album and the link stops working. Optionally let people with the link edit too (film, strength, leak, date, frame, crop — in the same screen as the app): the changes are made to your frames, so you see them at once, and nothing is sent to your chat; guests can't add, delete or see anything else
+- share albums by link: pick a day or any frames, send the link — anyone can view and download them without signing in; delete the album and the link stops working. Optionally let people with the link edit too (film, strength, overlay, date, frame, crop — in the same screen as the app): the changes are made to your frames, so you see them at once, and nothing is sent to your chat; guests can't add, delete or see anything else
 - your own films: build one from sliders (basics like exposure and highlights, colour bands, glow, grain) with a live preview on your frame, share it as a text code, or take one from the community catalog (`community/looks.json` in this repo — suggest yours from the app, it opens a ready GitHub issue)
 - one server for several people: family or friends by invite code, each with their own feed, camera and storage
 - English and Russian interface, chosen per user

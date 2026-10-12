@@ -165,7 +165,7 @@
   .sel-actions { display: flex; justify-content: space-between; gap: 8px; }
   .sel-actions button { color: inherit; padding: 6px 0; }
   .sel-actions button.danger { color: var(--acc); }
-  /* лист пакетной правки: плёнка или засвет для выбранных кадров */
+  /* лист пакетной правки: плёнка или оверлей для выбранных кадров */
   .sheet { position: fixed; left: 0; right: 0; bottom: 0; z-index: 16; background: var(--tile); border-radius: 28px 28px 0 0;
            padding: 16px 0 calc(16px + env(safe-area-inset-bottom, 0px)); box-shadow: 0 -12px 40px rgba(0,0,0,.18); }
   .sheet[hidden] { display: none; }
@@ -247,8 +247,16 @@
               background: var(--raise); border-radius: 99px; }
   .seg .tab { color: var(--text); padding: 10px 4px; font-size: 14px; font-weight: 500; text-align: center; border-radius: 99px; }
   .seg .tab[aria-selected="true"] { background: var(--btn-bg); color: var(--btn-text); text-decoration: none; }
-  .leakrow { padding: 12px var(--pad) 0; }
-  .leakrow[hidden] { display: none; }
+  /* вкладка «Оверлей»: другой вариант и своя картинка, режим наложения и непрозрачность */
+  .ovctl[hidden], #ovLook[hidden], .line[hidden] { display: none; }
+  .filmacts.ovacts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .filmacts .pill:disabled { opacity: .4; }
+  .ovblend { justify-content: flex-start; gap: 4px; overflow-x: auto; scrollbar-width: none; margin-right: calc(-1 * var(--pad)); padding-right: var(--pad); }
+  .ovblend::-webkit-scrollbar { display: none; }
+  .ovblend .opt { flex: 0 0 auto; white-space: nowrap; background: var(--raise); color: var(--text); }
+  .ovblend .opt[aria-pressed="true"] { color: var(--btn-text); background: var(--btn-bg); }
+  .ed-sl.ovop { padding-top: 12px; }
+  .ed-sl.ovop .v { color: var(--text); font-size: 13px; }
   .filmacts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; padding: 12px var(--pad) 0; }
   .filmacts[hidden] { display: none; }
   .filmacts .pill { display: flex; align-items: center; justify-content: center; gap: 7px; padding: 9px 8px; min-height: 46px;
@@ -286,6 +294,7 @@
 
   .line { display: flex; align-items: center; gap: 18px; padding: 14px var(--pad) 0; }
   .line .label { width: 44px; flex: 0 0 auto; }
+  .line .label.wide { width: auto; min-width: 44px; }
   .opts { display: flex; flex: 1; justify-content: space-between; }
   /* выбор из нескольких — пилюли: выбранная залита чернилами */
   .opt { padding: 7px 11px; color: var(--muted); border-radius: 99px; }
@@ -629,6 +638,7 @@
       </div></div></div>
   <input type="file" id="picker" accept="image/*,.dng,.arw,.cr2,.cr3,.nef,.raf,.orf,.rw2,.pef,.srw" multiple hidden>
   <input type="file" id="lutPicker" accept=".cube" hidden>
+  <input type="file" id="ovPicker" accept="image/png,image/jpeg,image/webp" hidden>
   <p class="sub" id="sub"></p>
   <p class="sub beta-note" id="betaNote" hidden></p>
   <p class="sub" id="iosHint" hidden data-i18n="To install as an app: in Safari, Share → Add to Home Screen (inside Telegram or Instagram choose Open in Safari first).">Поставить как приложение: в Safari «Поделиться» → «На экран „Домой“» (внутри Telegram или Instagram сперва «Открыть в Safari»).</p>
@@ -655,7 +665,7 @@
     <div id="controls">
       <div class="tabs seg" role="tablist">
         <button class="tab" role="tab" data-tab="film" aria-selected="true" data-i18n="Film">Плёнка</button>
-        <button class="tab" role="tab" data-tab="leak" aria-selected="false" data-i18n="Light leak">Засвет</button>
+        <button class="tab" role="tab" data-tab="leak" aria-selected="false" data-i18n="Overlay">Оверлей</button>
         <button class="tab" id="bCrop" data-i18n="Crop">Кадрировать</button>
       </div>
       <div class="strip" id="strip" role="listbox" aria-label="Плёнка"></div>
@@ -664,10 +674,18 @@
         <button class="pill" id="faCm"><i aria-hidden="true">✦</i><span data-i18n="Community LUTs">Плёнки сообщества</span></button>
         <button class="pill" id="faLut"><i aria-hidden="true">+</i><span data-i18n="Upload LUT">Загрузить LUT</span></button>
       </div>
-      <div class="leakrow" id="leakRow" hidden>
-        <button class="pill" id="bShift" data-i18n="↻ Another leak variant">↻ Другой вариант засвета</button>
+      <div class="ovctl" id="ovCtl" hidden>
+        <div class="filmacts ovacts">
+          <button class="pill" id="bShift"><i aria-hidden="true">↻</i><span data-i18n="Another variant">Другой вариант</span></button>
+          <button class="pill" id="bOvAdd"><i aria-hidden="true">+</i><span data-i18n="Your overlay">Свой оверлей</span></button>
+        </div>
+        <div id="ovLook">
+          <div class="line"><span class="cap muted label wide" data-i18n="Blend">Режим</span><div class="opts cap ovblend" id="ovBlend" role="group" aria-label="Режим наложения" data-i18n-aria="Blend mode"></div></div>
+          <div class="ed-sl ovop"><div class="row"><span class="cap muted" data-i18n="Opacity">Непрозрачность</span><span class="v cap" id="ovOpVal"></span></div>
+            <input type="range" id="ovOpacity" min="5" max="100" step="5" value="100" aria-label="Непрозрачность оверлея" data-i18n-aria="Overlay opacity"></div>
+        </div>
       </div>
-      <div class="line"><span class="cap muted label" data-i18n="Strength">Сила</span><div class="opts cap" id="strength" role="group" aria-label="Сила эффекта" data-i18n-aria="Effect strength"></div><b class="strval" id="strVal"></b></div>
+      <div class="line" id="strLine"><span class="cap muted label" data-i18n="Strength">Сила</span><div class="opts cap" id="strength" role="group" aria-label="Сила эффекта" data-i18n-aria="Effect strength"></div><b class="strval" id="strVal"></b></div>
       <div class="line"><span class="cap muted label" data-i18n="Look">Вид</span>
         <div class="opts cap">
           <button class="tog" data-toggle="stamp" aria-pressed="false" data-i18n="Date">Дата</button>
@@ -696,7 +714,7 @@
   <div class="sel-top cap"><span id="selCount"></span><button id="selCancel" data-i18n="Cancel">Отмена</button></div>
   <div class="sel-actions cap">
     <button id="sFilm" data-i18n="Film">Плёнка</button>
-    <button id="sLeak" data-i18n="Leak">Засвет</button>
+    <button id="sLeak" data-i18n="Overlay">Оверлей</button>
     <button id="sFiles" data-i18n="Files">Файлы</button>
     <button id="sAlbum">Альбом</button>
     <button id="sDelete" class="danger" data-i18n="Delete">Удалить</button>
@@ -706,6 +724,8 @@
   <div class="sheet-head cap"><span id="shTitle"></span><button id="shClose" data-i18n="Close">Закрыть</button></div>
   <div class="strip" id="shStrip" role="listbox"></div>
   <div class="line" id="shStrLine"><span class="cap muted label" data-i18n="Strength">Сила</span><div class="opts cap" id="shStrength" role="group"></div></div>
+  <div class="line" id="shBlendLine" hidden><span class="cap muted label wide" data-i18n="Blend">Режим</span><div class="opts cap ovblend" id="shBlend" role="group"></div></div>
+  <div class="line" id="shOpLine" hidden><span class="cap muted label wide" data-i18n="Opacity">Непрозрачность</span><div class="opts cap" id="shOpacity" role="group"></div></div>
   <div class="actions"><button class="btn" id="shApply" disabled></button></div>
 </div>
 <div class="sheet" id="albumSheet" hidden role="dialog" aria-labelledby="alTitle">
@@ -873,7 +893,7 @@ function fileLabel(p) {
 
 const GUEST = new URLSearchParams(location.search).get("album") || "";      // гость по ссылке альбома: правит только его кадры
 let token = "", media = "", photos = [], total = 0, loading = false, finished = false, jobs = 0;
-let presets = [], leaks = [], strengths = [25, 50, 75, 100, 125, 150], cur = -1, tab = "film";
+let presets = [], leaks = [], blends = [], strengths = [25, 50, 75, 100, 125, 150], cur = -1, tab = "film";
 let groups = {};            // день -> { grid, count, n }
 let since = 0;              // метка времени сервера для опроса изменений
 const chains = {};          // id -> очередь отправки правок (чтобы порядок тапов сохранялся)
@@ -899,8 +919,11 @@ function editorBase() {
   return (photos[cur] && has(photos[cur].preset)) || has(stored(LAST_FILM)) || has("street_neg") || presets.find((f) => f.p);
 }
 function presetName(key) { const f = presets.find((x) => x.key === key); return f ? f.name : key === "original" ? T("Оригинал", "Original") : key; }
+// оверлей кадра: режим наложения и непрозрачность (по умолчанию — «экран» на 100 %, как прежние засветы)
+const ovBlendOf = (p) => p.ov_blend || "screen", ovOpacityOf = (p) => p.ov_opacity || 100;
 function prevUrl(p, film, leak) {
-  const lk = leak ? `&lk=${leak}&ls=${p.leak_seed || 0}` : "";
+  const look = leak && (ovBlendOf(p) !== "screen" || ovOpacityOf(p) !== 100) ? `&lb=${ovBlendOf(p)}&lo=${ovOpacityOf(p)}` : "";
+  const lk = leak ? `&lk=${leak}&ls=${p.leak_seed || 0}${look}` : "";
   const c = p.crop ? `&c=${p.crop.join(",")}` : "";
   const r = lookRev[film] ? `&r=${lookRev[film]}` : "";
   return url(`/img/preview/${p.id}/${film}`, `&st=${p.strength}${lk}${c}${r}`);
@@ -912,11 +935,11 @@ function retryImg(img, n = 3) {
 }
 function leakName(key) { const l = leaks.find((x) => x.key === key); return l ? l.name : ""; }
 function viewUrl(p) { return url(`/img/view/${p.id}`, `&v=${p.v}`); }
-// уже показанные состояния кадра: плёнка/сила/засвет/кроп/дата/рамка -> версия картинки. Вернулся к плёнке, которую
+// уже показанные состояния кадра: плёнка/сила/оверлей/кроп/дата/рамка -> версия картинки. Вернулся к плёнке, которую
 // только что смотрел, — картинка из кэша браузера сразу, не дожидаясь сервера (он тоже берёт её из своего кэша)
 const viewSeen = new Map();
 function viewState(p) {
-  return [p.preset, p.strength, p.leak || "", p.leak ? p.leak_seed || 0 : 0, p.crop ? p.crop.join(",") : "",
+  return [p.preset, p.strength, p.leak || "", p.leak ? p.leak_seed || 0 : 0, p.leak ? ovBlendOf(p) + ovOpacityOf(p) : "", p.crop ? p.crop.join(",") : "",
           p.stamp ? 1 : 0, p.frame ? 1 : 0, lookRev[p.preset] || ""].join("|");
 }
 function seenView(p) { const m = viewSeen.get(p.id); return m ? m.get(viewState(p)) : 0; }
@@ -1238,7 +1261,7 @@ function onBack() {
   else if (selecting) exitSelect();
 }
 
-/* ---------- пакетная правка: лист с плёнками или засветами для выбранных кадров ---------- */
+/* ---------- пакетная правка: лист с плёнками или оверлеями для выбранных кадров ---------- */
 let sheet = null;            // { kind: "film" | "leak", pick: {...} }
 
 function openSheet(kind) {
@@ -1246,14 +1269,14 @@ function openSheet(kind) {
   if (!ids.length) return;
   const p = photos[indexOf(ids[0])];        // превью рисуются на первом выбранном кадре
   sheet = { kind, pick: {} };
-  $("shTitle").textContent = kind === "film" ? T("Плёнка для выбранных", "Film for selected") : T("Засвет для выбранных", "Leak for selected");
+  $("shTitle").textContent = kind === "film" ? T("Плёнка для выбранных", "Film for selected") : T("Оверлей для выбранных", "Overlay for selected");
   const items = kind === "film"
     ? [{ key: "auto", name: T("Авто", "Auto"), title: T("каждому кадру своя по ситуации", "each frame gets its own by scene"), src: prevUrl(p, p.auto_key || "original", "") }]
         .concat(presets.map((f) => ({ key: f.key, name: f.name, title: f.when, src: prevUrl(p, f.key, "") })))
-    : [{ key: "", name: T("Без засвета", "No leak"), title: "", src: prevUrl(p, p.preset, "") }]
+    : [{ key: "", name: T("Без оверлея", "No overlay"), title: "", src: prevUrl(p, p.preset, "") }]
         .concat(leaks.map((l) => ({ key: l.key, name: l.name, title: l.desc, src: prevUrl(p, p.preset, l.key) })));
   const strip = $("shStrip");
-  strip.setAttribute("aria-label", kind === "film" ? T("Плёнка", "Film") : T("Засвет", "Leak"));
+  strip.setAttribute("aria-label", kind === "film" ? T("Плёнка", "Film") : T("Оверлей", "Overlay"));
   strip.replaceChildren(...items.map((it) => {
     const b = document.createElement("button");
     b.className = "film";
@@ -1273,6 +1296,24 @@ function openSheet(kind) {
   }));
   strip.scrollLeft = 0;
   $("shStrLine").hidden = kind !== "film";
+  $("shBlendLine").hidden = $("shOpLine").hidden = kind === "film";
+  // для оверлея: режим и непрозрачность — тоже по желанию, как сила у плёнки
+  const pickRow = (host, opts, field) => host.replaceChildren(...opts.map((o) => {
+    const b = document.createElement("button");
+    b.className = "opt";
+    b.textContent = o.name;
+    b.setAttribute("aria-pressed", "false");
+    b.onclick = () => {
+      const on = b.getAttribute("aria-pressed") !== "true";
+      host.querySelectorAll(".opt").forEach((x) => x.setAttribute("aria-pressed", "false"));
+      b.setAttribute("aria-pressed", String(on));
+      if (on) sheet.pick[field] = o.key; else delete sheet.pick[field];
+      haptic(); sheetButton();
+    };
+    return b;
+  }));
+  pickRow($("shBlend"), blends, "ov_blend");
+  pickRow($("shOpacity"), [25, 50, 75, 100].map((v) => ({ key: v, name: `${v}%` })), "ov_opacity");
   $("shStrength").replaceChildren(...strengths.map((s) => {
     const b = document.createElement("button");
     b.className = "opt";
@@ -1305,7 +1346,7 @@ function sheetButton() {
   $("shApply").disabled = !any;
   $("shApply").textContent = any
     ? T(`Проявить ${n} ${plural(n, "кадр", "кадра", "кадров")}`, `Develop ${n} frame${n === 1 ? "" : "s"}`)
-    : (sheet.kind === "film" ? T("Выбери плёнку или силу", "Pick a film or strength") : T("Выбери засвет", "Pick a leak"));
+    : (sheet.kind === "film" ? T("Выбери плёнку или силу", "Pick a film or strength") : T("Выбери оверлей или режим", "Pick an overlay or blend mode"));
 }
 $("sFilm").onclick = () => openSheet("film");
 $("sLeak").onclick = () => openSheet("leak");
@@ -1323,6 +1364,8 @@ $("shApply").onclick = async () => {
       if (changes.preset) { p.preset = changes.preset === "auto" ? (p.auto_key || "original") : changes.preset; p.preset_name = presetName(p.preset); }
       if (changes.strength) p.strength = changes.strength;
       if ("leak" in changes) p.leak = changes.leak;
+      if (changes.ov_blend) p.ov_blend = changes.ov_blend;
+      if (changes.ov_opacity) p.ov_opacity = changes.ov_opacity;
       p.pending = true;
       updateCell(i);
     }
@@ -1464,24 +1507,25 @@ function refreshViewerImage() {
   $("stage").classList.toggle("busy", !!p.pending && !seen);
   $("bFile").textContent = fileLabel(p);
   $("vname").textContent = p.preset_name;
-  $("vwhen").textContent = p.leak ? T("Засвет", "Leak") + `: ${leakName(p.leak)}` : (p.auto_reason ? T("Авто", "Auto") + `: ${p.auto_reason}` : "");
+  $("vwhen").textContent = p.leak ? T("Оверлей", "Overlay") + `: ${leakName(p.leak)}` : (p.auto_reason ? T("Авто", "Auto") + `: ${p.auto_reason}` : "");
   syncViewerCompare();
 }
 
 function renderStrip(p) {
   const strip = $("strip");
   document.querySelectorAll(".tab[data-tab]").forEach((t) => t.setAttribute("aria-selected", String(t.dataset.tab === tab)));
-  strip.setAttribute("aria-label", tab === "film" ? T("Плёнка", "Film") : T("Засвет", "Leak"));
+  strip.setAttribute("aria-label", tab === "film" ? T("Плёнка", "Film") : T("Оверлей", "Overlay"));
   const items = tab === "film"
     ? presets.map((f) => ({ key: f.key, name: f.name, title: f.when, src: prevUrl(p, f.key, p.leak), on: p.preset === f.key }))
-    : [{ key: "", name: T("Без засвета", "No leak"), title: "", src: prevUrl(p, p.preset, ""), on: !p.leak }]
-        .concat(leaks.map((l) => ({ key: l.key, name: l.name, title: l.desc, src: prevUrl(p, p.preset, l.key), on: p.leak === l.key })));
+    : [{ key: "", name: T("Без оверлея", "No overlay"), title: "", src: prevUrl(p, p.preset, ""), on: !p.leak }]
+        .concat(leaks.map((l) => ({ key: l.key, name: l.name, title: l.desc, src: prevUrl(p, p.preset, l.key), on: p.leak === l.key, own: l.own })));
   const frag = document.createDocumentFragment();
   for (const it of items) {
     const b = document.createElement("button");
     b.className = "film";
     b.dataset.key = it.key;
     if (it.lut) holdToDelete(b, it.key, it.name);
+    if (it.own) holdToDelete(b, it.key, it.name, "overlay");
     b.setAttribute("role", "option");
     b.setAttribute("aria-pressed", String(it.on));
     b.title = it.title;
@@ -1496,10 +1540,41 @@ function renderStrip(p) {
   strip.replaceChildren(frag);
   // править, плёнки сообщества и свой LUT — строкой под лентой: не надо листать до конца 25 плёнок
   $("filmActs").hidden = !(tab === "film" && !p.archived) || !!GUEST;
-  $("leakRow").hidden = !(tab === "leak" && p.leak && !p.archived);
+  $("ovCtl").hidden = !(tab === "leak" && !p.archived);
+  $("strLine").hidden = tab === "leak" && !p.archived;     // сила плёнки — на вкладке плёнки; здесь режим и непрозрачность
+  renderOvLook(p);
   const sel = strip.querySelector('[aria-pressed="true"]');
   if (sel) strip.scrollLeft = sel.offsetLeft - strip.clientWidth / 2 + sel.clientWidth / 2;
 }
+
+function renderOvLook(p) {
+  $("ovLook").hidden = !p.leak;
+  $("bShift").disabled = !p.leak;
+  $("bOvAdd").hidden = !!GUEST;
+  $("ovBlend").replaceChildren(...blends.map((m) => {
+    const b = document.createElement("button");
+    b.className = "opt";
+    b.textContent = m.name;
+    b.dataset.key = m.key;
+    b.setAttribute("aria-pressed", String(ovBlendOf(p) === m.key));
+    b.onclick = () => { if (b.getAttribute("aria-pressed") !== "true") apply({ ov_blend: m.key }); };
+    return b;
+  }));
+  const sel = $("ovBlend").querySelector('[aria-pressed="true"]');
+  if (sel) $("ovBlend").scrollLeft = sel.offsetLeft - $("ovBlend").clientWidth / 2;
+  showOpacity(ovOpacityOf(p));
+}
+function showOpacity(v) {
+  const r = $("ovOpacity");
+  r.value = v;
+  $("ovOpVal").textContent = `${v}%`;
+  r.style.setProperty("--a", "0%");
+  r.style.setProperty("--b", `${(v - 5) / 95 * 100}%`);
+}
+$("ovOpacity").oninput = () => showOpacity(Number($("ovOpacity").value));
+// отправляем, когда палец отпустил ползунок: каждое положение по дороге не рисуем
+$("ovOpacity").onchange = () => { const p = photos[cur], v = Number($("ovOpacity").value); if (p && p.leak && v !== ovOpacityOf(p)) apply({ ov_opacity: v }); };
+$("bOvAdd").onclick = () => $("ovPicker").click();
 
 $("faEdit").onclick = () => openEditor({});
 $("faCm").onclick = () => openCommunity();
@@ -1538,7 +1613,6 @@ function renderViewer() {
     }));
     $("strVal").innerHTML = `${p.strength}<sup>%</sup>`;
     document.querySelectorAll("[data-toggle]").forEach((b) => b.setAttribute("aria-pressed", String(!!p[b.dataset.toggle])));
-    $("bShift").disabled = !p.leak;
   }
   refreshViewerImage();
   [cur - 1, cur + 1].forEach((j) => { const n = photos[j]; if (n && n.v && !n.pending) { const im = new Image(); im.decoding = "async"; im.src = viewUrl(n); } });
@@ -1555,9 +1629,8 @@ function apply(changes) {
   if (changes.preset) { p.preset_name = presetName(changes.preset); if (presets.some((f) => f.key === changes.preset && f.p)) stored(LAST_FILM, changes.preset); }
   haptic();
   updateCell(i);
-  if (changes.strength || changes.preset || "leak" in changes || changes.leak_shift || "crop" in changes) {
-    renderStrip(p);                        // превью должны показывать новое сочетание плёнки и засвета
-    $("bShift").disabled = !p.leak;
+  if (changes.strength || changes.preset || "leak" in changes || changes.leak_shift || "crop" in changes || changes.ov_blend || changes.ov_opacity) {
+    renderStrip(p);                        // превью должны показывать новое сочетание плёнки и оверлея
   }
   for (const f of ["stamp", "frame"]) if (f in changes) document.querySelector(`[data-toggle="${f}"]`).setAttribute("aria-pressed", String(!!changes[f]));
   if (changes.strength) $("strength").querySelectorAll(".opt").forEach((b) => b.setAttribute("aria-pressed", String(Number(b.dataset.s) === changes.strength)));
@@ -2601,8 +2674,8 @@ $("sAlbum").onclick = async () => {
     `<input class="al-name" id="alName" maxlength="80" placeholder="${esc(T("Название", "Title"))}" value="${esc(albumDefaultTitle(ids))}">` +
     `<p class="muted" style="margin:10px 0 0">${T("Кто получит ссылку, увидит эти кадры и сможет скачать — без входа и без Telegram. Удалишь альбом — ссылка перестанет работать.",
                                                  "Anyone with the link sees these frames and can download them — no sign-in, no Telegram. Delete the album and the link stops working.")}</p>` +
-    `<label class="muted" style="display:block;margin:10px 0 0"><input type="checkbox" id="alEdit" checked> ${T("Разрешить менять плёнку, засвет и кадр — изменения увидишь и ты, уведомлений не будет",
-                                                                                                          "Let people change film, leak and crop — you see the changes too, no notifications")}</label>` +
+    `<label class="muted" style="display:block;margin:10px 0 0"><input type="checkbox" id="alEdit" checked> ${T("Разрешить менять плёнку, оверлей и кадр — изменения увидишь и ты, уведомлений не будет",
+                                                                                                          "Let people change film, overlay and crop — you see the changes too, no notifications")}</label>` +
     `<div class="actions al-acts"><button class="btn" id="alCreate">${T(`Создать ссылку · ${ids.length}`, `Create link · ${ids.length}`)}</button></div>`);
   $("alCreate").onclick = async () => {
     $("alCreate").disabled = true;
@@ -2782,6 +2855,8 @@ async function signIn() {
 async function reloadPresets() {
   const pj = await api("/api/presets");
   presets = pj.presets;
+  leaks = pj.leaks || [];
+  blends = pj.blends || [];
   if (photos[cur]) renderStrip(photos[cur]);
   if (!$("cmPane").hidden || !$("community").hidden) renderCommunity();
 }
@@ -2801,14 +2876,33 @@ $("lutPicker").onchange = async () => {
     if (photos[cur]) apply({ preset: j.key });
   } catch (e) { toast(e.message); haptic("error"); }
 };
-function holdToDelete(el, key, name) {
+$("ovPicker").onchange = async () => {
+  const f = $("ovPicker").files[0];
+  $("ovPicker").value = "";
+  if (!f) return;
+  if (f.size > 30 * 1024 * 1024) return toast(T("Картинка больше 30 МБ", "The image is larger than 30 MB"));
+  toast(T("Загружаю оверлей…", "Uploading overlay…"));
+  try {
+    const r = await fetch(`/api/upload?overlay=1&name=${encodeURIComponent(f.name)}`, { method: "POST", headers: { "X-Token": token }, body: f });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(j.error || T(`Сервер ответил ${r.status}`, `Server responded ${r.status}`));
+    await reloadPresets();
+    toast(T(`Оверлей «${j.name}» добавлен`, `Overlay "${j.name}" added`));
+    haptic("success");
+    if (photos[cur]) apply({ leak: j.key });
+  } catch (e) { toast(e.message); haptic("error"); }
+};
+// долгое нажатие на свою плёнку (kind "lut") или свой оверлей ("overlay") — удалить
+function holdToDelete(el, key, name, kind = "lut") {
   let t = null;
   const ask = () => {
-    const q = T(`Удалить «${name}»? Кадры с ней перейдут на автоплёнку.`, `Delete "${name}"? Frames using it switch to their auto film.`);
+    const q = kind === "overlay"
+      ? T(`Удалить оверлей «${name}»? С кадров он снимется.`, `Delete overlay "${name}"? It is removed from frames.`)
+      : T(`Удалить «${name}»? Кадры с ней перейдут на автоплёнку.`, `Delete "${name}"? Frames using it switch to their auto film.`);
     const go = async (ok) => {
       if (!ok) return;
       try {
-        await api(`/api/lut/${key}/delete`, {});
+        await api(`/api/${kind}/${key}/delete`, {});
         await reloadPresets();
         toast(T("Удалено", "Deleted"));
         jobs = Math.max(jobs, 1); schedulePoll();
@@ -3848,6 +3942,7 @@ async function uploadAll(files) {
     const pj = await api("/api/presets");
     presets = pj.presets;
     leaks = pj.leaks || [];
+    blends = pj.blends || [];
     strengths = pj.strengths;
     since = (await api("/api/updates?since=9e12")).now;   // точка отсчёта для опроса
   } catch (e) {

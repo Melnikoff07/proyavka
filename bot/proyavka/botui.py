@@ -35,8 +35,8 @@ def help_text(uid):
                "• Take a shot — in ~30 s it arrives here, already on film."),
              L("• 🎞 под фото — сменить плёнку, 🔍 — все плёнки разом на одном листе.",
                "• 🎞 under a photo — change film, 🔍 — all films at once on one sheet."),
-             L("• ➖/➕ — сила эффекта, 📅 дата как у мыльницы, 🖼 рамка негатива, ✨ засвет.",
-               "• ➖/➕ — effect strength, 📅 point-and-shoot date, 🖼 negative frame, ✨ light leak."),
+             L("• ➖/➕ — сила эффекта, 📅 дата как у мыльницы, 🖼 рамка негатива, ✨ оверлей (засвет или своя картинка).",
+               "• ➖/➕ — effect strength, 📅 point-and-shoot date, 🖼 negative frame, ✨ overlay (a light leak or your own image)."),
              L("• ⬇️ Файл — полный размер без сжатия Telegram.", "• ⬇️ File — full size without Telegram compression."),
              L("• 📚 Лента — сетка кадров в чате, 📅 Сегодня — альбом за день.",
                "• 📚 Feed — grid of frames in the chat, 📅 Today — album of the day."),
@@ -57,10 +57,10 @@ def help_text(uid):
     if WEBAPP_URL:
         lines.append(L("• Кнопка «Проявка» слева от поля ввода — лента-приложение со свайпами и превью плёнок.",
                        "• The Proyavka button next to the input field — feed app with swipes and live film previews."))
-        lines.append(L("  Там же: «+» — фото с телефона, долгое нажатие на кадр — выбрать несколько (плёнка, засвет, "
-                       "удаление пачкой), «Кадр» — кадрирование.",
-                       "  There: \"+\" adds phone photos, long-press a frame to select several (film, leak, delete at once), "
-                       "\"Crop\" crops."))
+        lines.append(L("  Там же: «+» — фото с телефона, долгое нажатие на кадр — выбрать несколько (плёнка, оверлей, "
+                       "удаление пачкой), «Кадр» — кадрирование, «Оверлей» — режим наложения, прозрачность и свои картинки.",
+                       "  There: \"+\" adds phone photos, long-press a frame to select several (film, overlay, delete at once), "
+                       "\"Crop\" crops, \"Overlay\" sets the blend mode, opacity and your own images."))
     lines += ["", L("Плёнки:", "Films:")]
     for k, p in PRESETS.items():
         lines.append(f"{p['name']} — {tr(p['when'])}: {tr(p['desc'])}")

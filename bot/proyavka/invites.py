@@ -11,7 +11,7 @@ from .config import BASE, PREVIEWS, WEBAPP_URL, WEB_BASE, log
 from .i18n import APP_NAME, L, cur_lang, speak, tr, _CTX
 from .util import plural_ru, remove
 from .database import q, run, run_count
-from .users import ADMIN, INVITE_DAYS, USERS, load_luts, load_users, set_user, storage_limit, user
+from .users import ADMIN, INVITE_DAYS, USERS, load_luts, load_overlays, load_users, set_user, storage_limit, user
 from .telegram import btn, menu, safe, tg
 from .sessions import SESSIONS, SESSION_DEV
 from .storage import enforce_limit, user_usage
@@ -193,7 +193,9 @@ def delete_user(uid):
             remove(str(p))
     run("DELETE FROM photos WHERE owner=?", (uid,))
     run("DELETE FROM luts WHERE owner=?", (uid,))
+    run("DELETE FROM overlays WHERE owner=?", (uid,))
     load_luts()
+    load_overlays()
     if uid != ADMIN:
         shutil.rmtree(BASE / "users" / str(uid), ignore_errors=True)
     u = user(uid) or {}

@@ -6,6 +6,7 @@ import threading
 from . import config, i18n
 from .config import BASE, CHAT_ID, LANG
 from .film import LUT_NAMES, LUT_OWNER, PRESETS, is_lut
+from .imaging import LEAKS, OV_NAMES, OV_OWNER, is_overlay
 from .database import q, run
 
 
@@ -65,6 +66,26 @@ def load_luts():
             d.update(new)
             for k in [k for k in d if k not in new]:
                 d.pop(k, None)
+
+
+def load_overlays():
+    rows = q("SELECT id, owner, name FROM overlays")
+    names = {f"ov{r['id']}": r["name"] for r in rows}
+    owners = {f"ov{r['id']}": r["owner"] for r in rows}
+    with USERS_LOCK:
+        for d, new in ((OV_NAMES, names), (OV_OWNER, owners)):
+            d.update(new)
+            for k in [k for k in d if k not in new]:
+                d.pop(k, None)
+
+
+def user_overlays(uid):
+    return q("SELECT * FROM overlays WHERE owner=? ORDER BY id", (uid,))
+
+
+def valid_overlay(key, owner):
+    """Можно ли ставить такой оверлей: встроенные засветы — всем, своя картинка — только владельцу."""
+    return key in LEAKS or (is_overlay(key) and OV_OWNER.get(key) == owner)
 
 
 def user_luts(uid):

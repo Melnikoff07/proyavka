@@ -16,9 +16,9 @@ from .config import FAST_WORKERS, PREVIEWS, STRENGTHS, TMP, log
 from .i18n import L, cur_lang, speak, _CTX
 from .util import plural_ru, remove
 from .film import PRESETS, canon, clean_params, is_lut, lut_dir, params_json
-from .imaging import LEAKS, has, leak_seed, parse_crop
+from .imaging import BLENDS, OPACITIES, has, leak_seed, parse_crop
 from .database import EDIT_LOCK, get, q, run, upd
-from .users import udir, user_lang, valid_look
+from .users import udir, user_lang, valid_look, valid_overlay
 from .jobs import job_chat, job_full, job_view
 from .pools import NET
 from .telegram import caption, chat_of, main_kb, pace, safe, tg, touch
@@ -182,6 +182,9 @@ def view_state(ph):
     parts = [ph["work"], ph["preset"], _look_sig(ph), ph["strength"], ph.get("leak_kind") or "edge" if leak else "",
              leak_seed(ph) if leak else 0, ph.get("crop") or "", bool(ph["stamp"]), ph["taken"] if ph["stamp"] else "",
              bool(ph["frame"]), user_lang(ph["owner"]) if ph["frame"] else ""]
+    look = (ph.get("ov_blend") or "screen", ph.get("ov_opacity") or 100) if leak else ("screen", 100)
+    if look != ("screen", 100):          # прежние состояния (засвет «экраном» без прозрачности) — те же ключи кэша
+        parts.append(list(look))
     return hashlib.sha1(json.dumps(parts, default=str).encode()).hexdigest()[:16]
 
 
@@ -545,6 +548,18 @@ def tg_worker():
                 _tg_settled(pid)
 
 
+def opacity_value(v):
+    """Прозрачность оверлея из правки: 5..100 шагом 5."""
+    try:
+        n = int(v)
+        ok = not isinstance(v, bool) and float(v) == n and n in OPACITIES
+    except (TypeError, ValueError):
+        ok = False
+    if not ok:
+        raise ValueError(L("прозрачность — от 5 до 100 шагом 5", "opacity is 5 to 100 in steps of 5"))
+    return n
+
+
 def apply_changes(ph, changes, sync_tg=None, prio=0, chat=True):
     """Поставить изменения в очередь и сразу вернуть состояние. Рисуется фоном.
     prio: 0 — правка одного кадра, 1 — пакетная (уступает одиночным)."""
@@ -573,10 +588,16 @@ def apply_changes(ph, changes, sync_tg=None, prio=0, chat=True):
             fields["leak"] = 0
         elif v is True or v == 1:
             fields["leak"] = 1
-        elif v in LEAKS:
+        elif isinstance(v, str) and valid_overlay(v, cur["owner"]):
             fields["leak"], fields["leak_kind"] = 1, v
         else:
-            raise ValueError(L("неизвестный засвет", "unknown light leak"))
+            raise ValueError(L("неизвестный оверлей", "unknown overlay"))
+    if "ov_blend" in changes:
+        if not isinstance(changes["ov_blend"], str) or changes["ov_blend"] not in BLENDS:
+            raise ValueError(L("неизвестный режим наложения", "unknown blend mode"))
+        fields["ov_blend"] = changes["ov_blend"]
+    if "ov_opacity" in changes:
+        fields["ov_opacity"] = opacity_value(changes["ov_opacity"])
     if "crop" in changes:
         fields["crop"] = parse_crop(changes["crop"])
     if changes.get("leak_shift"):

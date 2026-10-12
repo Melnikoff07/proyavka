@@ -75,6 +75,6 @@ The **Strength** buttons (25–150 %) blend the film with the original; grain an
 
 With "Auto by scene" the bot looks at brightness, colour and time of shot in `auto_pick()`: night → `night800`, warm light → `amber_neg`, overcast → `muted_chrome`, landscape → `vivid50`, everything else → `street_neg`. Add your film there if you want it chosen automatically.
 
-## Light leaks
+## Overlays (light leaks)
 
-Leaks live in `LEAKS` (name and description) and `leak_layer()` (how each one is drawn). A new leak needs a bit of drawing code — see how `orb` or `streak` are made.
+Built-in leaks live in `LEAKS` (name and description) and `leak_layer()` (how each one is drawn). A new leak needs a bit of drawing code — see how `orb` or `streak` are made.

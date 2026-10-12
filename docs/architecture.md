@@ -5,12 +5,12 @@
 | Layer | Modules | What they do |
 |---|---|---|
 | 0 | `config`, `i18n`, `util` | settings from the environment and the data folders; two-language strings; small helpers |
-| 1 | `film`, `imaging`, `pwa` | the film engine (curves, colour bands, channel mixing, glow, grain, LUTs, custom films, share codes); opening frames (RAW too), crop, light leaks, date, frame, contact sheets; app icon, manifest, service worker |
+| 1 | `film`, `imaging`, `pwa` | the film engine (curves, colour bands, channel mixing, glow, grain, LUTs, custom films, share codes); opening frames (RAW too), crop, overlays (light leaks and own images, blend modes), date, frame, contact sheets; app icon, manifest, service worker |
 | 2 | `database`, `users` | SQLite, schema and migrations, `q`/`run`; users and their settings |
 | 3 | `jobs`, `pools` | tasks that run in worker processes (render and files only: they import no database and no Telegram); the process pools |
 | 4 | `telegram`, `sessions`, `push` | Telegram API, keyboards, message edits; sessions, sign-in, signed image URLs; Web Push |
 | 5 | `scheduler`, `storage`, `photos` | render queues by urgency and round-robin between users, batches, export, the Telegram update queue; usage and cleanup by limits; trash |
-| 6 | `state`, `looks`, `albums` | `state.json`; custom films and the community catalog (and the receiver that accepts films from other servers); albums by link |
+| 6 | `state`, `looks`, `overlays`, `albums` | `state.json`; custom films and the community catalog (and the receiver that accepts films from other servers); own overlays; albums by link |
 | 7 | `ingest`, `devices`, `camera` | receiving frames from the camera and the app; devices and the account API; the user's camera |
 | 8 | `invites`, `botui` | invitations and users; the bot in the chat |
 | 9 | `beta` | the open beta: the `/beta` page, slots, sign-up without an invite, expiry |
