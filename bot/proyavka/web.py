@@ -423,9 +423,9 @@ class Handler(BaseHTTPRequestHandler):
             raise ValueError(L("неверный размер запроса", "invalid request size"))
         return n
 
-    def body(self):
+    def body(self, limit=65536):
         n = self.content_length()
-        if n > 65536:
+        if n > limit:
             raise ValueError(L("слишком большой запрос", "request too large"))
         return json.loads(self.rfile.read(n) or b"{}")
 
@@ -471,10 +471,11 @@ class Handler(BaseHTTPRequestHandler):
             if parts[0] == "community" and COMMUNITY_HUB:          # каталог для остальных серверов: без входа, только чтение
                 if parts == ["community", "looks.json"]:
                     return self.send(200, json.dumps(hub_raw(), ensure_ascii=False), "application/json; charset=utf-8", "public, max-age=300")
-                if len(parts) == 3 and parts[1] == "looks" and re.fullmatch(r"[a-z0-9][a-z0-9-]{0,50}\.jpg", parts[2]):
+                if len(parts) == 3 and parts[1] == "looks" and re.fullmatch(r"[a-z0-9][a-z0-9-]{0,50}\.(jpg|cube)", parts[2]):
                     for d in (HUB_DIR / "looks", COMMUNITY_BUNDLED.parent / "looks"):
                         if (d / parts[2]).is_file():
-                            return self.send(200, (d / parts[2]).read_bytes(), "image/jpeg", "public, max-age=3600")
+                            return self.send(200, (d / parts[2]).read_bytes(),
+                                             "image/jpeg" if parts[2].endswith(".jpg") else "text/plain; charset=utf-8", "public, max-age=3600")
                 return self.err(404, L("не найдено", "not found"))
             # config.txt камеры несёт ключ для загрузки кадров — его по токену «только смотреть» не отдаём, только по ссылке
             # на этот один файл (живёт 5 минут); корневой сертификат — публичный
@@ -496,7 +497,7 @@ class Handler(BaseHTTPRequestHandler):
                            "p": params_json(clean_params(p))} for k, p in PRESETS.items()]     # p — основа для редактора
                 items += [{"key": f"lut{r['id']}", "name": r["name"], "desc": "", "lut": True,
                            "when": f"LUT {r['size']}³" if r["size"] else L("Своя плёнка", "Your film"),
-                           **(look_flags(uid, f"lut{r['id']}") if not r["size"] else {})}
+                           **look_flags(uid, f"lut{r['id']}")}
                           for r in ([] if self.album else user_luts(uid))]
                 leaks = [{"key": k, "name": tr(v[0]), "desc": tr(v[1])} for k, v in LEAKS.items()]
                 return self.js({"presets": items, "strengths": STRENGTHS, "leaks": leaks})
@@ -691,7 +692,8 @@ class Handler(BaseHTTPRequestHandler):
                 finally:
                     with BUSY_LOCK:
                         UPLOADS[uid] -= 1
-            data = self.body()
+            from .looks import CUBE_PAYLOAD_MAX
+            data = self.body(CUBE_PAYLOAD_MAX if parts == ["api", "community", "submit"] and COMMUNITY_HUB else 65536)   # заявка с LUT — до ~1 МБ
             if parts == ["api", "pair"]:            # новое устройство: одноразовый код из ссылки -> постоянный ключ
                 if too_many_fails(self.ip(), everyone=True):
                     return self.err(429, L("слишком много попыток, подожди 10 минут", "too many attempts, wait 10 minutes"))

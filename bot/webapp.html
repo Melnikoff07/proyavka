@@ -495,6 +495,16 @@
   .cm-grid { padding: 14px var(--pad) 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px 10px; }
   @media (min-width: 600px) { .cm-grid { grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 22px 14px; } }
   .cm-card .tile span { padding: 0 12px; text-align: center; }
+  .cm-add .tile { background: none; border: 1.5px dashed var(--rule); flex-direction: column; gap: 10px; color: var(--muted); transition: border-color .15s, color .15s; }
+  .cm-add .tile b { width: 56px; height: 56px; border-radius: 50%; background: var(--acc); color: var(--acc-ink); display: grid; place-items: center;
+                    font-size: 30px; font-weight: 400; line-height: 1; }
+  .cm-add:hover .tile { border-color: var(--acc); color: var(--text); }
+  .af-row { display: flex; align-items: center; gap: 12px; padding: 12px 0; border-top: 1px solid var(--rule); }
+  .af-row .dn { flex: 1; min-width: 0; }
+  .af-row .dn b { display: block; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .af-row .btn { flex: 0 0 auto; padding: 10px 18px; }
+  .al-acts.st-col { flex-direction: column; align-items: stretch; gap: 10px; }
+  .al-acts.st-col .btn { flex: 0 0 auto; }
   .cm-card .tile img { width: 100%; height: 100%; object-fit: cover; }
   .cm-card .nm { margin-top: 7px; font-weight: 500; }
   .cm-card .ds { margin-top: 2px; font-size: 12px; line-height: 1.3; min-height: 2.6em; }
@@ -503,8 +513,12 @@
                      text-transform: none; letter-spacing: 0; }
   .cm-import .btn { flex: 0 0 auto; padding: 0 18px; }
   textarea.linkbox { resize: none; word-break: break-all; font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; }
-  .vleft { display: flex; gap: 12px; align-items: baseline; white-space: nowrap; }
-  .vback { padding: 0 6px 0 0; }
+  .vleft { display: flex; gap: 12px; align-items: center; white-space: nowrap; }
+  /* «назад» везде одинаковый: круг 48 px, стрелка-значок по центру (символ «←» сидел ниже середины и был мелким) */
+  .vback { flex: 0 0 auto; width: 48px; height: 48px; padding: 0; border-radius: 50%; background: var(--tile); color: var(--text);
+           display: inline-grid; place-items: center; font-size: 0; }
+  .vback svg { width: 24px; height: 24px; fill: none; stroke: currentColor; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; }
+  .vback:active { transform: scale(.94); }
   .vback[hidden] { display: none; }
 
   .toast { position: fixed; left: var(--pad); right: var(--pad); bottom: calc(max(var(--dock, 0px), env(safe-area-inset-bottom, 0px)) + 16px);
@@ -629,7 +643,7 @@
 <section id="cmPane" hidden aria-label="Сообщество" data-i18n-aria="Community"></section>
 
 <section class="viewer" id="viewer" hidden aria-label="Просмотр кадра" data-i18n-aria="Frame viewer">
-  <div class="vbar cap"><span class="vleft"><button class="vback" id="vBack" hidden aria-label="Назад" data-i18n-aria="Back">←</button><span id="vnum"></span></span><span id="vtime" class="muted"></span><span id="vpos" class="muted"></span></div>
+  <div class="vbar cap"><span class="vleft"><button class="vback" id="vBack" hidden aria-label="Назад" data-i18n-aria="Back"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 12H5M11 5.5 4.5 12l6.5 6.5"/></svg></button><span id="vnum"></span></span><span id="vtime" class="muted"></span><span id="vpos" class="muted"></span></div>
   <div class="stage" id="stage"><div class="progress"></div><img id="vimg" alt="" decoding="async" draggable="false">
     <button class="vnav prev" id="vPrev" aria-label="Предыдущий кадр" data-i18n-aria="Previous frame">‹</button>
     <button class="vnav next" id="vNext" aria-label="Следующий кадр" data-i18n-aria="Next frame">›</button>
@@ -707,7 +721,7 @@
   </div>
 </section>
 <section class="settings layer2" id="lookEd" hidden aria-label="Редактор плёнки" data-i18n-aria="Film editor">
-  <div class="vbar lhead"><span class="vleft"><button class="vback rbtn" id="edBack" aria-label="Назад" data-i18n-aria="Back">←</button></span>
+  <div class="vbar lhead"><span class="vleft"><button class="vback rbtn" id="edBack" aria-label="Назад" data-i18n-aria="Back"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 12H5M11 5.5 4.5 12l6.5 6.5"/></svg></button></span>
     <span class="cap muted" id="edTitle"></span>
     <span><button class="rbtn" id="edCmp" aria-pressed="false" aria-label="До / после" data-i18n-aria="Before / after">◐</button></span></div>
   <div class="ed-stick">
@@ -722,11 +736,11 @@
   <div class="ed-save"><button class="btn acc" id="edSave"></button></div>
 </section>
 <section class="settings layer2" id="community" hidden aria-label="Сообщество" data-i18n-aria="Community">
-  <div class="vbar cap"><span class="vleft"><button class="vback" id="cmBack" aria-label="Назад" data-i18n-aria="Back">←</button><span data-i18n="Community">Сообщество</span></span><span></span><span></span></div>
+  <div class="vbar cap"><span class="vleft"><button class="vback" id="cmBack" aria-label="Назад" data-i18n-aria="Back"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 12H5M11 5.5 4.5 12l6.5 6.5"/></svg></button><span data-i18n="Community">Сообщество</span></span><span></span><span></span></div>
   <div id="cmBody"></div>
 </section>
 <section class="settings layer3" id="lookView" hidden aria-label="Плёнка" data-i18n-aria="Film">
-  <div class="vbar cap"><span class="vleft"><button class="vback" id="lvBack" aria-label="Назад" data-i18n-aria="Back">←</button><span id="lvTitle"></span></span><span class="muted" id="lvPos"></span>
+  <div class="vbar cap"><span class="vleft"><button class="vback" id="lvBack" aria-label="Назад" data-i18n-aria="Back"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 12H5M11 5.5 4.5 12l6.5 6.5"/></svg></button><span id="lvTitle"></span></span><span class="muted" id="lvPos"></span>
     <span class="lv-nav"><button id="lvPrev" aria-label="Предыдущая" data-i18n-aria="Previous">‹</button><button id="lvNext" aria-label="Следующая" data-i18n-aria="Next">›</button></span></div>
   <div class="ed-pic lv-pic" id="lvPic"><img id="lvImg" alt=""></div>
   <div class="line"><div class="opts cap" id="lvSrc" style="justify-content:flex-start;gap:22px"></div></div>
@@ -734,7 +748,7 @@
   <div class="actions"><button class="btn" id="lvGo"></button><button class="link cap" id="lvAdd"></button></div>
 </section>
 <section class="settings" id="settings" hidden aria-label="Настройки" data-i18n-aria="Settings">
-  <div class="vbar lhead"><span class="vleft"><button class="vback rbtn" id="stBack" aria-label="Назад" data-i18n-aria="Back">←</button></span><span></span><span></span></div>
+  <div class="vbar lhead"><span class="vleft"><button class="vback rbtn" id="stBack" aria-label="Назад" data-i18n-aria="Back"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 12H5M11 5.5 4.5 12l6.5 6.5"/></svg></button></span><span></span><span></span></div>
   <h1 class="st-title" data-i18n="Settings">Настройки</h1>
   <div class="st-beta" id="stBeta" hidden>
     <div class="cap" data-i18n="Beta · left">Бета · осталось</div>
@@ -3224,6 +3238,18 @@ function catalogView() {
   body.appendChild(intro);
   const grid = document.createElement("div");
   grid.className = "cm-grid";
+  if (!GUEST) {                     // своя плёнка или LUT — первой карточкой, чтобы предложить её в каталог в одно касание
+    const add = document.createElement("div");
+    add.className = "cm-card cm-add";
+    add.tabIndex = 0;
+    add.setAttribute("role", "button");
+    add.innerHTML = `<div class="tile"><b>+</b><span class="cap">${T("Добавить свою", "Add yours")}</span></div><div class="nm"></div><div class="ds muted"></div>`;
+    add.querySelector(".nm").textContent = T("Своя плёнка", "Your film");
+    add.querySelector(".ds").textContent = T("Плёнка из редактора или свой LUT — в каталог для всех", "A film from the editor or your own LUT — into the catalog for everyone");
+    add.onclick = openAddFilm;
+    add.onkeydown = (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); openAddFilm(); } };
+    grid.appendChild(add);
+  }
   if (!cm.looks.length) {
     const none = document.createElement("p");
     none.className = "muted st-p";
@@ -3238,7 +3264,7 @@ function catalogView() {
     // картинка — готовый кадр, который приложил автор: сервер её только отдаёт, ничего не рисуя
     card.innerHTML = `<div class="tile"><img loading="lazy" decoding="async" alt="" src="${esc(url(`/img/cm/${l.id}`, `&h=${l.h}&e=2`))}"></div><div class="nm"></div><div class="cap muted by"></div><div class="ds muted"></div>`;
     card.querySelector(".nm").textContent = l.name + (l.installed ? "  ✓" : "");
-    card.querySelector(".by").textContent = (l.by ? T("автор ", "by ") + l.by : "") + (l.bw ? (l.by ? " · " : "") + T("ч/б", "b&w") : "");
+    card.querySelector(".by").textContent = [l.by ? T("автор ", "by ") + l.by : "", l.lut ? "LUT" : "", l.bw ? T("ч/б", "b&w") : ""].filter(Boolean).join(" · ");
     card.querySelector(".ds").textContent = l.desc;
     card.onclick = () => openLookView(i);
     card.onkeydown = (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); openLookView(i); } };
@@ -3246,6 +3272,53 @@ function catalogView() {
   });
   body.appendChild(grid);
   return body;
+}
+
+async function openAddFilm() {
+  if (!cm.submit) { try { await loadCatalog(); } catch (e) {} }
+  const own = presets.filter((f) => f.lut && !f.community);
+  openAlbumSheet(T("Добавить в каталог", "Add to the catalog"),
+    `<p class="muted" style="margin:0 0 12px" id="afAbout"></p><div id="afList"></div>` +
+    `<div class="actions al-acts st-col"><button class="btn acc" id="afNew"></button><button class="btn" id="afLut"></button></div>`);
+  $("afAbout").textContent = own.length
+    ? T("Выбери плёнку или LUT — после проверки они появятся в каталоге для всех.", "Pick a film or a LUT — after review it appears in the catalog for everyone.")
+    : T("Своих плёнок пока нет: собери её в редакторе или загрузи свой LUT (.cube).", "No films of your own yet: build one in the editor or upload your own LUT (.cube).");
+  $("afNew").textContent = T("Создать в редакторе", "Create in the editor");
+  $("afLut").textContent = T("Загрузить LUT (.cube)", "Upload a LUT (.cube)");
+  $("afNew").onclick = () => { closeAlbumSheet(); if (cm.host === $("cmBody")) closeCommunity(); openEditor({}); };
+  $("afLut").onclick = () => { closeAlbumSheet(); $("lutPicker").click(); };
+  $("afList").replaceChildren(...own.map((f) => {
+    const row = document.createElement("div");
+    row.className = "af-row";
+    row.innerHTML = `<div class="dn"><b></b><span class="cap muted"></span></div><button class="btn"></button>`;
+    row.querySelector("b").textContent = f.name;
+    row.querySelector(".cap").textContent = (f.look ? T("плёнка из редактора", "editor film") : f.when) + (f.sent ? " · " + T("отправлено", "sent") : "");
+    const b = row.querySelector(".btn");
+    b.textContent = f.sent ? T("Ещё раз", "Again") : T("Предложить", "Suggest");
+    b.onclick = () => (f.look ? sendToAuthor(f) : sendLut(f));
+    return row;
+  }));
+}
+// свой LUT — на приёмник проекта (как плёнка из редактора: проверят и добавят в каталог)
+function sendLut(f) {
+  if (!cm.submit || !cm.submit.on) return toast(T("Отправка в каталог на этом сервере не настроена", "Sending to the catalog is not set up on this server"));
+  openAlbumSheet(T("Предложить LUT", "Suggest a LUT"),
+    `<div style="font-size:22px;font-weight:500;letter-spacing:-.025em" id="lkName"></div><p class="muted" style="margin:6px 0 0" id="lkAbout"></p>` +
+    `<div class="actions al-acts"><button class="btn acc" id="lkSend"></button></div>`);
+  $("lkName").textContent = f.name;
+  $("lkAbout").textContent = T(`LUT (ужатый до 33³, если он больше) и твоё имя уйдут на сервер проекта${cm.submit.host ? ` (${cm.submit.host})` : ""}. Его проверят и, если подойдёт, добавят в каталог для всех. Больше ничего не отправляется.`,
+                               `The LUT (shrunk to 33³ if it is larger) and your name go to the project server${cm.submit.host ? ` (${cm.submit.host})` : ""}. It gets reviewed and, if it fits, added to the catalog for everyone. Nothing else is sent.`);
+  $("lkSend").textContent = f.sent ? T("Отправить ещё раз", "Send again") : T("Отправить", "Send");
+  $("lkSend").onclick = async () => {
+    $("lkSend").disabled = true;
+    try {
+      await api(`/api/look/${f.key}/submit`, {});
+      closeAlbumSheet();
+      await reloadPresets();
+      toast(T("Отправлено. Спасибо!", "Sent. Thank you!"));
+      haptic("success");
+    } catch (e) { toast(e.message); $("lkSend").disabled = false; }
+  };
 }
 
 function mineView(mine) {

@@ -144,6 +144,31 @@ def job_sample(params, path, edge=1400):
     return save_atomic(img, path, 80)
 
 
+def cube_filter(path):
+    """Фильтр Pillow из файла .cube (LUT каталога)."""
+    from PIL import ImageFilter
+    import numpy as np
+    from .film import parse_cube
+    with open(path, "rb") as f:
+        size, t = parse_cube(f.read())
+    return ImageFilter.Color3DLUT(size, np.ascontiguousarray(t.ravel()), channels=3)
+
+
+def job_sample_lut(cube_path, path, edge=1400):
+    """LUT каталога на общем образце (превью заявки и одобренной плёнки)."""
+    im = Image.open(COMMUNITY_BUNDLED.parent / "sample.jpg").convert("RGB")
+    im.thumbnail((edge, edge), Image.LANCZOS)
+    return save_atomic(im.filter(cube_filter(cube_path)), path, 80)
+
+
+def job_try_lut(ph, cube_path, strength, path, edge=420):
+    """LUT каталога на кадре пользователя (примерка до установки)."""
+    base = preview_base(ph, edge)
+    a = base.filter(cube_filter(cube_path))
+    k = strength / 100.0
+    return save_atomic(a if k == 1 else Image.blend(base, a, k), path, 84)
+
+
 def job_try(ph, params, strength, path=None, edge=420):
     """Кадр с плёнкой, которой ещё нет в базе: живой просмотр в редакторе и превью плёнок сообщества.
     Без path — JPEG байтами (редактор не засоряет диск), с path — файлом-кэшем."""

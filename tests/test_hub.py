@@ -130,6 +130,40 @@ if __name__ == "__main__":
     check("плёнку из каталога обратно не предлагают", h2.post(f"/api/look/{imp['key']}/submit").get("_status") == 400)
     check("чужую плёнку отправить нельзя", h.post(f"/api/look/{mk['key']}/submit").get("_status") == 400)
 
+    # --- свой LUT (.cube) в каталоге ---
+    import numpy as np
+    looks.SUBMITS.clear()
+    cube = "TITLE \"Тёплый\"\nLUT_3D_SIZE 3\n" + "\n".join(f"{min(1, r / 2 + 0.1):.3f} {g / 2:.3f} {b / 2 * 0.8:.3f}"
+                                                       for b in range(3) for g in range(3) for r in range(3)) + "\n"
+    up = h2.req("/api/upload?lut=1&name=warm.cube", raw=cube.encode(), ctype="application/octet-stream")
+    flags = next(x for x in h2.get("/api/presets")["presets"] if x["key"] == up["key"])
+    check(f"загруженный LUT — не плёнка из редактора, ещё не отправлен: {flags}", flags.get("look") is False and flags.get("sent") is False)
+    sent = h2.post(f"/api/look/{up['key']}/submit")
+    item = next((i for i in h.get("/api/community/pending")["items"] if i["name"] == "warm"), None)
+    check(f"LUT отправлен в очередь как LUT: {item}", sent.get("ok") and item and item["lut"] is True)
+    check("LUT помечен как отправленный", next(x for x in h2.get("/api/presets")["presets"] if x["key"] == up["key"]).get("sent") is True)
+    pv = h.get(f"/img/pending/{item['id']}?h={item['h']}")
+    check("превью LUT на образце для проверки", isinstance(pv, bytes) and Image.open(io.BytesIO(pv)).size[0] == 1400)
+    ok = h.post(f"/api/community/pending/{item['id']}", {"action": "approve", "name": "Тёплый LUT"})
+    entry = next((x for x in h2.get("/api/community")["looks"] if x["id"] == ok.get("id")), None)
+    check(f"одобренный LUT в каталоге с пометкой: {entry and entry['lut']}", entry and entry["lut"] is True and entry["bw"] is False)
+    served = pub.get(f"/community/looks/{ok['id']}.cube", auth=False)
+    check("файл .cube отдаётся другим серверам", isinstance(served, bytes) and b"LUT_3D_SIZE 3" in served)
+    ph_id = h.photos()[0]["id"]
+    tr = h.get(f"/img/look/{ok['id']}?p={ph_id}&e=420")
+    check("LUT каталога примеряется на свой кадр", isinstance(tr, bytes) and Image.open(io.BytesIO(tr)).size[0] > 100)
+    h.add_user(3)
+    h3 = h.as_user(3)
+    got = h3.post("/api/community/add", {"id": ok["id"]})
+    mine3 = next((x for x in h3.get("/api/presets")["presets"] if x["key"] == got.get("key")), None)
+    check(f"другой человек ставит LUT из каталога: {got}", mine3 and mine3.get("community") is True and "LUT 3" in mine3["when"])
+    check("LUT из каталога обратно не предлагают", h3.post(f"/api/look/{got['key']}/submit").get("_status") == 400)
+    check("повторная установка — та же", h3.post("/api/community/add", {"id": ok["id"]}).get("again") is True)
+    big = np.random.default_rng(1).random((65 ** 3, 3)).astype(np.float32)
+    small = looks.resample_table(big, 33)
+    check("большой LUT ужимается до 33³ с теми же углами", small.shape == (33 ** 3, 3) and np.allclose(small[0], big[0]) and np.allclose(small[-1], big[-1]))
+    check("битый .cube приёмник не берёт", pub.post("/api/community/submit", {"name": "x", "cube": "LUT_3D_SIZE 3\n1 2"}, auth=False).get("_status") == 400)
+
     # --- сервер, который не приёмник ---
     looks.COMMUNITY_HUB = False
     looks.COMMUNITY["at"] = 0

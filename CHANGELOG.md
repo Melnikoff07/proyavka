@@ -18,6 +18,9 @@ English first, [по-русски — ниже](#журнал-изменений
 - A “back to top” button appears after scrolling two screens down the feed.
 - Frame view: "Edit film", "Community LUTs" and "Upload LUT" sit in a row of buttons under the film strip instead of at the end of 25 films.
 - Film editor: each slider has a small ◆ that appears once the value differs from the base film and puts it back (a double tap on the slider does the same).
+- Community catalog: the first card is "+ Your film" — it lists your own films and LUTs with a Suggest button each, plus Create in the editor and Upload a LUT, so a film reaches the catalog without digging through tabs.
+- The catalog takes LUTs too: an uploaded .cube can be suggested like an editor film (it is shrunk to 33³ if larger), the receiving server checks it, draws the preview on the sample, and once approved it is served as `<id>.cube` next to the catalog; others add it with one tap or try it on their frame first.
+- Back buttons are a 48 px round button with a centred arrow icon on every screen (the "←" character sat low and was small to hit).
 - Community catalog: pictures are 1400 px (the full size of the sample) instead of 900, and on wide screens the grid has more, smaller columns, so previews stay sharp.
 - Film editor and film view: tap the picture to open it full screen and zoom in (pinch, mouse wheel, double tap, drag); the editor loads a 1600 px version with the same sliders, so grain and halation can be checked up close. Tap again to go back.
 - Incoming frames are prepared two at a time on servers with two or more cores, taking users in turn: one person's batch of 30 frames no longer holds up the first frame of another. The setup wizard now suggests 3 render processes from two cores (two draw, one stays free for film previews).
@@ -201,6 +204,9 @@ English first, [по-русски — ниже](#журнал-изменений
 - Кнопка «наверх» — появляется, когда ленту пролистали на два экрана.
 - Просмотр кадра: «Править плёнку», «Плёнки сообщества» и «Загрузить LUT» — строкой кнопок под лентой плёнок, а не в конце 25 плёнок.
 - Редактор плёнки: у каждого ползунка маленький ◆ — появляется, когда значение отличается от основы, и возвращает его (то же — двойное нажатие на ползунок).
+- Каталог сообщества: первая карточка — «+ Своя плёнка»: список своих плёнок и LUT с кнопкой «Предложить» у каждой, плюс «Создать в редакторе» и «Загрузить LUT» — плёнка попадает в каталог без поиска по вкладкам.
+- Каталог принимает и LUT: загруженный .cube можно предложить так же, как плёнку из редактора (больше 33³ — ужимается), приёмник проверяет его, рисует превью на образце, а после одобрения раздаёт как `<id>.cube` рядом с каталогом; другие ставят его в одно касание или сперва примеряют на свой кадр.
+- Кнопка «назад» на всех экранах — круг 48 px со значком стрелки по центру (символ «←» сидел ниже середины и был мелким для пальца).
 - Каталог сообщества: картинки 1400 px (полный размер образца) вместо 900, на широком экране сетка гуще и карточки меньше — превью чёткие.
 - Редактор плёнки и экран плёнки: нажми на картинку — она откроется на весь экран с зумом (два пальца, колесо мыши, двойное касание, перетаскивание); редактор догружает версию 1600 px с теми же ползунками, чтобы рассмотреть зерно и халяцию вблизи. Ещё одно нажатие — назад.
 - Входящие кадры на сервере с двумя ядрами и больше готовятся по два сразу и по кругу между пользователями: пачка из 30 кадров одного не задерживает первый кадр другого. Мастер установки от двух ядер предлагает 3 процесса отрисовки (два рисуют, один свободен под превью плёнок).

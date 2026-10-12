@@ -23,11 +23,11 @@ from .film import (
 from .imaging import has
 from .database import get, q, run
 from .users import ADMIN, load_luts, set_user, user, user_lang, user_luts
-from .jobs import base_path, job_base, job_sample, job_try
+from .jobs import base_path, job_base, job_sample, job_sample_lut, job_try, job_try_lut
 from .scheduler import schedule_view
 
 
-def add_lut(owner, name, data):
+def add_lut(owner, name, data, src=""):
     if len(data) > LUT_MAX_BYTES:
         raise ValueError(L("файл LUT больше 16 МБ", "the LUT file is larger than 16 MB"))
     if len(user_luts(owner)) >= LUT_MAX_COUNT:
@@ -40,7 +40,10 @@ def add_lut(owner, name, data):
     tmp = d / f"lut{lid}.tmp.npy"
     np.save(tmp, table)
     os.replace(tmp, d / f"lut{lid}.npy")
-    (d / f"lut{lid}.json").write_text(json.dumps({"name": name, "size": size}, ensure_ascii=False), encoding="utf-8")
+    meta = {"name": name, "size": size}
+    if src:
+        meta["src"] = clean_text(src, 40)                  # из каталога сообщества: «уже добавлена», обратно не предлагается
+    (d / f"lut{lid}.json").write_text(json.dumps(meta, ensure_ascii=False), encoding="utf-8")
     load_luts()
     log.info("LUT lut%d «%s» (%d³) у %d", lid, name, size, owner)
     return {"key": f"lut{lid}", "name": name, "size": size}
@@ -173,6 +176,44 @@ def look_share(uid, key):
             "submit": submit_info(), "sent": bool(lut_meta(uid, key).get("sent"))}
 
 
+CUBE_MAX = 33
+
+
+def resample_table(t, n):
+    """3D LUT N³ -> n³ трилинейно (по осям по очереди). t — (N³, 3), красный меняется быстрее всех."""
+    N = round(t.shape[0] ** (1 / 3))
+    if N == n:
+        return t
+    a = t.reshape(N, N, N, 3)
+    x = np.linspace(0, N - 1, n)
+    i0 = np.clip(np.floor(x).astype(int), 0, N - 2)
+    f = (x - i0).astype(np.float32)
+    for axis in range(3):
+        shape = [1, 1, 1, 1]
+        shape[axis] = n
+        w = f.reshape(shape)
+        a = np.take(a, i0, axis=axis) * (1 - w) + np.take(a, i0 + 1, axis=axis) * w
+    return a.reshape(-1, 3).astype(np.float32)
+
+
+def cube_bytes(t, name=""):
+    """Таблица -> текст .cube (4 знака после запятой)."""
+    n = round(t.shape[0] ** (1 / 3))
+    buf = io.StringIO()
+    title = re.sub(r'["\x00-\x1f]', "", str(name))[:32]
+    buf.write(f'TITLE "{title}"\nLUT_3D_SIZE {n}\n')
+    np.savetxt(buf, np.clip(t, 0, 1), fmt="%.4f")
+    return buf.getvalue().encode()
+
+
+def lut_cube(owner, key):
+    """Свой LUT пользователя как .cube для каталога (большие ужимаются до 33³)."""
+    t = np.load(lut_dir(owner) / f"{key}.npy").astype(np.float32).reshape(-1, 3)
+    if round(t.shape[0] ** (1 / 3)) > CUBE_MAX:
+        t = resample_table(t, CUBE_MAX)
+    return cube_bytes(t, lut_meta(owner, key).get("name") or "LUT")
+
+
 def _community_entries(raw):
     out = []
     for e in (raw.get("looks") if isinstance(raw, dict) else None) or []:
@@ -180,15 +221,18 @@ def _community_entries(raw):
             cid = str(e["id"])
             if not re.fullmatch(r"[a-z0-9][a-z0-9-]{0,39}", cid):
                 continue
-            p = clean_params(e["p"])
+            lut = e.get("lut") is True                   # LUT (.cube) вместо параметров: файл <id>.cube рядом с картинкой
+            if lut and not re.fullmatch(r"[0-9a-f]{10}", str(e.get("h"))):
+                continue
+            p = None if lut else clean_params(e["p"])
             desc = e.get("desc") or ""
             if isinstance(desc, dict):
                 desc = {k: clean_text(v, 140) for k, v in desc.items() if k in ("ru", "en")}
             else:
                 desc = {"ru": clean_text(desc, 140), "en": clean_text(desc, 140)}
             out.append({"id": cid, "name": clean_text(e.get("name"), 32) or cid, "by": clean_text(e.get("by"), 40),
-                        "desc": desc, "p": p,
-                        "h": hashlib.sha1(json.dumps(params_json(p), sort_keys=True).encode()).hexdigest()[:10]})
+                        "desc": desc, "p": p, "lut": lut,
+                        "h": e["h"] if lut else hashlib.sha1(json.dumps(params_json(p), sort_keys=True).encode()).hexdigest()[:10]})
         except (KeyError, TypeError, ValueError, AttributeError, OverflowError):
             continue                                     # одна битая запись не должна ронять каталог
         if len(out) >= COMMUNITY_MAX:
@@ -271,7 +315,7 @@ def community_json(uid):
     items = []
     for e in community_catalog():
         d = e["desc"]
-        items.append({"id": e["id"], "name": e["name"], "by": e["by"], "h": e["h"], "bw": bool(e["p"]["bw"]),
+        items.append({"id": e["id"], "name": e["name"], "by": e["by"], "h": e["h"], "bw": bool(e["p"] and e["p"]["bw"]), "lut": e["lut"],
                       "desc": (d.get("en") if en else d.get("ru")) or d.get("ru") or d.get("en") or "",
                       "installed": have.get(e["id"], "")})
     out = {"looks": items, "repo": COMMUNITY_REPO, "submit": submit_info()}
@@ -286,6 +330,11 @@ def community_add(uid, cid):
             for r in user_luts(uid):                     # уже добавлена — вторую копию не делаем
                 if lut_meta(uid, f"lut{r['id']}").get("src") == cid:
                     return {"key": f"lut{r['id']}", "name": r["name"], "again": True}
+            if e["lut"]:
+                path = community_cube(cid)
+                if not path:
+                    raise ValueError(L("файл LUT не скачался — попробуй позже", "the LUT file did not download — try again later"))
+                return add_lut(uid, e["name"], path.read_bytes(), src=cid)
             return add_look(uid, e["name"], e["p"], e["by"], cid)
     raise ValueError(L("в каталоге нет такой плёнки", "no such film in the catalog"))
 
@@ -296,7 +345,7 @@ class RateLimit(ValueError):
 
 def look_flags(uid, key):
     m = lut_meta(uid, key)
-    return {"look": True, "community": bool(m.get("src")), "sent": bool(m.get("sent"))}
+    return {"look": "params" in m, "community": bool(m.get("src")), "sent": bool(m.get("sent"))}
 
 
 def submit_info():
@@ -330,6 +379,7 @@ def _submit_rate(key):
             SUBMITS.pop(next(iter(SUBMITS)))
 
 
+CUBE_PAYLOAD_MAX = 1_200_000     # заявка с LUT 33³ — около 0,8 МБ
 SUBMIT_EXPIRE_DAYS = 30           # заявка, которую так и не посмотрели, уходит из очереди: забитая очередь не держится вечно
 
 
@@ -339,12 +389,21 @@ HUB_LOCK = threading.Lock()       # очередь и каталог приём�
 def hub_receive(payload, ip):
     """Приём плёнки от кого угодно: всё проверяется и ограничивается, в каталог ничего не попадает без одобрения.
     ip — адрес из X-Real-IP (его ставит nginx); от другого сервера Проявки это адрес сервера, а не человека."""
-    if not isinstance(payload, dict) or len(json.dumps(payload, ensure_ascii=False)) > 8192:
+    cube = None
+    limit = CUBE_PAYLOAD_MAX if isinstance(payload, dict) and "cube" in payload else 8192
+    if not isinstance(payload, dict) or len(json.dumps(payload, ensure_ascii=False)) > limit:
         raise ValueError(L("это не плёнка Проявки", "this is not a Proyavka film"))
-    params = clean_params(payload.get("p"))
     name = clean_text(payload.get("name"), 32) or "Look"
     by = clean_text(payload.get("by"), 40)
-    h = hashlib.sha1(json.dumps(params_json(params), sort_keys=True).encode()).hexdigest()[:10]
+    if "cube" in payload:                                  # LUT: проверяем, ужимаем до 33³ и храним свою чистую копию
+        size, t = parse_cube(str(payload["cube"]).encode())
+        cube = cube_bytes(resample_table(t, min(size, CUBE_MAX)), name)
+        h = hashlib.sha1(cube).hexdigest()[:10]
+        stored = json.dumps({"lut": h})
+    else:
+        params = clean_params(payload.get("p"))
+        h = hashlib.sha1(json.dumps(params_json(params), sort_keys=True).encode()).hexdigest()[:10]
+        stored = json.dumps(params_json(params))
     in_catalog = any(e["h"] == h for e in community_catalog())
     with HUB_LOCK:                                         # проверка дубля и запись — одним шагом
         run("UPDATE submissions SET status='expired' WHERE status='new' AND created < ?",
@@ -354,19 +413,30 @@ def hub_receive(payload, ip):
         _submit_rate(ip or "?")
         if q("SELECT COUNT(*) AS n FROM submissions WHERE status='new'")[0]["n"] >= SUBMIT_PENDING_MAX:
             raise RateLimit(L("очередь на проверку переполнена — попробуй позже", "the review queue is full — try again later"))
+        if cube:
+            (HUB_DIR / "pending").mkdir(parents=True, exist_ok=True)
+            (HUB_DIR / "pending" / f"{h}.cube").write_bytes(cube)
         run("INSERT INTO submissions(name, by, params, h, created, ip, status) VALUES (?,?,?,?,?,?, 'new')",
-            (name, by, json.dumps(params_json(params)), h, time.time(), ip or ""))
+            (name, by, stored, h, time.time(), ip or ""))
     log.info("плёнка на проверку: «%s» от «%s»", name, by)
     return {"ok": True}
 
 
 def submit_look(uid, key):
     """«Отправить автору»: своя плёнка уходит на сервер-приёмник (или в очередь этого сервера, если он приёмник)."""
-    cur = user_look(uid, key)
-    if cur["src"]:
-        raise ValueError(L("эта плёнка из каталога — предлагать её обратно не нужно", "this film came from the catalog — no need to suggest it back"))
-    params = clean_params(cur["params"])
-    payload = {"v": 1, "name": cur["name"], "by": clean_text((user(uid) or {}).get("name"), 40), "p": params_json(params)}
+    meta = lut_meta(uid, key) if is_lut(key) and LUT_OWNER.get(key) == uid else {}
+    by = clean_text((user(uid) or {}).get("name"), 40)
+    if meta and "params" not in meta:                     # свой LUT (.cube)
+        if meta.get("src"):
+            raise ValueError(L("этот LUT из каталога — предлагать его обратно не нужно", "this LUT came from the catalog — no need to suggest it back"))
+        cur = None
+        payload = {"v": 1, "name": clean_text(meta.get("name"), 32) or "LUT", "by": by, "cube": lut_cube(uid, key).decode()}
+    else:
+        cur = user_look(uid, key)
+        if cur["src"]:
+            raise ValueError(L("эта плёнка из каталога — предлагать её обратно не нужно", "this film came from the catalog — no need to suggest it back"))
+        params = clean_params(cur["params"])
+        payload = {"v": 1, "name": cur["name"], "by": by, "p": params_json(params)}
     url = COMMUNITY_SUBMIT_URL
     if url:
         if not (url.startswith("https://") or re.match(r"http://(127\.0\.0\.1|localhost)[:/]", url)):
@@ -386,7 +456,11 @@ def submit_look(uid, key):
         hub_receive(payload, f"u{uid}")
     else:
         raise ValueError(L("отправка автору здесь не настроена", "sending to the author is not set up here"))
-    _write_look(uid, key, cur["name"], params, cur["author"], cur["src"], sent=time.time())
+    if cur is None:
+        meta["sent"] = time.time()
+        (lut_dir(uid) / f"{key}.json").write_text(json.dumps(meta, ensure_ascii=False), encoding="utf-8")
+    else:
+        _write_look(uid, key, cur["name"], params, cur["author"], cur["src"], sent=time.time())
     return {"ok": True}
 
 
@@ -394,8 +468,12 @@ CYR = dict(zip("абвгдеёжзийклмнопрстуфхцчшщъыьэю
 
 
 def hub_pending():
-    return [{"id": r["id"], "name": r["name"], "by": r["by"], "created": r["created"], "h": r["h"],
-             "bw": bool(json.loads(r["params"]).get("bw"))} for r in q("SELECT * FROM submissions WHERE status='new' ORDER BY id")]
+    out = []
+    for r in q("SELECT * FROM submissions WHERE status='new' ORDER BY id"):
+        p = json.loads(r["params"])
+        out.append({"id": r["id"], "name": r["name"], "by": r["by"], "created": r["created"], "h": r["h"],
+                    "bw": bool(p.get("bw")), "lut": "lut" in p})
+    return out
 
 
 def pending_preview(sid):
@@ -405,7 +483,11 @@ def pending_preview(sid):
         return None
     path = PREVIEWS / f"pending_{sid}_{rows[0]['h']}.jpg"
     if not path.exists():
-        FAST.submit(job_sample, clean_params(json.loads(rows[0]["params"])), str(path)).result(timeout=120)
+        p = json.loads(rows[0]["params"])
+        if "lut" in p:
+            FAST.submit(job_sample_lut, str(HUB_DIR / "pending" / f"{p['lut']}.cube"), str(path)).result(timeout=120)
+        else:
+            FAST.submit(job_sample, clean_params(p), str(path)).result(timeout=120)
     return path
 
 
@@ -435,16 +517,25 @@ def hub_decide(sid, data):
         if action == "reject":
             run("UPDATE submissions SET status='rejected' WHERE id=?", (sid,))
             return {"ok": True}
-        params = clean_params(json.loads(row["params"]))
+        stored = json.loads(row["params"])
+        lut = stored.get("lut") if isinstance(stored.get("lut"), str) else None
+        params = None if lut else clean_params(stored)
         name = clean_text(data.get("name"), 32) or row["name"]
         by = clean_text(data.get("by"), 40) if "by" in data else row["by"]
         raw = hub_raw()
         looks = raw.setdefault("looks", [])
         slug = look_slug(name, {e.get("id") for e in looks if isinstance(e, dict)})
         (HUB_DIR / "looks").mkdir(parents=True, exist_ok=True)
-        FAST.submit(job_sample, params, str(HUB_DIR / "looks" / f"{slug}.jpg")).result(timeout=120)
         desc = {"ru": clean_text(data.get("desc_ru"), 140), "en": clean_text(data.get("desc_en"), 140)}
-        looks.append({"id": slug, "name": name, "by": by, "desc": desc, "p": params_json(params)})
+        if lut:
+            cube = HUB_DIR / "looks" / f"{slug}.cube"
+            cube.write_bytes((HUB_DIR / "pending" / f"{lut}.cube").read_bytes())
+            FAST.submit(job_sample_lut, str(cube), str(HUB_DIR / "looks" / f"{slug}.jpg")).result(timeout=120)
+            remove(str(HUB_DIR / "pending" / f"{lut}.cube"))
+            looks.append({"id": slug, "name": name, "by": by, "desc": desc, "lut": True, "h": lut})
+        else:
+            FAST.submit(job_sample, params, str(HUB_DIR / "looks" / f"{slug}.jpg")).result(timeout=120)
+            looks.append({"id": slug, "name": name, "by": by, "desc": desc, "p": params_json(params)})
         tmp = HUB_DIR / "looks.tmp.json"
         tmp.write_text(json.dumps(raw, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
         os.replace(tmp, HUB_DIR / "looks.json")
@@ -517,7 +608,13 @@ def community_preview(ph, cid, edge=420):
             path = PREVIEWS / f"{ph['id']}_cm{e['h']}_100{'' if edge == 420 else '_' + str(edge)}.jpg"
             if not path.exists():
                 _preview_rate(ph["owner"])
-                FAST.submit(job_try, dict(ph), e["p"], 100, str(path), edge).result(timeout=120)
+                if e["lut"]:
+                    cube = community_cube(cid)
+                    if not cube:
+                        return None
+                    FAST.submit(job_try_lut, dict(ph), str(cube), 100, str(path), edge).result(timeout=120)
+                else:
+                    FAST.submit(job_try, dict(ph), e["p"], 100, str(path), edge).result(timeout=120)
             return path
     return None
 
@@ -533,6 +630,32 @@ def original_file(ph, edge):
 
 IMAGE_MISS = {}                   # картинка каталога -> когда её не удалось скачать
 IMAGE_MISS_TTL = 600
+
+
+def community_cube(cid):
+    entry = next((e for e in community_catalog() if e["id"] == cid and e["lut"]), None)
+    if not entry:
+        return None
+    for d in (HUB_DIR / "looks", COMMUNITY_BUNDLED.parent / "looks"):
+        if COMMUNITY_HUB and (d / f"{cid}.cube").is_file():
+            return d / f"{cid}.cube"
+    cache = BASE / "community" / f"{cid}.{entry['h']}.cube"
+    if cache.exists():
+        return cache
+    remote = COMMUNITY_URL.rsplit("/", 1)[0] + "/looks/" if COMMUNITY_URL.startswith("https://") else ""
+    if not remote:
+        bundled = COMMUNITY_BUNDLED.parent / "looks" / f"{cid}.cube"
+        return bundled if bundled.is_file() else None
+    try:
+        code, data = _fetch_limited(f"{remote}{cid}.cube", 2_000_000)
+        parse_cube(data)
+        if code == 200 and hashlib.sha1(data).hexdigest()[:10] == entry["h"]:     # тот самый файл, что одобрили
+            cache.parent.mkdir(parents=True, exist_ok=True)
+            cache.write_bytes(data)
+            return cache
+    except (requests.RequestException, ValueError, OSError) as e:
+        log.warning("LUT каталога %s не скачался: %s", cid, e)
+    return None
 
 
 def community_image(name):
