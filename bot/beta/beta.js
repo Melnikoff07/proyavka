@@ -139,7 +139,7 @@ function progress(frame) {
 }
 renderStep(0, true);
 if (window.lottie) {
-  anim = lottie.loadAnimation({ container: $("stage"), renderer: "svg", loop: true, autoplay: false, path: "/beta/guide.json",
+  anim = lottie.loadAnimation({ container: $("stage"), renderer: "svg", loop: true, autoplay: false, path: (window.BETA || {}).guide || "/beta/guide.json",
                                 rendererSettings: { preserveAspectRatio: "xMidYMid meet" } });
   anim.addEventListener("enterFrame", (e) => progress(e.currentTime));
   anim.addEventListener("DOMLoaded", () => {

@@ -175,10 +175,15 @@ def typo(html):
 PAGES = {}
 
 
+ASSETS = ("beta.css", "beta.js", "lottie.min.js", "guide.json")      # файлы страниц: в адресах — версия, кэш браузера на год
+
+
 def page(name):
-    """Страница беты с типографикой (кэш до изменения файла)."""
+    """Страница беты с типографикой (кэш до изменения её или её файлов). Адреса файлов — с версией (?v=время файла):
+    браузер хранит их год и не скачивает заново, а новая версия получает новый адрес."""
     path = os.path.join(BETA_DIR, name)
-    mtime = os.path.getmtime(path)
+    vers = {a: int(os.path.getmtime(os.path.join(BETA_DIR, a))) for a in ASSETS}
+    mtime = (os.path.getmtime(path), tuple(vers.values()))
     if PAGES.get(name, (0,))[0] != mtime:
         with open(path, encoding="utf-8") as f:
             text = f.read()
@@ -189,6 +194,8 @@ def page(name):
                      "DAYS_RU": f"{days} {plural_ru(int(DAYS), 'день', 'дня', 'дней') if DAYS == int(DAYS) else 'дня'}",
                      "DAYS_EN": f"{days} day{'' if DAYS == 1 else 's'}"}.items():
             text = text.replace("{{" + k + "}}", v)
+        for a, v in vers.items():
+            text = text.replace(f'/beta/{a}"', f'/beta/{a}?v={v}"')
         PAGES[name] = (mtime, typo(text))
     return PAGES[name][1]
 

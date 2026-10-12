@@ -312,13 +312,15 @@ class Handler(BaseHTTPRequestHandler):
             return self.err(404, L("не найдено", "not found"))
         if rest is None:
             return self.js(beta.status(self.authed({})))
+        versioned = "v=" in (urlparse(self.path).query or "")
         if tuple(rest) in self.BETA_PAGES:
             page = beta.page(self.BETA_PAGES[tuple(rest)])
             base = config.WEBAPP_URL.rstrip("/")
             page = page.replace("{{BASE}}", base).replace("{{PROJECT}}", PROJECT_URL).replace("{{CONTACT}}", CONTACT_TG or "")
             return self.send(200, page, "text/html; charset=utf-8", "no-cache", {"Content-Security-Policy": CSP})
         if len(rest) == 1 and rest[0] in self.BETA_FILES:
-            return self.send(200, Path(beta.BETA_DIR, rest[0]).read_bytes(), self.BETA_FILES[rest[0]], "no-cache")
+            return self.send(200, Path(beta.BETA_DIR, rest[0]).read_bytes(), self.BETA_FILES[rest[0]],
+                             "public, max-age=31536000, immutable" if versioned else "no-cache")
         if rest == ["sample.jpg"]:
             return self.send(200, (COMMUNITY_BUNDLED.parent / "sample.jpg").read_bytes(), "image/jpeg", "public, max-age=86400")
         if len(rest) == 2 and rest[0] == "film" and rest[1].endswith(".jpg"):
