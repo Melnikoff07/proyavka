@@ -2112,6 +2112,7 @@ function showPairing(msg) {
     `</div>`;
   fetch("/api/beta").then((r) => r.ok && r.json()).then((b) => {        // открытая бета: можно войти и без кода
     if (!b || !b.on || !$("pairForm")) return;
+    if (!msg && !standalone && !location.hash) { location.replace("/beta"); return; }   // новичок с адреса сайта — на страницу беты (#signin — нет)
     const a = document.createElement("a");
     a.className = "betalink cap";
     a.href = "/beta";
