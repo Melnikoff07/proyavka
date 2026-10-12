@@ -140,6 +140,16 @@ server {
 }
 EOF
 fi
+# сжатие скриптов, стилей и JSON (по умолчанию nginx сжимает только text/html); если в nginx.conf это уже включено — не дублируем
+if ! grep -qE '^\s*gzip_(types|vary|proxied|comp_level|min_length)' /etc/nginx/nginx.conf; then
+    cat > /etc/nginx/conf.d/proyavka-gzip.conf <<'EOF'
+gzip_vary on;
+gzip_proxied any;
+gzip_comp_level 5;
+gzip_min_length 1024;
+gzip_types text/plain text/css application/json application/javascript text/javascript application/manifest+json image/svg+xml;
+EOF
+fi
 if ! nginx -t 2>/dev/null; then   # старый nginx не знает "http2 on"
     sed -i -e 's/listen 443 ssl;/listen 443 ssl http2;/' -e '/http2 on;/d' /etc/nginx/sites-available/proyavka
 fi
