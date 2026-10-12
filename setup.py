@@ -450,7 +450,7 @@ def step_home(env):
     env.setdefault("STORAGE_GB", "20")
     env.setdefault("ORIGINALS_DAYS", "14")
     cpus = os.cpu_count() or 2
-    env.setdefault("FAST_WORKERS", str(max(1, min(3, cpus - 1))))
+    env.setdefault("FAST_WORKERS", str(1 if cpus < 2 else min(3, cpus + 1)))   # от двух ядер — 3: два рисуют, один свободен под превью
     env.setdefault("HEAVY_WORKERS", "1")
     env["WEBAPP_URL"] = f"https://{env['DOMAIN']}/"
     url = project_url()

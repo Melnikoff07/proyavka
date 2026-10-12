@@ -229,13 +229,25 @@ def find_duplicate(f, fp, owner):
     return None
 
 
+INGESTING = set()           # (владелец, отпечаток) кадров, которые готовятся прямо сейчас: два одинаковых файла
+                            # в одной пачке не должны оба пройти проверку на повтор, пока первый не записан в базу
+
+
 def ingest(f, owner):
     fp = fingerprint(f)
+    with PENDING_LOCK:
+        busy = (owner, fp) in INGESTING
+        INGESTING.add((owner, fp))
+    if busy:
+        remove(str(f))
+        log.info("%s — повтор кадра, который принимается сейчас, пропускаю", f.name)
+        return False
     try:
         return _ingest(f, owner, fp)
     finally:
         with PENDING_LOCK:
             PENDING_FP.discard((owner, fp))
+            INGESTING.discard((owner, fp))
 
 
 def _ingest(f, owner, fp):
@@ -309,19 +321,47 @@ def incoming_dirs():
                 yield int(d.name), d / "incoming"
 
 
+# Сколько кадров готовить одновременно: подготовка (чтение, RAW, рабочая копия) идёт в процессах FAST, здесь только
+# ожидание. На одном ядре — по одному, на двух и больше — по два. Очередь — по кругу между пользователями: пачка
+# из 30 кадров одного не задерживает первый кадр другого.
+INGEST_THREADS = int(os.environ.get("INGEST_THREADS", "0")) or min(2, os.cpu_count() or 1)
+_INGEST_POOL = None
+
+
+def _ingest_pool():
+    global _INGEST_POOL
+    if _INGEST_POOL is None:
+        from concurrent.futures import ThreadPoolExecutor
+        _INGEST_POOL = ThreadPoolExecutor(max_workers=INGEST_THREADS, thread_name_prefix="ingest")
+    return _INGEST_POOL
+
+
+def _process_spoken(f, owner):
+    with speak(owner):
+        _process_one(f, owner)
+
+
 def process_incoming(state=None):
+    lists = []
     for owner, folder in list(incoming_dirs()):
         files = sorted(f for f in folder.iterdir() if f.is_file() and f.suffix.lower() in EXTS)
         if files and owner not in USERS:          # пользователя удалили, а кадры ещё долетали
             for f in files:
                 remove(str(f))
             continue
-        for f in files:
-            if raw_twin(f, files, owner):
-                continue
-            with speak(owner):
-                _process_one(f, owner)
-        if files:
+        todo = [f for f in files if not raw_twin(f, files, owner)]      # RAW+JPEG решаем заранее, по всему списку
+        lists.append((owner, todo, bool(files)))
+    order = []                                    # по кругу: первый кадр каждого, потом второй…
+    for i in range(max((len(t) for _, t, _ in lists), default=0)):
+        order += [(f[i], owner) for owner, f, _ in lists if i < len(f)]
+    if INGEST_THREADS > 1 and len(order) > 1:
+        for fut in [_ingest_pool().submit(_process_spoken, f, owner) for f, owner in order]:
+            fut.result()
+    else:
+        for f, owner in order:
+            _process_spoken(f, owner)
+    for owner, _, had in lists:
+        if had:
             enforce_limit(owner)                # лимит места — сразу, а не раз в час
     # одно сообщение на пачку: когда повторы перестали приходить хотя бы на 20 секунд
     for owner, rep_ in list(DUP_REPORT.items()):

@@ -40,6 +40,7 @@ One `NAME=value` per line. After editing: `sudo systemctl restart proyavka-bot`.
 | `BETA_SLOT_MB` | `500` | storage per beta slot |
 | `BETA_DAYS` | `3` | how long a slot lives; then the account and its frames are deleted |
 | `BETA_SLOTS` | `30` | at most this many slots, even if the disk has room for more |
+| `INGEST_THREADS` | auto | how many incoming frames are prepared at once (1 on one core, 2 from two cores); users are served in turn |
 | `COMMUNITY_URL` | GitHub raw `community/looks.json` | where the server downloads the community film catalog (once an hour; a copy is kept on disk and in the repo). Empty — use only the copy from the repo |
 | `COMMUNITY_REPO` | `Melnikoff07/proyavka` | repository that "Suggest to the catalog" opens an issue in; empty hides the button |
 | `COMMUNITY_HUB` | `0` | `1` makes this server the one that receives films from other servers: films wait in the Community → Review tab (admin only), an approved film goes into the catalog, which this server also serves at `/community/looks.json`. Submissions are limited per address (5 an hour, 20 a day; for a film sent by another Proyavka server that is the server's address), so the proxy in front must set `X-Real-IP` (the bundled nginx does); unreviewed submissions leave the queue after 30 days |
