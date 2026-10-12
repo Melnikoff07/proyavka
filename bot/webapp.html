@@ -472,6 +472,63 @@
     #settings > *, #community > * { max-width: 760px; margin-left: auto; margin-right: auto; }
     .selbar > * { max-width: 760px; margin-left: auto; margin-right: auto; }
   }
+  /* мастер подключения камеры: окно поверх всего, шаги с анимацией */
+  .setup { position: fixed; inset: 0; z-index: 15; background: var(--bg); overflow-y: auto; overscroll-behavior: contain;
+           padding: env(safe-area-inset-top, 0px) 0 calc(24px + env(safe-area-inset-bottom, 0px)); }
+  .setup[hidden] { display: none; }
+  .su-in { max-width: 640px; margin: 0 auto; padding: 0 var(--pad); }
+  .su-top { position: sticky; top: 0; z-index: 2; display: flex; align-items: center; gap: 12px; padding: 12px 0; background: var(--bg); }
+  .su-top .round { width: 40px; height: 40px; border-radius: 50%; background: var(--tile); font-size: 18px; flex: 0 0 auto; }
+  .su-bars { flex: 1; display: flex; gap: 4px; }
+  .su-bars i { flex: 1; height: 4px; border-radius: 2px; background: var(--rule); }
+  .su-bars i.done { background: var(--text); }
+  .su-bars i.on { background: var(--acc); }
+  .su-skip { color: var(--muted); padding: 10px 4px; flex: 0 0 auto; }
+  .su-stage { position: relative; aspect-ratio: 8 / 5; border-radius: 22px; background: var(--tile); overflow: hidden; margin-top: 4px; }
+  .su-stage[hidden] { display: none; }
+  .su-stage svg [fill="rgb(17,17,17)"] { fill: var(--text); }
+  .su-stage svg [stroke="rgb(17,17,17)"] { stroke: var(--text); }
+  .su-stage svg [fill="rgb(250,250,250)"] { fill: var(--bg); }
+  .su-stage svg [stroke="rgb(250,250,250)"] { stroke: var(--bg); }
+  .su-stage svg [fill="rgb(246,245,242)"] { fill: var(--tile); }
+  .su-n { margin-top: 20px; color: var(--acc); }
+  .su-h { margin: 8px 0 0; font-size: 28px; line-height: 1.08; font-weight: 500; letter-spacing: -.03em; text-wrap: balance; }
+  .su-lead { margin: 10px 0 0; color: var(--muted); font-size: 15px; line-height: 1.5; }
+  .su-text ol { margin: 16px 0 0; padding: 0; list-style: none; counter-reset: s; display: flex; flex-direction: column; gap: 12px; }
+  .su-text li { counter-increment: s; display: grid; grid-template-columns: 26px minmax(0, 1fr); gap: 8px; font-size: 15px; line-height: 1.45; }
+  .su-text li::before { content: counter(s); width: 22px; height: 22px; border-radius: 50%; background: var(--tile); display: grid; place-items: center;
+                        font-size: 11px; font-weight: 600; margin-top: 1px; }
+  .su-path { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 4px; vertical-align: middle; }
+  .su-path b { font-weight: 500; background: var(--tile); border-radius: 8px; padding: 2px 8px; white-space: nowrap; }
+  .su-path b:last-child { background: var(--acc); color: var(--acc-ink); }
+  .su-path i { font-style: normal; color: var(--muted); }
+  .su-tree { margin: 14px 0 0; padding: 14px 16px; border-radius: 16px; background: var(--tile); font: 500 14px/1.6 ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+             white-space: pre; overflow-x: auto; }
+  .su-tree em { font-style: normal; color: var(--acc); }
+  .su-acts { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 18px; }
+  .su-acts .btn { flex: 0 0 auto; }
+  .su-acts .btn.ghost { background: var(--tile); color: var(--text); }
+  .su-kv { margin-top: 16px; background: var(--tile); border-radius: 18px; padding: 4px 14px; }
+  .su-kv div { display: flex; align-items: center; gap: 10px; padding: 10px 0; border-top: 1px solid var(--rule); font-size: 14px; }
+  .su-kv div:first-child { border-top: 0; }
+  .su-kv span { flex: 1; color: var(--muted); min-width: 0; }
+  .su-kv b { font-weight: 500; text-align: right; word-break: break-all; user-select: all; -webkit-user-select: all; }
+  .su-kv button { flex: 0 0 auto; padding: 6px 10px; border-radius: 99px; background: var(--raise); font-size: 12px; }
+  .su-warn { margin-top: 18px; padding: 14px 16px; border-radius: 16px; background: color-mix(in srgb, var(--acc) 10%, var(--tile)); }
+  .su-warn .cap { color: var(--acc); }
+  .su-warn ul { margin: 8px 0 0; padding-left: 18px; display: flex; flex-direction: column; gap: 6px; font-size: 14px; line-height: 1.45; }
+  .su-nav { display: flex; gap: 8px; margin-top: 24px; }
+  .su-nav .btn { flex: 1; }
+  .su-nav .btn.ghost { background: var(--tile); color: var(--text); }
+  .su-opts { display: flex; flex-direction: column; gap: 8px; margin-top: 20px; }
+  .su-opt { text-align: left; background: var(--tile); border-radius: 22px; padding: 18px 18px 18px 20px; display: grid; grid-template-columns: minmax(0, 1fr) auto;
+            gap: 4px 12px; align-items: center; }
+  .su-opt b { font-size: 18px; font-weight: 500; letter-spacing: -.015em; }
+  .su-opt span { color: var(--muted); font-size: 13.5px; line-height: 1.4; grid-column: 1; }
+  .su-opt i { grid-row: 1 / span 2; grid-column: 2; width: 36px; height: 36px; border-radius: 50%; background: var(--acc); color: var(--acc-ink);
+              display: grid; place-items: center; font-style: normal; }
+  .su-opt.quiet i { background: var(--raise); color: var(--text); }
+  @media (min-width: 900px) { .su-h { font-size: 34px; } }
   /* корзина: вернуть или удалить навсегда */
   .tr-acts { display: flex; justify-content: space-between; gap: 8px; padding-top: 6px; }
   .tr-acts button { padding: 6px 0; }
@@ -574,6 +631,14 @@
   <div class="sheet-head cap"><span id="alTitle"></span><button id="alClose" data-i18n="Close">Закрыть</button></div>
   <div class="pair" id="alBody"></div>
 </div>
+<section class="setup" id="setup" hidden role="dialog" aria-modal="true" aria-label="Подключение камеры" data-i18n-aria="Camera setup">
+  <div class="su-in">
+    <div class="su-top"><button class="round" id="suBack" aria-label="Назад" data-i18n-aria="Back">←</button><div class="su-bars" id="suBars"></div>
+      <button class="su-skip cap" id="suSkip" data-i18n="Skip">Пропустить</button></div>
+    <div class="su-stage" id="suStage" hidden aria-hidden="true"></div>
+    <div id="suBody"></div>
+  </div>
+</section>
 <section class="settings layer2" id="lookEd" hidden aria-label="Редактор плёнки" data-i18n-aria="Film editor">
   <div class="vbar cap"><span class="vleft"><button class="vback" id="edBack" aria-label="Назад" data-i18n-aria="Back">←</button><span id="edTitle"></span></span><span></span><span></span></div>
   <div class="ed-stick">
@@ -644,7 +709,8 @@
   <div class="st-sec">
     <div class="st-h cap muted" data-i18n="Camera">Камера</div>
     <p class="muted st-p" style="padding-top:0" data-i18n="Files for the memory card, FTP login and step-by-step guides.">Файлы для карты памяти, вход FTP и пошаговые инструкции.</p>
-    <button class="st-link cap" id="stCamBtn" data-i18n="Show camera setup">Показать настройку камеры</button>
+    <div class="actions" style="padding-top:2px"><button class="btn acc" id="stSetup" data-i18n="Step-by-step camera setup">Пошаговая настройка камеры</button></div>
+    <button class="st-link cap" id="stCamBtn" data-i18n="Files and FTP login">Файлы и вход FTP</button>
     <div id="stCam" hidden></div>
   </div>
   <div class="st-sec">
@@ -1046,7 +1112,7 @@ $("sDelete").onclick = () => {
 
 /* вне Telegram нет его кнопки «назад»: открытые слои кладём в историю, системный «назад» их закрывает */
 let histPushed = false, histIgnore = false;
-function layerOpen() { return cur >= 0 || selecting || !$("sheet").hidden || !$("albumSheet").hidden || !$("settings").hidden || !$("lookEd").hidden || !$("community").hidden || !$("lookView").hidden || !!crop; }
+function layerOpen() { return !$("setup").hidden || cur >= 0 || selecting || !$("sheet").hidden || !$("albumSheet").hidden || !$("settings").hidden || !$("lookEd").hidden || !$("community").hidden || !$("lookView").hidden || !!crop; }
 function syncHistory() {
   if (tg) return;
   const open = layerOpen();
@@ -1062,6 +1128,7 @@ addEventListener("popstate", () => {
 });
 
 function onBack() {
+  if (!$("setup").hidden) return suBackStep();
   if (!$("albumSheet").hidden) return closeAlbumSheet();
   if (!$("lookView").hidden) return closeLookView();
   if (!$("lookEd").hidden) return closeEditor();
@@ -1905,6 +1972,204 @@ async function openTrash() {
   box.hidden = !cells.length;
 }
 $("stTrashBtn").onclick = () => { if (!$("stTrash").hidden) $("stTrash").hidden = true; else openTrash(); };
+
+/* ---------- мастер подключения камеры: тип камеры → шаги с анимацией, кнопками файлов и частыми ошибками ---------- */
+const UIV = "{{UIV}}";                       // версия анимаций (подставляет сервер)
+const SU = { anim: null, marks: {}, path: null, i: 0, cam: null, loading: null };
+const PMCA = { win: "https://github.com/ma1co/Sony-PMCA-RE/releases/download/v0.18/pmca-gui-v0.18-win.exe",
+               mac: "https://github.com/ma1co/Sony-PMCA-RE/releases/download/v0.18/pmca-gui-v0.18-osx.dmg" };
+const suPath = (...items) => `<span class="su-path">${items.map((x) => `<b>${esc(x)}</b>`).join("<i>›</i>")}</span>`;
+const suList = (items) => `<ol>${items.map((x) => `<li><span>${x}</span></li>`).join("")}</ol>`;
+
+function suSony() {
+  const apk = `${(me && me.about && me.about.project) || "https://github.com/Melnikoff07/proyavka"}/releases/latest/download/Proyavka.apk`;
+  return [
+    { seg: "install", title: T("Скачай два файла на компьютер", "Download two files to a computer"),
+      html: `<p class="su-lead">${T("Нужен компьютер с Windows или macOS и USB-кабель. Это один раз, минут на десять.", "You need a Windows or macOS computer and a USB cable. It's a one-time job of about ten minutes.")}</p>` +
+            suList([T("<b>Proyavka.apk</b> — приложение для камеры.", "<b>Proyavka.apk</b> — the camera app."),
+                    T("<b>pmca-gui</b> — программа, которая ставит приложения на Sony. Для Windows или для macOS.", "<b>pmca-gui</b> — the tool that installs apps on Sony cameras. For Windows or for macOS.")]),
+      acts: [{ label: "Proyavka.apk", acc: true, run: () => openLink(apk) },
+             { label: T("pmca-gui · Windows", "pmca-gui · Windows"), run: () => openLink(PMCA.win) },
+             { label: T("pmca-gui · macOS", "pmca-gui · macOS"), run: () => openLink(PMCA.mac) },
+             { label: T("Скопировать ссылки", "Copy the links"), run: () => suCopy(`${apk}\n${PMCA.win}\n${PMCA.mac}`) }],
+      warn: [T("Смотришь с телефона — скопируй ссылки и открой их на компьютере.", "On a phone? Copy the links and open them on the computer."),
+             T("Windows может сказать, что программа неизвестна: «Подробнее» → «Выполнить в любом случае». Это открытый проект.", "Windows may say the program is unknown: More info → Run anyway. It's an open-source project.")] },
+    { seg: "install", title: T("Поставь приложение на камеру", "Install the app on the camera"),
+      html: suList([T(`На камере: ${suPath("Меню", "Настройки", "USB-соединение", "MTP")}`, `On the camera: ${suPath("Menu", "Setup", "USB Connection", "MTP")}`),
+                    T("Подключи камеру кабелем к компьютеру и включи её.", "Connect the camera with the cable and turn it on."),
+                    T(`В pmca-gui: ${suPath("Install app", "Select an apk", "Open apk…")} — выбери Proyavka.apk.`, `In pmca-gui: ${suPath("Install app", "Select an apk", "Open apk…")} — pick Proyavka.apk.`),
+                    T(`Нажми ${suPath("Install selected app")} и дождись «Task completed successfully».`, `Press ${suPath("Install selected app")} and wait for “Task completed successfully”.`)]),
+      warn: [T("pmca-gui не видит камеру — другой режим USB (MTP ↔ Накопитель), другой кабель или порт. На Mac закрой «Фото», Dropbox и Google Drive.", "pmca-gui can't see the camera — try the other USB mode (MTP ↔ Mass Storage), another cable or port. On a Mac close Photos, Dropbox and Google Drive."),
+             T("«Error 504 … Invalid contents» — скачай свежий Proyavka.apk с первого шага.", "“Error 504 … Invalid contents” — download a fresh Proyavka.apk from the first step.")] },
+    { seg: "card-config", title: T("Положи config.txt на карту", "Put config.txt on the card"),
+      html: `<p class="su-lead">${T("В файле — адрес сервера и твой личный ключ. Скачай его и перенеси на карту памяти через компьютер.", "The file holds the server address and your personal key. Download it and copy it to the memory card on a computer.")}</p>` +
+            `<div class="su-tree">${T("карта памяти", "memory card")}\n├── DCIM\n└── <em>PROYAVKA</em>        ← ${T("создай эту папку", "create this folder")}\n    └── <em>config.txt</em></div>` +
+            suList([T("В <b>корне</b> карты создай папку <b>PROYAVKA</b> — рядом с DCIM.", "In the <b>root</b> of the card create a folder <b>PROYAVKA</b> — next to DCIM."),
+                    T("Положи в неё <b>config.txt</b>.", "Put <b>config.txt</b> into it.")]),
+      acts: [{ label: T("Скачать config.txt", "Download config.txt"), acc: true, run: async () => { try { download((await api("/api/camera/link")).url); } catch (e) { toast(e.message); } } }],
+      warn: [T("Не клади файл в DCIM — камера его там не найдёт.", "Don't put the file inside DCIM — the camera won't find it there."),
+             T("Имя — ровно config.txt. Windows прячет расширения: если вышло config.txt.txt, приложение его всё равно найдёт, но лучше переименуй.", "The name is exactly config.txt. Windows hides extensions: if you get config.txt.txt the app still finds it, but better rename it."),
+             T("Файл личный — в нём ключ загрузки кадров. Не пересылай его.", "The file is personal — it holds your upload key. Don't share it.")] },
+    { seg: "app-wifi", title: T("Подключи Wi-Fi — один раз", "Connect Wi-Fi — once"),
+      html: suList([T("Включи точку доступа на телефоне — или будь рядом с домашним Wi-Fi.", "Turn on your phone's hotspot — or be near your home Wi-Fi."),
+                    T(`На камере: ${suPath("Меню", "Приложение", "Список приложений", "Проявка", "Wi-Fi")}`, `On the camera: ${suPath("Menu", "Application", "Application List", "Proyavka", "Wi-Fi")}`),
+                    T("Колесом выбери сеть, нажми центральную кнопку, введи пароль → «Подключить». Появится «Сохранено».", "Pick the network with the wheel, press the center button, type the password → Connect. You'll see “Saved”."),
+                    T("Можно сохранить и телефон, и дом — камера возьмёт ту сеть, что рядом.", "You can save both the phone and home — the camera uses whichever is nearby.")]),
+      warn: [T("«Нет настроек…» на камере — config.txt лежит не там: вернись на шаг назад.", "“No settings…” on the camera — config.txt is in the wrong place: go one step back."),
+             T("Пароль Wi-Fi чувствителен к регистру.", "The Wi-Fi password is case-sensitive.")] },
+    { seg: "send", title: T("Снимай и отправляй", "Shoot and send"),
+      html: suList([T("Качество — <b>JPEG</b> или <b>RAW+JPEG</b>.", "Quality — <b>JPEG</b> or <b>RAW+JPEG</b>."),
+                    T(`После съёмки: ${suPath("Меню", "Приложение", "Проявка", "Отправить новые")}`, `After shooting: ${suPath("Menu", "Application", "Proyavka", "Send new")}`),
+                    T("Камера сама включит Wi-Fi, отправит новые кадры и выключит Wi-Fi. Через полминуты они в ленте.", "The camera turns Wi-Fi on, sends the new frames and turns it off. Half a minute later they're in your feed.")]),
+      warn: [T("«Новых кадров нет» — всё уже отправлено.", "“No new frames” — everything is sent already."),
+             T("Что-то не так — пришли файл PROYAVKA/log.txt с карты. Ключа в нём нет.", "Something's wrong — send the PROYAVKA/log.txt file from the card. There is no key in it.")] },
+  ];
+}
+
+function suFtp() {
+  const c = SU.cam || {};
+  const row = (k, v, copy) => `<div><span>${k}</span><b>${esc(v)}</b>${copy ? `<button data-copy="${esc(v)}">${T("Копировать", "Copy")}</button>` : ""}</div>`;
+  return [
+    { seg: "card-cert", title: T("Положи сертификат на карту", "Put the certificate on the card"),
+      html: `<p class="su-lead">${T("По сертификату камера проверяет, что подключается к твоему серверу, а не к подменному.", "The camera uses the certificate to check that it talks to your server and not an impostor.")}</p>` +
+            `<div class="su-tree">${T("карта памяти", "memory card")}\n├── DCIM\n└── <em>cacert.pem</em>        ← ${T("в корень", "in the root")}</div>` +
+            suList([T("Скопируй <b>cacert.pem</b> в <b>корень</b> карты — рядом с DCIM.", "Copy <b>cacert.pem</b> to the <b>root</b> of the card — next to DCIM."),
+                    T("Вставь карту в <b>слот 1</b> камеры.", "Put the card into <b>slot 1</b> of the camera.")]),
+      acts: c.cert === false ? [] : [{ label: T("Скачать cacert.pem", "Download cacert.pem"), acc: true, run: () => download(url("/api/camera/cacert.pem")) }],
+      warn: [T("Имя ровно cacert.pem — без «(1)» и без .txt.", "The name is exactly cacert.pem — no “(1)”, no .txt."),
+             T("Не внутрь DCIM, а рядом с ней.", "Not inside DCIM — next to it.")] },
+    { seg: "import", title: T("Импортируй сертификат", "Import the certificate"),
+      html: suList([T(`${suPath("Меню", "Сеть", "Параметры сети", "Импорт корн. сертификата", "Функция FTP", "OK")}`, `${suPath("Menu", "Network", "Network Option", "Import Root Certificate", "FTP Function", "OK")}`),
+                    T("Без этого камера с защищённым протоколом не подключится.", "Without it the camera won't connect with the secure protocol on.")]),
+      warn: [T("Сбросил сетевые настройки камеры — импортируй сертификат снова.", "Reset the camera's network settings? Import the certificate again.")] },
+    { seg: "ftp-form", title: T("Впиши сервер", "Enter the server"),
+      html: suList([T(`${suPath("Меню", "Сеть", "Передача/Удалённо", "Функция передачи FTP", "Настройки сервера", "Сервер 1")}`, `${suPath("Menu", "Network", "Transfer/Remote", "FTP Transfer Func.", "Server Setting", "Server 1")}`),
+                    T("Заполни пункты — значения можно скопировать:", "Fill in the items — you can copy the values:")]) +
+            `<div class="su-kv">` +
+            row(T("Отображаемое имя", "Display Name"), T("Проявка", "Proyavka")) +
+            row(T("Имя хоста", "Host Name"), c.domain || "—", true) +
+            row(T("Защищённый протокол", "Secure Protocol"), T("Вкл", "On")) +
+            row(T("Ошибка корн. сертификата", "Root Certificate Error"), T("Не подключаться", "Do Not Connect")) +
+            row(T("Порт", "Port"), "21") +
+            row(T("Пассивный режим", "Passive Mode"), T("Вкл", "On")) +
+            row(T("Каталог", "Directory"), "upload", true) +
+            row(T("Пользователь", "User"), c.ftp_user || "—", true) +
+            row(T("Пароль", "Password"), c.ftp_pass || "—", true) + `</div>`,
+      warn: [T("Пользователь — строчными буквами, пароль — без пробелов.", "The user is lowercase, the password has no spaces."),
+             T("Каталог — upload, иначе кадры не дойдут.", "The directory is upload, otherwise frames won't arrive.")] },
+    { seg: "ftp-auto", title: T("Включи автоотправку", "Turn on auto transfer"),
+      html: suList([T(`${suPath("Функция передачи FTP")} → Вкл, сервер — Сервер 1.`, `${suPath("FTP Transfer Func.")} → On, server — Server 1.`),
+                    T(`${suPath("Автоперед. при съёмке")} → Вкл: кадр улетает сразу после снимка.`, `${suPath("Auto FTP Trans.")} → On: each shot goes right after you take it.`),
+                    T(`${suPath("Тип файла")} → только JPEG: RAW слать долго.`, `${suPath("Trans. Target File")} → JPEG only: RAW takes long.`),
+                    T(`Wi-Fi: ${suPath("Меню", "Сеть", "Wi-Fi", "Точка доступа")} — телефон или дом.`, `Wi-Fi: ${suPath("Menu", "Network", "Wi-Fi", "Access Point")} — your phone or home.`),
+                    T("Сними кадр — через полминуты он в ленте.", "Take a shot — half a minute later it's in the feed.")]),
+      warn: [T("Ошибка сертификата — проверь, что cacert.pem импортирован с карты в слоте 1.", "Certificate error — check cacert.pem was imported from the card in slot 1."),
+             T("Подключается, но кадры не приходят — пассивный режим Вкл, каталог upload.", "Connects but nothing arrives — passive mode On, directory upload."),
+             T("Нет сети — у точки доступа должен быть интернет.", "No network — the access point needs internet.")] },
+  ];
+}
+
+function suSteps() { return SU.path === "sony" ? suSony() : suFtp(); }
+
+function suCopy(text) {
+  (navigator.clipboard ? navigator.clipboard.writeText(text) : Promise.reject()).then(() => toast(T("Скопировано", "Copied")), () => toast(text));
+  haptic();
+}
+
+function suLoad() {
+  if (!SU.loading) SU.loading = (async () => {
+    if (!window.lottie) await new Promise((ok, bad) => {
+      const s = document.createElement("script");
+      s.src = `/ui/lottie.min.js?v=${UIV}`;
+      s.onload = ok;
+      s.onerror = bad;
+      document.head.appendChild(s);
+    });
+    const data = await (await fetch(`/ui/setup.${LANG === "en" ? "en" : "ru"}.json?v=${UIV}`)).json();
+    for (const m of data.markers) SU.marks[m.cm] = [m.tm, m.tm + m.dr];
+    SU.anim = lottie.loadAnimation({ container: $("suStage"), renderer: "svg", loop: true, autoplay: false, animationData: data });
+  })().catch((e) => { SU.loading = null; throw e; });
+  return SU.loading;
+}
+async function suPlay(seg) {
+  const stage = $("suStage");
+  stage.hidden = !seg;
+  if (!seg) { if (SU.anim) SU.anim.pause(); return; }
+  try { await suLoad(); } catch (e) { stage.hidden = true; return; }
+  const m = SU.marks[seg];
+  if (!m || stage.hidden) return;
+  if (matchMedia("(prefers-reduced-motion: reduce)").matches) SU.anim.goToAndStop(m[1] - 2, true);
+  else SU.anim.playSegments(m, true);
+}
+
+function suRender() {
+  const body = $("suBody");
+  if (!SU.path) {
+    $("suBars").innerHTML = "";
+    suPlay("install");
+    body.innerHTML = `<div class="su-n cap">${T("Первый шаг", "First step")}</div><h2 class="su-h">${T("Подключим камеру", "Let's connect your camera")}</h2>` +
+      `<p class="su-lead">${T("Один раз, от двух до десяти минут. Потом кадры будут прилетать в ленту сами.", "Once, two to ten minutes. After that frames will arrive in your feed by themselves.")}</p>` +
+      `<div class="su-opts">` +
+      `<button class="su-opt" data-path="sony"><b>${T("Sony с приложениями", "Sony with apps")}</b><span>${T("a5000/a5100, a6000/a6300/a6500, a7 II, RX100 III–V, RX10 II/III… В меню камеры есть пункт «Приложение».", "a5000/a5100, a6000/a6300/a6500, a7 II, RX100 III–V, RX10 II/III… The camera menu has an Application item.")}</span><i>→</i></button>` +
+      `<button class="su-opt" data-path="ftp"><b>${T("Камера с отправкой по FTP", "A camera with FTP transfer")}</b><span>${T("Sony A7 IV, A7C II, A1, ZV-E1, многие Fujifilm, Canon и Nikon.", "Sony A7 IV, A7C II, A1, ZV-E1, many Fujifilm, Canon and Nikon.")}</span><i>→</i></button>` +
+      `<button class="su-opt quiet" data-path="none"><b>${T("Без камеры", "No camera")}</b><span>${T("Буду загружать фото с телефона или компьютера кнопкой «+».", "I'll upload photos from my phone or computer with the “+” button.")}</span><i>+</i></button>` +
+      `</div>`;
+    body.querySelectorAll("[data-path]").forEach((b) => (b.onclick = async () => {
+      const path = b.dataset.path;
+      if (path === "none") { closeSetup(); toast(T("Фото добавляются кнопкой «+» вверху", "Add photos with the “+” button at the top")); return; }
+      if (path === "ftp" && !SU.cam) { try { SU.cam = await api("/api/camera"); } catch (e) { return toast(e.message); } }
+      SU.path = path;
+      SU.i = 0;
+      suRender();
+    }));
+    $("setup").scrollTop = 0;
+    return;
+  }
+  const steps = suSteps(), s = steps[SU.i], last = SU.i === steps.length - 1;
+  $("suBars").innerHTML = steps.map((_, k) => `<i class="${k < SU.i ? "done" : k === SU.i ? "on" : ""}"></i>`).join("");
+  body.innerHTML = `<div class="su-n cap">${T("Шаг", "Step")} ${SU.i + 1} ${T("из", "of")} ${steps.length}</div><h2 class="su-h">${esc(s.title)}</h2>` +
+    `<div class="su-text">${s.html}</div>` +
+    (s.acts && s.acts.length ? `<div class="su-acts">${s.acts.map((a, k) => `<button class="btn${a.acc ? " acc" : " ghost"}" data-act="${k}">${esc(a.label)}</button>`).join("")}</div>` : "") +
+    (s.warn ? `<div class="su-warn"><div class="cap">${T("Частые ошибки", "Common mistakes")}</div><ul>${s.warn.map((w) => `<li>${w}</li>`).join("")}</ul></div>` : "") +
+    `<div class="su-nav"><button class="btn ghost" id="suPrev">${T("Назад", "Back")}</button><button class="btn${last ? " acc" : ""}" id="suNext">${last ? T("Готово", "Done") : T("Дальше", "Next")}</button></div>`;
+  body.querySelectorAll("[data-act]").forEach((b) => (b.onclick = () => s.acts[Number(b.dataset.act)].run()));
+  body.querySelectorAll("[data-copy]").forEach((b) => (b.onclick = () => suCopy(b.dataset.copy)));
+  $("suPrev").onclick = suBackStep;
+  $("suNext").onclick = () => { if (last) { closeSetup(); toast(T("Готово! Новые кадры появятся в ленте", "Done! New frames will show up in your feed")); haptic("success"); } else { SU.i++; suRender(); } };
+  suPlay(s.seg);
+  $("setup").scrollTop = 0;
+}
+function suBackStep() {
+  if (SU.path && SU.i > 0) SU.i--;
+  else if (SU.path) SU.path = null;
+  else return closeSetup();
+  suRender();
+}
+function openSetup() {
+  SU.path = null;
+  SU.i = 0;
+  $("setup").hidden = false;
+  document.body.style.overflow = "hidden";
+  if (tg) tg.BackButton.show();
+  suRender();
+  syncHistory();
+}
+async function closeSetup() {
+  $("setup").hidden = true;
+  if (SU.anim) SU.anim.pause();
+  if (!layerOpen()) { document.body.style.overflow = ""; if (tg) tg.BackButton.hide(); }
+  syncHistory();
+  if (!me || !me.onboarded) { try { me = await api("/api/me", { onboarded: true }); } catch (e) {} }
+}
+$("suBack").onclick = suBackStep;
+$("suSkip").onclick = () => closeSetup();
+$("stSetup").onclick = () => openSetup();
+// первая встреча: кадров ещё нет и мастер не проходили — показать сразу
+async function maybeSetup() {
+  if (GUEST || total) return;
+  try { me = me || await api("/api/me"); } catch (e) { return; }
+  if (!me.onboarded && !total) openSetup();
+}
 
 $("stCamBtn").onclick = async () => {
   const box = $("stCam");
@@ -3278,6 +3543,7 @@ async function uploadAll(files) {
   new IntersectionObserver((es) => { if (es[0].isIntersecting) loadMore(); }, { rootMargin: "800px" }).observe($("sentinel"));
   await loadMore();
   schedulePoll();
+  maybeSetup();
 })();
 </script>
 </body>

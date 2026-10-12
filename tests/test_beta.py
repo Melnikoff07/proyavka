@@ -65,6 +65,15 @@ if __name__ == "__main__":
     me = harness.Harness(h.fb, h.port, h.base)
     me.token = dev["token"]
     check("/api/me знает срок", me.get("/api/me").get("expires") == u["expires"])
+    check("мастер камеры ещё не пройден", me.get("/api/me").get("onboarded") is False)
+    check("отметка «мастер пройден» сохраняется", me.post("/api/me", {"onboarded": True}).get("onboarded") is True
+          and me.get("/api/me").get("onboarded") is True)
+    ui = h.req("/ui/setup.ru.json?v=1", auth=False)
+    check(f"анимации мастера отдаются без входа: {len(ui.get('markers', []))} сцен",
+          isinstance(ui, dict) and {m["cm"] for m in ui["markers"]} >= {"install", "card-config", "card-cert", "app-wifi", "send", "import", "ftp-form", "ftp-auto"})
+    check("плеер для мастера — /ui/lottie.min.js", isinstance(h.req("/ui/lottie.min.js", auth=False), bytes))
+    app = h.req("/", auth=False)
+    check("в приложение вписана версия анимаций", isinstance(app, bytes) and b"{{UIV}}" not in app and b"const UIV = \"" in app)
     s = me.get("/api/beta")
     check("в списке слотов — ник и «это ты»", [x["name"] for x in s["users"]] == ["Плёнка_42"] and s["users"][0]["me"] and s["free"] == 2)
     check("второй слот с того же адреса — можно", join(h, "второй", ip="10.0.0.1")["_status"] == 200)

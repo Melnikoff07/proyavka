@@ -139,6 +139,16 @@ def batch_action(data, uid, album=None):
     raise ValueError(L("неизвестное действие", "unknown action"))
 
 
+UI_DIR = Path(__file__).resolve().parent.parent / "ui"
+UI_FILES = {"setup.ru.json": UI_DIR / "setup.ru.json", "setup.en.json": UI_DIR / "setup.en.json",
+            "lottie.min.js": Path(__file__).resolve().parent.parent / "beta" / "lottie.min.js"}
+
+
+def ui_version():
+    """Версия файлов /ui/ для адресов (?v=): меняется вместе с файлами, браузер хранит их год."""
+    return max((int(f.stat().st_mtime) for f in UI_FILES.values() if f.exists()), default=0)
+
+
 class Handler(BaseHTTPRequestHandler):
     server_version = "filmbot"
     timeout = 120                      # молчащее соединение (медленная атака, оборванная связь) не держит поток вечно
@@ -419,6 +429,7 @@ class Handler(BaseHTTPRequestHandler):
                 if not WEBAPP_HTML.exists():
                     return self.err(500, "webapp.html not found next to filmbot.py")
                 page = WEBAPP_HTML.read_bytes().replace(b'<html lang="ru"', f'<html lang="{LANG}"'.encode(), 1)
+                page = page.replace(b"{{UIV}}", str(ui_version()).encode())
                 return self.send(200, page, "text/html; charset=utf-8", headers={"Content-Security-Policy": CSP})
             if parts == ["manifest.webmanifest"]:
                 return self.send(200, json.dumps(manifest(), ensure_ascii=False), "application/manifest+json", "max-age=3600")
@@ -429,6 +440,10 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send(200, app_icon(size), "image/png", "max-age=86400")
             if parts[0] == "a":
                 return self.album_get(parts[1:])
+            if len(parts) == 2 and parts[0] == "ui" and parts[1] in UI_FILES:       # анимации мастера и плеер: без входа, статика
+                f = UI_FILES[parts[1]]
+                return self.send(200, f.read_bytes(), "application/json" if f.suffix == ".json" else "text/javascript; charset=utf-8",
+                                 "public, max-age=31536000, immutable" if "v=" in u.query else "no-cache")
             if parts[0] == "beta" or parts == ["api", "beta"]:
                 return self.beta_get(parts[1:] if parts[0] == "beta" else None)
             if len(parts) == 2 and parts[0] == "fonts" and re.fullmatch(r"[a-z-]+\.woff2", parts[1]):      # шрифты страниц: без входа

@@ -217,7 +217,7 @@ def me_json(uid):
             "limit": storage_limit(uid) * 1e9, "frames": n["n"] or 0, "trash": n["t"] or 0, "orig_days": ORIG_DAYS,
             "telegram": {"bot": bot_name_safe(), "linked": bool(u.get("tg")),
                          "can_unlink": uid >= WEB_BASE and bool(u.get("tg"))},
-            "about": {"project": PROJECT_URL, "tg": CONTACT_TG}, "expires": u.get("expires")}
+            "about": {"project": PROJECT_URL, "tg": CONTACT_TG}, "expires": u.get("expires"), "onboarded": bool(u.get("onboarded"))}
 
 
 def set_me(uid, data):
@@ -232,6 +232,8 @@ def set_me(uid, data):
         if k != "auto" and not valid_look(k, uid):
             raise ValueError(L("неизвестная плёнка", "unknown film"))
         kw["default_film"] = k
+    if data.get("onboarded") is True:
+        kw["onboarded"] = time.time()
     if "name" in data:
         name = re.sub(r"[\x00-\x1f<>]", "", str(data["name"])).strip()[:40]
         if name:
