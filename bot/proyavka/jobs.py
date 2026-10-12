@@ -7,7 +7,7 @@ from datetime import datetime
 
 from .config import COMMUNITY_BUNDLED, PREVIEWS, VIEW_EDGE
 from .util import save_atomic
-from .film import PRESETS, film, look, preset_lut
+from .film import PRESETS, film, fit, look, preset_lut
 from .imaging import (
     auto_pick, contact_sheet, crop_img, crop_tag, is_raw, leak_seed, light_leak, open_raw, raw_exif,
     read_exif, render, srgb_icc, to_srgb,
@@ -32,8 +32,7 @@ def job_prepare(src, work_path, edge):
     im = Image.open(src)
     taken, iso = read_exif(im)
     im.draft("RGB", (edge, edge))           # JPEG сразу декодируется в уменьшенном виде — в разы быстрее
-    im = ImageOps.exif_transpose(to_srgb(im)).convert("RGB")
-    im.thumbnail((edge, edge), Image.LANCZOS)
+    im = fit(ImageOps.exif_transpose(to_srgb(im)).convert("RGB"), edge)
     taken = taken or datetime.now().strftime("%Y-%m-%d %H:%M")
     auto_key, reason = auto_pick(im, iso, int(taken[11:13]))
     save_atomic(im, work_path, 95)
@@ -47,7 +46,7 @@ def job_view(ph, view_path, thumb_path, chat_path=None):
     if chat_path:
         img = render(ph)
         save_atomic(img, chat_path, 92)
-        img.thumbnail((VIEW_EDGE, VIEW_EDGE), Image.LANCZOS)
+        img = fit(img, VIEW_EDGE)
     else:
         img = render(ph, mode="view")
     save_atomic(img, view_path, 88)

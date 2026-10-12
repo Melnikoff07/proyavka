@@ -455,7 +455,7 @@ def fx_layer(img, p):
         small = img.resize((sw, sh), Image.BOX).filter(ImageFilter.GaussianBlur(max(w, h) * 0.012 / f))
         b = np.asarray(small, dtype=np.float32) / 255.0
         acc = 1 - (1 - acc) * (1 - b * b * p["bloom"])
-    return Image.fromarray((np.clip(acc, 0, 1) * 255 + 0.5).astype(np.uint8)).resize((w, h), Image.BILINEAR)
+    return par_resize(Image.fromarray((np.clip(acc, 0, 1) * 255 + 0.5).astype(np.uint8)), (w, h), Image.BILINEAR)
 
 
 def to_linear(a):
@@ -527,6 +527,70 @@ def _fx_pool():
         return FX_POOL
 
 
+# Один большой кадр — на все ядра: на LUT, размытии и растяжении Pillow отпускает GIL, поэтому они считаются полосами
+# в потоках: LUT — попиксельно, размытие — с запасом строк на радиус, растяжение — через box (те же коэффициенты, что у
+# целого кадра). Наложения слоёв (ImageChops) GIL держат — в потоках только медленнее, они остаются как были.
+PAR_MIN = 1_500_000           # от скольких пикселей кадр делится на полосы
+
+
+def _bands(h):
+    step = -(-h // FX_THREADS)
+    return [(y0, min(h, y0 + step)) for y0 in range(0, h, step)]
+
+
+def _join(parts, w, h):
+    out = Image.new(parts[0].mode, (w, h))
+    y = 0
+    for part in parts:
+        out.paste(part, (0, y))
+        y += part.size[1]
+    return out
+
+
+def par(fn, *imgs, margin=0):
+    """fn(*кадры) -> кадр того же размера, по горизонтальным полосам в потоках; margin — строк запаса для фильтров с радиусом."""
+    w, h = imgs[0].size
+    if FX_THREADS < 2 or w * h < PAR_MIN or threading.current_thread().name.startswith("fx"):
+        return fn(*imgs)
+
+    def one(band):
+        y0, y1 = band
+        t0, t1 = max(0, y0 - margin), min(h, y1 + margin)
+        r = fn(*(im.crop((0, t0, w, t1)) for im in imgs))
+        return r.crop((0, y0 - t0, w, y1 - t0)) if (t0, t1) != (y0, y1) else r
+    return _join(list(_fx_pool().map(one, _bands(h))), w, h)
+
+
+def par_resize(im, size, resample):
+    """im.resize(size, resample) полосами результата в потоках: у каждой полосы box на исходнике — пиксели те же."""
+    w, h = size
+    sw, sh = im.size
+    if FX_THREADS < 2 or w * h < PAR_MIN or threading.current_thread().name.startswith("fx"):
+        return im.resize(size, resample)
+    im.load()
+    return _join(list(_fx_pool().map(lambda b: im.resize((w, b[1] - b[0]), resample, box=(0, b[0] * sh / h, sw, b[1] * sh / h)),
+                                     _bands(h))), w, h)
+
+
+def fit(im, edge, resample=Image.LANCZOS):
+    """Как im.thumbnail((edge, edge), resample) — тот же размер и те же пиксели, — но большой кадр уменьшается полосами
+    в потоках. Возвращает кадр (исходный, если он и так не больше edge)."""
+    w, h = im.size
+    if w <= edge and h <= edge:
+        return im
+    aspect = w / h
+    x, y = edge, edge
+    if x / y >= aspect:
+        x = max(min(math.floor(y * aspect), math.ceil(y * aspect), key=lambda n: abs(aspect - n / y)), 1)
+    else:
+        y = max(min(math.floor(x / aspect), math.ceil(x / aspect), key=lambda n: 0 if n == 0 else abs(aspect - x / n)), 1)
+    if max(w / x, h / y) >= 4:          # thumbnail сперва ужал бы кадр reduce — пусть делает так же
+        im = im.copy()
+        im.thumbnail((edge, edge), resample)
+        return im
+    return par_resize(im, (x, y), resample)
+
+
 def apply_fx_linear(img, acc, strip=256):
     """Прибавить свечение к кадру в линейном свете. Идём полосами по strip строк (256: пик памяти ~100 МБ на кадр 24 Мп): полный кадр во float — сотни мегабайт.
     Большие кадры считаются полосами в нескольких потоках (numpy и PIL отпускают GIL), результат тот же."""
@@ -547,7 +611,7 @@ def apply_fx_linear(img, acc, strip=256):
         res[y0:y1] = SRGB16[lin.astype(np.uint16)]
 
     rows = range(0, h, strip)
-    if FX_THREADS > 1 and w * h > 6_000_000:
+    if FX_THREADS > 1 and w * h >= PAR_MIN:
         list(_fx_pool().map(one, rows))
     else:
         for y0 in rows:
@@ -584,7 +648,7 @@ def grain_layer(w, h, p, k, rng, fit=False):
         n *= amp * weight
         n += 128
         np.clip(n, 0, 255, out=n)
-        return Image.fromarray(n.astype(np.uint8)).resize((w, h), Image.BICUBIC)
+        return par_resize(Image.fromarray(n.astype(np.uint8)), (w, h), Image.BICUBIC)
 
     lum = ImageChops.add(noise(gs, 0.75), noise(gs * 2.5, 0.45), scale=1.0, offset=-128)   # мелкое + крупное зерно
     if chroma <= 0:
@@ -602,7 +666,7 @@ def vignette_layer(w, h, strength):
     yy = np.linspace(-1, 1, sh, dtype=np.float32)[:, None]
     xx = np.linspace(-1, 1, sw, dtype=np.float32)[None, :]
     v = 1 - strength * ((xx * xx + yy * yy) / 2) ** 1.5
-    L = Image.fromarray((np.clip(v, 0, 1) * 255 + 0.5).astype(np.uint8)).resize((w, h), Image.BILINEAR)
+    L = par_resize(Image.fromarray((np.clip(v, 0, 1) * 255 + 0.5).astype(np.uint8)), (w, h), Image.BILINEAR)
     return Image.merge("RGB", (L, L, L))
 
 
@@ -829,7 +893,7 @@ def film(img, key, strength=100, seed=0, p=None, fit=False):
     w, h = img.size
     soft = p["soften"] * max(w, h) / 3000.0
     if soft >= 0.6:  # убираем цифровую «звонкость»; на малых размерах эффект невидим
-        img = img.filter(ImageFilter.GaussianBlur(soft))
+        img = par(lambda x: x.filter(ImageFilter.GaussianBlur(soft)), img, margin=int(soft * 4) + 8)
     orig = img
     if p["linear"] > 0.5 or p["halo"] > 0.5:       # новая халяция считается в линейном свете
         acc = fx_linear(img, p)
@@ -837,7 +901,8 @@ def film(img, key, strength=100, seed=0, p=None, fit=False):
     else:
         fx = fx_layer(img, p)
         a = ImageChops.screen(img, fx) if fx is not None else img
-    a = a.filter(preset_lut(key, pr))
+    lut = preset_lut(key, pr)
+    a = par(lambda x: x.filter(lut), a)
     k = strength / 100.0
     if k != 1:
         a = Image.blend(orig, a, k)

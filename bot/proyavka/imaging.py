@@ -12,7 +12,7 @@ from pathlib import Path
 
 from .config import FULL_EDGE, LUMA, RAW_EXTS, VIEW_EDGE, WORK_EDGE
 from .i18n import L, tr
-from .film import PRESETS, film, look, pname
+from .film import PRESETS, film, fit, look, par_resize, pname
 
 
 # ================= засветы =================
@@ -110,7 +110,7 @@ def leak_layer(w, h, kind, seed):
         band = np.exp(-(d / 0.3) ** 1.3) * (0.8 + 0.3 * wob)
         col = _ramp((along - c + 0.5) * 1.1, RAINBOW)
         leak = col * (band[..., None] * 0.75)
-        return Image.fromarray((np.clip(leak, 0, 1) * 255 + 0.5).astype(np.uint8)).resize((w, h), Image.BILINEAR)
+        return par_resize(Image.fromarray((np.clip(leak, 0, 1) * 255 + 0.5).astype(np.uint8)), (w, h), Image.BILINEAR)
     elif kind == "cold":
         m = 1.1 * np.exp(-(d / 0.3) ** 1.3) * np.exp(-((along - c) / 0.45) ** 2) * wob
         pal, gain = COLD, 0.9
@@ -118,7 +118,7 @@ def leak_layer(w, h, kind, seed):
         m = np.zeros((sh, sw), dtype=np.float32)
     m = np.clip(m, 0, 1.2).astype(np.float32)
     leak = _ramp(m, pal) * (np.clip(m, 0, 1)[..., None] * gain)
-    return Image.fromarray((np.clip(leak, 0, 1) * 255 + 0.5).astype(np.uint8)).resize((w, h), Image.BILINEAR)
+    return par_resize(Image.fromarray((np.clip(leak, 0, 1) * 255 + 0.5).astype(np.uint8)), (w, h), Image.BILINEAR)
 
 
 def leak_seed(ph):
@@ -227,9 +227,7 @@ def source_image(ph, mode):
     crop = ph.get("crop")
     if mode == "full" and has(ph["src"]):
         img = crop_img(open_src(ph["src"], FULL_EDGE if FULL_EDGE and not crop else None), crop).convert("RGB")
-        if FULL_EDGE:
-            img.thumbnail((FULL_EDGE, FULL_EDGE), Image.LANCZOS)
-        return img
+        return fit(img, FULL_EDGE) if FULL_EDGE else img
     if not has(ph["work"]):
         raise RuntimeError(L("кадр в архиве: исходник удалён для экономии места", "frame is archived: the original was deleted to save space"))
     if mode in ("full", "work"):
@@ -237,15 +235,13 @@ def source_image(ph, mode):
         if crop and mode == "work" and max(img.size) < WORK_EDGE * 0.75 and has(ph["src"]):
             # сильный кроп: из рабочей копии вышло бы мыльно — берём оригинал, декодируя его сразу уменьшенным
             x, y, w, h = map(float, crop.split(","))
-            img = crop_img(open_src(ph["src"], int(WORK_EDGE / max(w, h))), crop).convert("RGB")
-            img.thumbnail((WORK_EDGE, WORK_EDGE), Image.LANCZOS)
+            img = fit(crop_img(open_src(ph["src"], int(WORK_EDGE / max(w, h))), crop).convert("RGB"), WORK_EDGE)
         return img.convert("RGB")
     key = (ph["id"], VIEW_EDGE, crop)
     with BASE_LOCK:
         img = BASE_CACHE.get(key)
     if img is None:
-        img = crop_img(Image.open(ph["work"]), crop).convert("RGB")
-        img.thumbnail((VIEW_EDGE, VIEW_EDGE), Image.LANCZOS)
+        img = fit(crop_img(Image.open(ph["work"]), crop).convert("RGB"), VIEW_EDGE)
         with BASE_LOCK:
             BASE_CACHE[key] = img
             while len(BASE_CACHE) > 4:     # ~7 МБ на кадр в каждом процессе-работнике

@@ -893,10 +893,14 @@ function rememberView(p) {
 }
 function indexOf(id) { return photos.findIndex((x) => x.id === id); }
 
-async function api(path, body, retried) {
+async function api(path, body, retried, busy = 0) {
   const opts = { headers: { "X-Token": token } };
   if (body !== undefined) { opts.method = "POST"; opts.headers["Content-Type"] = "application/json"; opts.body = JSON.stringify(body); }
   const r = await fetch(path, opts);
+  if (r.status === 429 && body === undefined && busy < 3) {     // сервер просит не частить (быстро листали ленту) — переждать и повторить
+    await new Promise((ok) => setTimeout(ok, 1500 * (busy + 1)));
+    return api(path, body, retried, busy + 1);
+  }
   const j = await r.json().catch(() => ({}));
   if (r.status === 401 && !retried && token && await reauth()) return api(path, body, true);
   if (!r.ok) { const e = new Error(j.error || T(`Сервер ответил ${r.status}`, `Server responded ${r.status}`)); e.status = r.status; throw e; }
@@ -1011,7 +1015,7 @@ function fillCell(el, p) {
   el.setAttribute("aria-label", T(`Кадр ${p.id}, ${p.preset_name}${p.pending ? ", проявляется" : ""}`, `Frame ${p.id}, ${p.preset_name}${p.pending ? ", developing" : ""}`));
   const img = el.querySelector("img");
   const src = url(`/img/thumb/${p.id}`, `&v=${p.v}`);
-  if (p.v && img.getAttribute("src") !== src) img.src = src;
+  if (p.v && img.getAttribute("src") !== src) { img.src = src; retryImg(img); }
   el.querySelector(".name").textContent = p.preset_name;
 }
 function updateCell(i) {
@@ -1318,7 +1322,8 @@ async function loadMore() {
     if (!j.photos.length || photos.length >= total) finished = true;
     if (start === 0) rebuildFeed(); else { appendPhotos(photos.slice(start), start); renderHeader(); }
   } catch (e) {
-    $("feed").innerHTML = T(`<div class="state"><strong>Лента не загрузилась</strong><p>${esc(e.message)}</p></div>`,
+    if (photos.length) toast(T(`Не догрузилось: ${e.message}`, `Could not load more: ${e.message}`));   // уже показанное не стираем — догрузится при прокрутке
+    else $("feed").innerHTML = T(`<div class="state"><strong>Лента не загрузилась</strong><p>${esc(e.message)}</p></div>`,
       `<div class="state"><strong>Feed did not load</strong><p>${esc(e.message)}</p></div>`);
   } finally { loading = false; }
 }

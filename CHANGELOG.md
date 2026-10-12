@@ -28,6 +28,10 @@ English first, [по-русски — ниже](#журнал-изменений
 - The beta page has a light / dark switch; the theme and language are set before the page is drawn, and a newcomer at the site address goes to the beta page before the app appears — no flash on the way in.
 - Push notifications: the sending part is a separate function (`push.push_send`) usable for any message.
 
+### Speed: one frame on all cores
+- A big frame is developed on all cores at once: the film LUT, softening blur, downscaling and stretching of grain, glow and light leaks run in horizontal strips in threads (Pillow lets go of the GIL there), with the same pixels as before. On 4 cores a 24 MP export takes about a third less time, and a new frame reaches the screen sooner.
+- Scrolling the feed fast no longer ends with "Feed did not load": when the server asks to slow down (429), the app waits and retries; a failed next page no longer wipes the frames already shown, and thumbnails retry on their own.
+
 ### Protection against load from strangers
 - New renders (a preview that is not cached yet, the live editor preview, the original for cropping) come from a per-user budget (`RENDER_BURST` 90 in a row, then `RENDER_PER_MIN` 180 a minute; the admin is not limited): a script that walks through light-leak variants or crops can no longer take the processor from everyone and fill the disk with cache. Cached images are always free; film cards retry quietly if the server asks to slow down.
 - One archive at a time per person, at most three uploads at once; light-leak variant numbers are bounded.
@@ -202,6 +206,10 @@ English first, [по-русски — ниже](#журнал-изменений
 - `BETA_UNTIL` — когда кончается вся бета: страница показывает обратный отсчёт, после него занять слот нельзя.
 - На странице беты — переключатель светлой и тёмной темы; тема и язык ставятся до отрисовки, а новичок с адреса сайта попадает на страницу беты раньше, чем появится приложение, — без мигания при входе.
 - Уведомления: отправка вынесена в отдельную функцию (`push.push_send`) для любых сообщений.
+
+### Скорость: один кадр на всех ядрах
+- Большой кадр проявляется на всех ядрах сразу: LUT плёнки, смягчение, уменьшение и растяжение зерна, свечения и засветов считаются горизонтальными полосами в потоках (Pillow там отпускает GIL), пиксели те же. На 4 ядрах выгрузка 24 Мп занимает примерно на треть меньше времени, а новый кадр быстрее появляется на экране.
+- Быстрая прокрутка ленты больше не кончается «Лента не загрузилась»: когда сервер просит не частить (429), приложение ждёт и повторяет запрос; неудачная догрузка не стирает уже показанные кадры, а миниатюры повторяют загрузку сами.
 
 ### Защита от нагрузки чужими людьми
 - Новые отрисовки (превью, которого ещё нет в кэше, живой просмотр редактора, исходник для кадрирования) идут из запаса пользователя (`RENDER_BURST` — 90 подряд, дальше `RENDER_PER_MIN` — 180 в минуту; администратора не касается): скрипт, перебирающий варианты засвета или рамки, больше не отнимет процессор у всех и не забьёт диск кэшем. Готовое из кэша — всегда без счёта; карточки плёнок сами повторяют запрос, если сервер попросил не частить.
