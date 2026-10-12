@@ -468,7 +468,7 @@ def try_look(uid, data):
         raise ValueError(L("кадр в архиве", "frame is archived"))
     if strength not in STRENGTHS:
         strength = 100
-    edge = data.get("edge") if data.get("edge") in (420, 1000) else 420     # 1000 — редактор на широком экране
+    edge = data.get("edge") if data.get("edge") in (420, 1000, 1600) else 420     # 1000 — широкий экран, 1600 — зум
     params = clean_params(data.get("params"))
     render_budget(uid)
     return FAST.submit(job_try, dict(ph), params, strength, None, edge).result(timeout=120)

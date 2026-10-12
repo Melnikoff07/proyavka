@@ -406,6 +406,15 @@
             display: flex; align-items: center; justify-content: center; }
   .ed-pic img { max-width: 100%; max-height: 100%; object-fit: contain; transition: opacity .15s linear; border-radius: 16px; }
   .ed-pic.busy img { opacity: .7; }
+  .ed-pic img, .lv-pic img { cursor: zoom-in; }
+  .zv { position: fixed; inset: 0; z-index: 40; background: #000; overflow: hidden; touch-action: none; user-select: none; -webkit-user-select: none; }
+  .zv[hidden] { display: none; }
+  .zv img { position: absolute; left: 0; top: 0; transform-origin: 0 0; max-width: none; will-change: transform; }
+  .zv.drag img { cursor: grabbing; }
+  .zv-x { position: absolute; right: 14px; top: calc(14px + env(safe-area-inset-top, 0px)); background: rgba(20,20,19,.6); color: #fff; }
+  .zv-s { position: absolute; left: 50%; bottom: calc(18px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); padding: 7px 12px;
+          border-radius: 99px; background: rgba(20,20,19,.6); color: #fff; }
+  .zv.busy .zv-s::after { content: " · …"; }
   .ed-pic p { margin: 0; }
   .ed-top { padding: 6px var(--pad) 12px; display: flex; align-items: center; gap: 12px; }
   .ed-name { flex: 1; min-width: 0; font: inherit; font-size: 26px; font-weight: 500; letter-spacing: -.035em; color: var(--text);
@@ -789,6 +798,8 @@
 <div class="uploader" id="shareBar" hidden role="status">
   <div class="up-row cap"><span id="sbText"></span><span><button id="sbClose" data-i18n="Cancel">Отмена</button>&nbsp;&nbsp;&nbsp;<button id="sbSave" style="opacity:1" data-i18n="Save">Сохранить</button></span></div>
 </div>
+<div class="zv" id="zv" hidden role="dialog" aria-label="Кадр" data-i18n-aria="Frame"><img id="zvImg" alt="">
+  <button class="rbtn zv-x" id="zvClose" aria-label="Закрыть" data-i18n-aria="Close">✕</button><span class="zv-s cap" id="zvS" hidden></span></div>
 <div class="toast cap" id="toast" role="status"></div>
 
 <script>
@@ -1172,7 +1183,7 @@ $("sDelete").onclick = () => {
 
 /* вне Telegram нет его кнопки «назад»: открытые слои кладём в историю, системный «назад» их закрывает */
 let histPushed = false, histIgnore = false;
-function layerOpen() { return !$("setup").hidden || cur >= 0 || selecting || !$("sheet").hidden || !$("albumSheet").hidden || !$("settings").hidden || !$("lookEd").hidden || !$("community").hidden || !$("lookView").hidden || !!crop; }
+function layerOpen() { return !$("zv").hidden || !$("setup").hidden || cur >= 0 || selecting || !$("sheet").hidden || !$("albumSheet").hidden || !$("settings").hidden || !$("lookEd").hidden || !$("community").hidden || !$("lookView").hidden || !!crop; }
 function syncHistory() {
   if (tg) return;
   const open = layerOpen();
@@ -1188,6 +1199,7 @@ addEventListener("popstate", () => {
 });
 
 function onBack() {
+  if (!$("zv").hidden) return closeZoom();
   if (!$("setup").hidden) return suBackStep();
   if (!$("albumSheet").hidden) return closeAlbumSheet();
   if (!$("lookView").hidden) return closeLookView();
@@ -1651,6 +1663,128 @@ function zoomAt(s, cx, cy) {
   zoomApply();
 }
 function zoomReset() { zoom.s = 1; zoomApply(); }
+
+/* превью на весь экран с зумом (редактор плёнки, экран плёнки): сразу то, что уже на экране, крупная версия догружается.
+   Касание без сдвига при обычном масштабе — закрыть; двойное — приблизить; два пальца, колесо, перетаскивание — как в просмотре кадра */
+const zv = { s: 1, x: 0, y: 0, w: 0, h: 0, base: 1, hi: null };
+function zvLayout() {                     // кадр вписан в экран при масштабе 1
+  const img = $("zvImg"), W = innerWidth, H = innerHeight;
+  if (!img.naturalWidth) return;
+  zv.base = Math.min(W / img.naturalWidth, H / img.naturalHeight);
+  zv.w = img.naturalWidth * zv.base; zv.h = img.naturalHeight * zv.base;
+  Object.assign(img.style, { width: zv.w + "px", height: zv.h + "px" });
+  zvApply();
+}
+function zvApply() {
+  const W = innerWidth, H = innerHeight, w = zv.w * zv.s, h = zv.h * zv.s;
+  if (zv.s <= 1.01) zv.s = 1;
+  // меньше экрана по стороне — по центру, больше — двигается, но без пустых полей
+  zv.x = w <= W ? (W - w) / 2 : clamp(zv.x, W - w, 0);
+  zv.y = h <= H ? (H - h) / 2 : clamp(zv.y, H - h, 0);
+  $("zvImg").style.transform = `translate(${zv.x}px, ${zv.y}px) scale(${zv.s})`;
+  $("zvS").hidden = zv.s === 1;
+  $("zvS").textContent = `${Math.round(zv.s * 100)}%`;
+}
+function zvAt(s, cx, cy) {
+  if (cx === undefined) { cx = innerWidth / 2; cy = innerHeight / 2; }
+  s = clamp(s, 1, ZMAX);
+  zv.x = cx - (cx - zv.x) * s / zv.s;
+  zv.y = cy - (cy - zv.y) * s / zv.s;
+  zv.s = s;
+  zvApply();
+}
+// src — уже показанная картинка; hi — промис адреса крупной версии (или null)
+function openZoom(src, hi) {
+  const img = $("zvImg");
+  Object.assign(zv, { s: 1, hi: null });
+  img.onload = zvLayout;
+  img.src = src;
+  $("zv").hidden = false;
+  if (img.complete) zvLayout();
+  syncHistory();
+  if (!hi) return;
+  $("zv").classList.add("busy");
+  const my = zv.hi = {};
+  Promise.resolve(hi).then((big) => {
+    if (zv.hi !== my || !big) return;
+    const pre = new Image();
+    pre.onload = () => {
+      if (zv.hi !== my || $("zv").hidden) return;
+      img.onload = () => { const s = zv.s, x = zv.x, y = zv.y; zvLayout(); Object.assign(zv, { s, x, y }); zvApply(); };
+      img.src = big;
+      $("zv").classList.remove("busy");
+    };
+    pre.onerror = () => $("zv").classList.remove("busy");
+    pre.src = big;
+  }).catch(() => $("zv").classList.remove("busy"));
+}
+function closeZoom() {
+  if ($("zv").hidden) return;
+  $("zv").hidden = true;
+  $("zv").classList.remove("busy");
+  const old = $("zvImg").src;
+  zv.hi = null;
+  $("zvImg").removeAttribute("src");
+  if (old.startsWith("blob:") && old !== $("edImg").src) URL.revokeObjectURL(old);
+  syncHistory();
+}
+$("zvClose").onclick = (e) => { e.stopPropagation(); onBack(); };
+document.addEventListener("keydown", (e) => {
+  if ($("zv").hidden) return;
+  if (e.key === "Escape") { e.stopImmediatePropagation(); onBack(); }
+  if (e.key === "+" || e.key === "=") zvAt(zv.s * 1.5);
+  if (e.key === "-") zvAt(zv.s / 1.5);
+}, true);
+addEventListener("resize", () => { if (!$("zv").hidden) zvLayout(); });
+$("zv").addEventListener("wheel", (e) => { e.preventDefault(); zvAt(zv.s * Math.exp(-e.deltaY * (e.ctrlKey ? 0.01 : 0.0025)), e.clientX, e.clientY); }, { passive: false });
+{
+  const pts = new Map(), box = $("zv");
+  let last = null, startDist = 0, startS = 1, lastTap = 0, tap = null, tapT = 0, pinched = false;
+  const mid = () => { const a = [...pts.values()]; return { x: (a[0].x + a[1].x) / 2, y: (a[0].y + a[1].y) / 2, d: Math.hypot(a[0].x - a[1].x, a[0].y - a[1].y) }; };
+  box.addEventListener("pointerdown", (e) => {
+    if (e.target.closest("button")) return;
+    clearTimeout(tapT);
+    tap = pts.size ? null : { x: e.clientX, y: e.clientY, t: Date.now() };
+    pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    box.setPointerCapture(e.pointerId);
+    if (pts.size === 2) { const m = mid(); startDist = m.d; startS = zv.s; last = m; pinched = true; }
+    else if (pts.size === 1) {
+      last = { x: e.clientX, y: e.clientY };
+      pinched = false;
+      const now = Date.now();
+      if (now - lastTap < 300) { zvAt(zv.s > 1 ? 1 : 2.5, e.clientX, e.clientY); lastTap = 0; tap = null; } else lastTap = now;
+      if (zv.s > 1) box.classList.add("drag");
+    }
+  });
+  box.addEventListener("pointermove", (e) => {
+    if (!pts.has(e.pointerId)) return;
+    pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (pts.size === 2) {
+      const m = mid();
+      zvAt(startS * (m.d / (startDist || 1)), m.x, m.y);
+      zv.x += m.x - last.x; zv.y += m.y - last.y; zvApply();
+      last = m;
+    } else if (pts.size === 1 && zv.s > 1) {
+      zv.x += e.clientX - last.x; zv.y += e.clientY - last.y;
+      last = { x: e.clientX, y: e.clientY };
+      zvApply();
+    }
+  });
+  const up = (e) => {
+    // короткое касание без сдвига при обычном масштабе — закрыть (с паузой, чтобы не спутать с двойным)
+    if (tap && pts.size === 1 && !pinched && e.type === "pointerup" && Date.now() - tap.t < 350
+        && Math.hypot(e.clientX - tap.x, e.clientY - tap.y) < 8 && zv.s === 1) {
+      tapT = setTimeout(() => { if (!$("zv").hidden && zv.s === 1) onBack(); }, 300);
+    }
+    tap = null;
+    pts.delete(e.pointerId);
+    if (pts.size < 2) startDist = 0;
+    if (pts.size === 1) last = [...pts.values()][0];
+    if (!pts.size) box.classList.remove("drag");
+  };
+  box.addEventListener("pointerup", up);
+  box.addEventListener("pointercancel", up);
+}
 
 /* полный размер: при увеличении больше 1,4× догружаем кадр целиком (сервер рисует его раз на правку и кэширует) */
 const full = { id: 0, v: 0, ok: false, loading: "" };
@@ -2942,6 +3076,13 @@ function edPreview() {
   }, 140);
 }
 const edCmp = attachCompare($("edImg"), $("edPic"));
+$("edImg").onclick = () => {
+  if (!ed || !ed.photo || $("edImg").hidden || edCmp.on) return;
+  const e = ed;
+  openZoom($("edImg").src, fetch("/api/look/try", { method: "POST", headers: { "X-Token": token, "Content-Type": "application/json" },
+                                                    body: JSON.stringify({ id: e.photo.id, params: e.P, edge: 1600 }) })
+    .then((r) => (r.ok ? r.blob() : null)).then((b) => (b ? URL.createObjectURL(b) : null)));
+};
 $("edCmp").onclick = () => {
   if (!ed || !ed.photo) return;
   const on = $("edCmp").getAttribute("aria-pressed") !== "true";
@@ -3283,6 +3424,7 @@ async function sendToFriend(f) {
 /* экран плёнки: ползунок «до/после» на твоём кадре или на образце, потом «Добавить» / «Применить» */
 let lv = null;              // { i, src: "mine" | "sample" }
 const lvCmp = attachCompare($("lvImg"), $("lvPic"));
+$("lvImg").onclick = () => { if (!lvCmp.on && $("lvImg").getAttribute("src")) openZoom($("lvImg").src); };
 function openLookView(i) {
   lv = { i, src: cm.ctx ? "mine" : "sample" };
   showLayer($("lookView"));
