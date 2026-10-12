@@ -321,8 +321,41 @@
   .st-opts .opt { padding: 7px 10px; }
   .st-select { font: inherit; color: var(--text); background: var(--raise); border: 0; padding: 9px 14px; min-width: 0; max-width: 60%; border-radius: 99px; }
   .st-big { padding: 2px var(--pad) 0; font-size: 34px; line-height: 1; font-weight: 500; letter-spacing: -.04em; }
-  .st-bar { margin: 14px var(--pad) 0; height: 8px; background: var(--raise); border-radius: 99px; overflow: hidden; }
-  .st-bar i { display: block; height: 100%; width: 0; min-width: 8px; background: var(--acc); border-radius: 99px; }
+  /* шапка слоёв «Настройки» и «Своя плёнка»: круглые кнопки, заголовок страницы крупно */
+  .lhead { align-items: center; padding: 10px var(--pad) 6px; }
+  .rbtn { width: 44px; height: 44px; border-radius: 50%; background: var(--tile); color: var(--text); display: inline-grid; place-items: center;
+          font-size: 18px; padding: 0; }
+  .rbtn[aria-pressed="true"] { background: var(--btn-bg); color: var(--btn-text); }
+  .rbtn[hidden] { display: none; }
+  .lhead .vback { padding: 0; }
+  .st-title { margin: 14px var(--pad) 18px; font-size: 40px; line-height: 1; font-weight: 500; letter-spacing: -.045em; }
+  .st-beta { background: var(--acc); color: var(--acc-ink); border-radius: var(--r-card); margin: 0 var(--pad); padding: 18px var(--pad) 20px; }
+  .st-beta .cap { opacity: .85; }
+  .st-beta .n { font-size: 76px; line-height: .9; font-weight: 500; letter-spacing: -.06em; margin-top: 10px; }
+  .st-beta .n sup { font-size: 26px; letter-spacing: 0; vertical-align: top; position: relative; top: .25em; margin: 0 .12em 0 .06em; }
+  .st-beta p { margin: 12px 0 0; font-size: 14px; line-height: 1.35; opacity: .9; max-width: 34ch; }
+  .st-num { display: flex; align-items: baseline; gap: 8px; padding: 6px var(--pad) 0; }
+  .st-num b { font-size: 76px; line-height: .9; font-weight: 500; letter-spacing: -.06em; }
+  .st-num span { color: var(--muted); }
+  .st-dots { display: grid; grid-template-columns: repeat(25, 1fr); gap: 5px; padding: 18px var(--pad) 2px; }
+  .st-dots i { aspect-ratio: 1; border-radius: 50%; background: var(--rule); }
+  .st-dots i.on { background: var(--text); }
+  .st-card { padding: 4px 0; }
+  .st-card .st-row { padding: 0 var(--pad); min-height: 64px; }
+  .st-card .st-row + .st-row { border-top: 1px solid var(--rule); }
+  .st-card .st-row > span:first-child { flex: 0 0 auto; }
+  .st-card .st-opts .opt { padding: 7px 12px; }
+  .st-card .st-note { padding: 0 var(--pad) 14px; margin: 0; font-size: 13px; }
+  .st-pick { position: relative; color: var(--muted); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .st-pick::after { content: " ›"; }
+  .st-pick select { position: absolute; inset: 0; opacity: 0; width: 100%; font-size: 16px; }
+  .sw { width: 52px; height: 32px; border-radius: 99px; background: var(--raise); position: relative; flex: 0 0 auto; padding: 0;
+        transition: background .2s; }
+  .sw::after { content: ""; position: absolute; top: 4px; left: 4px; width: 24px; height: 24px; border-radius: 50%; background: var(--muted);
+               transition: transform .2s, background .2s; }
+  .sw[aria-checked="true"] { background: var(--acc); }
+  .sw[aria-checked="true"]::after { transform: translateX(20px); background: #fff; }
+  .sw:disabled { opacity: .4; }
   .st-p { padding: 8px var(--pad) 0; margin: 0; max-width: 56ch; }
   .st-link { display: block; padding: 12px var(--pad) 0; color: var(--text); text-decoration: underline; text-underline-offset: 3px; }
   .st-link:disabled { text-decoration: none; color: var(--muted); opacity: 1; }
@@ -369,22 +402,33 @@
   .ed-cats button[aria-selected="true"] { background: var(--btn-bg); color: var(--btn-text); }
   .ed-sec:not(.on) { display: none; }
   .ed-sec > .ed-h { display: none; }
-  .ed-pic { height: min(50vh, calc((100vw - 2 * var(--pad)) * .8)); min-height: 200px; padding: 0 var(--pad) 10px;
+  .ed-pic { height: min(46vh, calc((100vw - 2 * var(--pad)) * .7)); min-height: 200px; padding: 0 var(--pad) 10px;
             display: flex; align-items: center; justify-content: center; }
   .ed-pic img { max-width: 100%; max-height: 100%; object-fit: contain; transition: opacity .15s linear; border-radius: 16px; }
   .ed-pic.busy img { opacity: .7; }
   .ed-pic p { margin: 0; }
-  .ed-top { padding: 4px var(--pad) 0; display: flex; flex-direction: column; gap: 10px; }
-  .ed-top .st-select { max-width: none; width: 100%; padding: 13px 16px; background: var(--tile); border-radius: 14px; }
+  .ed-top { padding: 6px var(--pad) 12px; display: flex; align-items: center; gap: 12px; }
+  .ed-name { flex: 1; min-width: 0; font: inherit; font-size: 26px; font-weight: 500; letter-spacing: -.035em; color: var(--text);
+             background: none; border: 0; padding: 4px 0; text-overflow: ellipsis; }
+  .ed-name:focus { outline: none; box-shadow: 0 2px 0 var(--rule); }
+  .ed-base { position: relative; flex: 0 0 auto; padding: 9px 14px; font-size: 13px; border-radius: 99px; background: var(--tile); white-space: nowrap; }
+  .ed-base[hidden] { display: none; }
+  .ed-base select { position: absolute; inset: 0; opacity: 0; width: 100%; font-size: 16px; }
+  .ed-links { display: flex; gap: 22px; padding: 22px var(--pad) 0; }
+  #lookEd { padding-bottom: 0; }
+  .ed-save { position: sticky; bottom: 0; z-index: 2; padding: 18px var(--pad) calc(14px + env(safe-area-inset-bottom, 0px));
+             background: linear-gradient(to bottom, transparent, var(--bg) 40%); }
+  .ed-save .btn { width: 100%; height: 56px; font-size: 17px; }
   .ed-sl { padding: 8px var(--pad) 0; }
   .ed-sl .row { display: flex; justify-content: space-between; align-items: baseline; }
   .ed-sl .v { color: var(--muted); }
-  .ed-sl input[type=range] { -webkit-appearance: none; appearance: none; width: 100%; margin: 4px 0 0; height: 30px; background: none; --a: 0%; --b: 0%; }
-  .ed-sl input[type=range]::-webkit-slider-runnable-track { height: 3px; border-radius: 3px;
+  .ed-sl input[type=range] { -webkit-appearance: none; appearance: none; width: 100%; margin: 4px 0 0; height: 30px; --a: 0%; --b: 0%; --z: -10px;
+    background: linear-gradient(var(--acc), var(--acc)) no-repeat; background-size: 2px 12px; background-position: var(--z) 50%; }
+  .ed-sl input[type=range]::-webkit-slider-runnable-track { height: 2px; border-radius: 2px;
     background: linear-gradient(to right, var(--rule) var(--a), var(--acc) var(--a), var(--acc) var(--b), var(--rule) var(--b)); }
-  .ed-sl input[type=range]::-moz-range-track { height: 3px; border-radius: 3px;
+  .ed-sl input[type=range]::-moz-range-track { height: 2px; border-radius: 2px;
     background: linear-gradient(to right, var(--rule) var(--a), var(--acc) var(--a), var(--acc) var(--b), var(--rule) var(--b)); }
-  .ed-sl input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 24px; height: 24px; margin-top: -10.5px; border-radius: 50%;
+  .ed-sl input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 24px; height: 24px; margin-top: -11px; border-radius: 50%;
     background: var(--raise); box-shadow: 0 1px 5px rgba(0,0,0,.25), 0 0 0 1px var(--rule); }
   .ed-sl input[type=range]::-moz-range-thumb { width: 24px; height: 24px; border: 0; border-radius: 50%;
     background: var(--raise); box-shadow: 0 1px 5px rgba(0,0,0,.25), 0 0 0 1px var(--rule); }
@@ -463,7 +507,9 @@
     #lookEd:not([hidden]) { display: grid; grid-template-columns: minmax(0, 1fr) 420px; align-content: start; }
     #lookEd > .vbar { grid-column: 1 / -1; }
     #lookEd > .ed-stick { grid-column: 1; grid-row: 2 / span 20; height: calc(100vh - 48px); border-bottom: 0; }
-    #lookEd > .ed-stick .ed-pic { height: 100%; padding: 0 24px 24px; }
+    #lookEd > .ed-stick { display: flex; flex-direction: column; }
+    #lookEd > .ed-stick .ed-pic { flex: 1; height: auto; min-height: 0; padding: 0 24px 12px; }
+    #lookEd > .ed-stick .ed-top { padding: 0 24px 20px; }
     #lookEd > .ed-stick .ed-cats { display: none; }
     #lookEd > :not(.vbar):not(.ed-stick) { grid-column: 2; }
     #lookEd > .ed-top, #lookEd > #edBody, #lookEd > .actions { border-left: 1px solid var(--rule); }
@@ -640,17 +686,19 @@
   </div>
 </section>
 <section class="settings layer2" id="lookEd" hidden aria-label="Редактор плёнки" data-i18n-aria="Film editor">
-  <div class="vbar cap"><span class="vleft"><button class="vback" id="edBack" aria-label="Назад" data-i18n-aria="Back">←</button><span id="edTitle"></span></span><span></span><span></span></div>
+  <div class="vbar lhead"><span class="vleft"><button class="vback rbtn" id="edBack" aria-label="Назад" data-i18n-aria="Back">←</button></span>
+    <span class="cap muted" id="edTitle"></span>
+    <span><button class="rbtn" id="edCmp" aria-pressed="false" aria-label="До / после" data-i18n-aria="Before / after">◐</button></span></div>
   <div class="ed-stick">
     <div class="ed-pic" id="edPic"><img id="edImg" alt="" hidden><p class="muted" id="edNoPic" hidden></p></div>
+    <div class="ed-top"><input class="ed-name" id="edName" maxlength="32" autocomplete="off" aria-label="Название" data-i18n-aria="Name">
+      <label class="ed-base" id="edBaseBox"><span data-i18n="Based on">Основа</span> ›<select id="edBase" aria-label="Основа" data-i18n-aria="Based on"></select></label></div>
     <div class="ed-cats" id="edCats" role="tablist" aria-label="Настройки плёнки" data-i18n-aria="Film settings"></div>
   </div>
-  <div class="ed-top"><input class="al-name" id="edName" maxlength="32" autocomplete="off">
-    <button class="tog" id="edCmp" aria-pressed="false" style="align-self:flex-start" data-i18n="Before / after">До / после</button>
-    <select class="st-select" id="edBase" aria-label="Основа" data-i18n-aria="Based on"></select></div>
   <div id="edBody"></div>
-  <div class="actions"><button class="btn" id="edSave"></button><button class="link cap" id="edReset" data-i18n="Reset">Сбросить</button></div>
-  <div class="actions" style="padding-top:6px"><button class="link cap" id="edShare" style="color:var(--text);text-decoration:underline;text-underline-offset:3px" data-i18n="Suggest to the community">Предложить в сообщество</button></div>
+  <div class="ed-links"><button class="link cap" id="edReset" data-i18n="Reset">Сбросить</button>
+    <button class="link cap" id="edShare" style="color:var(--text);text-decoration:underline;text-underline-offset:3px" data-i18n="Suggest to the community">Предложить в сообщество</button></div>
+  <div class="ed-save"><button class="btn acc" id="edSave"></button></div>
 </section>
 <section class="settings layer2" id="community" hidden aria-label="Сообщество" data-i18n-aria="Community">
   <div class="vbar cap"><span class="vleft"><button class="vback" id="cmBack" aria-label="Назад" data-i18n-aria="Back">←</button><span data-i18n="Community">Сообщество</span></span><span></span><span></span></div>
@@ -665,28 +713,32 @@
   <div class="actions"><button class="btn" id="lvGo"></button><button class="link cap" id="lvAdd"></button></div>
 </section>
 <section class="settings" id="settings" hidden aria-label="Настройки" data-i18n-aria="Settings">
-  <div class="vbar cap"><span class="vleft"><button class="vback" id="stBack" aria-label="Назад" data-i18n-aria="Back">←</button><span data-i18n="Settings">Настройки</span></span><span></span><span></span></div>
-  <div class="st-sec" style="border-top:0">
-    <div class="st-row"><span class="cap muted" data-i18n="Name">Имя</span><button class="st-val" id="stName"></button></div>
-    <div class="st-row"><span class="cap muted" data-i18n="Language">Язык</span>
-      <div class="opts cap st-opts"><button class="opt" data-lang="ru">Русский</button><button class="opt" data-lang="en">English</button></div></div>
-    <div class="st-row"><span class="cap muted" data-i18n="Theme">Тема</span>
-      <div class="opts cap st-opts"><button class="opt" data-theme-set="auto" data-i18n="Auto">Авто</button><button class="opt" data-theme-set="light" data-i18n="Light">Светлая</button><button class="opt" data-theme-set="dark" data-i18n="Dark">Тёмная</button><button class="opt" data-theme-set="burger" data-i18n="Burger">Бургер</button></div></div>
-    <div class="st-row"><span class="cap muted" data-i18n="New frames">Новым кадрам</span><select class="st-select" id="stFilm" aria-label="Плёнка для новых кадров" data-i18n-aria="Film for new frames"></select></div>
-  </div>
-  <div class="st-sec" id="stPushSec">
-    <div class="st-h cap muted" data-i18n="Notifications">Уведомления</div>
-    <div class="st-row"><span data-i18n="New frames on this device">О новых кадрах на этом устройстве</span>
-      <div class="opts cap st-opts"><button class="opt" data-push="1" data-i18n="On">Вкл</button><button class="opt" data-push="0" data-i18n="Off">Выкл</button></div></div>
-    <p class="muted st-p" id="stPushNote"></p>
+  <div class="vbar lhead"><span class="vleft"><button class="vback rbtn" id="stBack" aria-label="Назад" data-i18n-aria="Back">←</button></span><span></span><span></span></div>
+  <h1 class="st-title" data-i18n="Settings">Настройки</h1>
+  <div class="st-beta" id="stBeta" hidden>
+    <div class="cap" data-i18n="Beta · left">Бета · осталось</div>
+    <div class="n" id="stBetaLeft"></div>
+    <p data-i18n="Then the account and its frames are deleted — download what you need.">Потом аккаунт и кадры удалятся — скачай нужное.</p>
   </div>
   <div class="st-sec">
     <div class="st-h cap muted" data-i18n="Storage">Место</div>
-    <div class="st-big" id="stUsed"></div>
-    <div class="st-bar"><i id="stBar"></i></div>
+    <div class="st-num"><b id="stUsedN"></b><span id="stUsedOf"></span></div>
+    <div class="st-dots" id="stDots" aria-hidden="true"></div>
     <p class="muted st-p" id="stUsedNote"></p>
     <button class="st-link cap" id="stTrashBtn"></button>
     <div class="grid st-grid" id="stTrash" hidden></div>
+  </div>
+  <div class="st-sec st-card">
+    <div class="st-row"><span data-i18n="Name">Имя</span><button class="st-val" id="stName"></button></div>
+    <div class="st-row"><span data-i18n="Language">Язык</span>
+      <div class="opts st-opts"><button class="opt" data-lang="ru">RU</button><button class="opt" data-lang="en">EN</button></div></div>
+    <div class="st-row"><span data-i18n="Theme">Тема</span>
+      <div class="opts st-opts"><button class="opt" data-theme-set="auto" data-i18n="Auto">Авто</button><button class="opt" data-theme-set="light" data-i18n="Light">Свет</button><button class="opt" data-theme-set="dark" data-i18n="Dark">Тьма</button><button class="opt" data-theme-set="burger" data-i18n="Burger">Бургер</button></div></div>
+    <div class="st-row" id="stPushSec"><span data-i18n="Notifications">Уведомления</span>
+      <button class="sw" id="stPushSw" role="switch" aria-checked="false" aria-label="Уведомления о новых кадрах" data-i18n-aria="New frame notifications"></button></div>
+    <div class="st-row"><span data-i18n="Film for new frames">Плёнка новым кадрам</span>
+      <label class="st-pick"><span id="stFilmName"></span><select id="stFilm" aria-label="Плёнка для новых кадров" data-i18n-aria="Film for new frames"></select></label></div>
+    <p class="muted st-note" id="stPushNote" hidden></p>
   </div>
   <div class="st-sec">
     <div class="st-h cap muted" data-i18n="Albums by link">Альбомы по ссылке</div>
@@ -1816,8 +1868,9 @@ async function renderMe(j) {
   const films = [{ key: "auto", name: T("Авто по ситуации", "Auto by scene") }].concat(presets);
   $("stFilm").replaceChildren(...films.map((f) => Object.assign(document.createElement("option"), { value: f.key, textContent: f.name })));
   $("stFilm").value = me.default_film;
-  $("stUsed").textContent = T(`${fmtB(me.used)} из ${fmtB(me.limit)}`, `${fmtB(me.used)} of ${fmtB(me.limit)}`);
-  $("stBar").style.width = Math.min(100, (me.used / me.limit) * 100) + "%";
+  $("stFilmName").textContent = (films.find((f) => f.key === me.default_film) || films[0]).name.replace(T(" по ситуации", " by scene"), "");
+  renderStorage(me.used, me.limit);
+  renderBetaLeft(me.expires);
   $("stUsedNote").textContent = T(`Кадров в ленте: ${me.frames}. Когда место кончается, сначала чистится корзина, потом самые старые оригиналы${me.orig_days ? ` — и так оригиналы живут ${me.orig_days} дн.` : "."}`,
                                   `Frames in the feed: ${me.frames}. When space runs out, the trash goes first, then the oldest originals${me.orig_days ? ` — originals are kept ${me.orig_days} days anyway.` : "."}`);
   $("stTrashBtn").textContent = me.trash ? T(`Корзина: ${me.trash}`, `Trash: ${me.trash}`) : T("Корзина пуста", "The trash is empty");
@@ -1891,13 +1944,32 @@ async function pushState() {
   if (!reg) return "unsupported";
   return (await reg.pushManager.getSubscription()) ? "on" : "off";
 }
+// место: крупное число и сетка точек (одна точка — круглое число МБ, всего точек не больше 50)
+function renderStorage(used, limit) {
+  const MB = 1e6, big = limit >= 10e9;
+  const num = (b) => (big ? (b / 1e9).toFixed(b < 10e9 ? 1 : 0) : String(Math.round(b / MB))).replace(".", T(",", "."));
+  $("stUsedN").textContent = num(used);
+  $("stUsedOf").textContent = big ? T(`ГБ из ${num(limit)}`, `GB of ${num(limit)}`) : T(`МБ из ${num(limit)}`, `MB of ${num(limit)}`);
+  const unit = [10, 20, 50, 100, 200, 500, 1e3, 2e3, 5e3, 1e4, 2e4, 5e4, 1e5].map((u) => u * MB).find((u) => limit / u <= 50) || limit / 50;
+  const n = Math.max(1, Math.round(limit / unit)), on = used > 0 ? Math.min(n, Math.max(1, Math.round(used / unit))) : 0;
+  $("stDots").replaceChildren(...Array.from({ length: n }, (_, i) => Object.assign(document.createElement("i"), { className: i < on ? "on" : "" })));
+  $("stDots").title = T(`одна точка — ${fmtB(unit)}`, `one dot — ${fmtB(unit)}`);
+}
+// бета: сколько осталось — оранжевым блоком в настройках
+function renderBetaLeft(exp) {
+  $("stBeta").hidden = !exp;
+  if (!exp) return;
+  const sec = Math.max(0, exp - Date.now() / 1000);
+  const d = Math.floor(sec / 86400), h = Math.floor((sec % 86400) / 3600), m = Math.floor((sec % 3600) / 60);
+  const u = (x) => `<sup>${x}</sup>`;
+  $("stBetaLeft").innerHTML = d ? `${d}${u(T("д", "d"))}${h}${u(T("ч", "h"))}` : `${h}${u(T("ч", "h"))}${m}${u(T("м", "m"))}`;
+}
 async function renderPush() {
   const st = await pushState().catch(() => "unsupported");
   $("stPushSec").hidden = st === "tg";
-  document.querySelectorAll("[data-push]").forEach((b) => {
-    b.setAttribute("aria-pressed", String((b.dataset.push === "1") === (st === "on")));
-    b.disabled = !["on", "off"].includes(st);
-  });
+  $("stPushSw").setAttribute("aria-checked", String(st === "on"));
+  $("stPushSw").disabled = !["on", "off"].includes(st);
+  $("stPushNote").hidden = ["on", "off", "tg"].includes(st);
   $("stPushNote").textContent = {
     on: T("Придёт, когда проявятся новые кадры, — если «Проявка» сейчас закрыта.", "You'll get one when new frames are developed — if Proyavka is closed at the time."),
     off: T("Выключены на этом устройстве.", "Off on this device."),
@@ -1906,19 +1978,21 @@ async function renderPush() {
     unsupported: T("Этот браузер не умеет уведомления.", "This browser doesn't support notifications."),
   }[st] || "";
 }
-document.querySelectorAll("[data-push]").forEach((b) => {
+{
+  const b = $("stPushSw");
   b.onclick = async () => {
     try {
+      const want = b.getAttribute("aria-checked") !== "true";
       const reg = await pushReg();
       const sub = reg && await reg.pushManager.getSubscription();
-      if (b.dataset.push === "1" && !sub) {
+      if (want && !sub) {
         if (await Notification.requestPermission() !== "granted") return renderPush();   // сразу по нажатию — иначе Safari не спросит
         const info = await api("/api/push");
         if (!info.supported) throw new Error(T("на сервере нет библиотеки для уведомлений — обнови «Проявку»", "the server can't send notifications — update Proyavka"));
         const s = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64u8(info.key) });
         await api("/api/push/subscribe", s.toJSON());
         toast(T("Уведомления включены", "Notifications are on"));
-      } else if (b.dataset.push === "0" && sub) {
+      } else if (!want && sub) {
         await api("/api/push/unsubscribe", { endpoint: sub.endpoint }).catch(() => {});
         await sub.unsubscribe();
         toast(T("Уведомления выключены", "Notifications are off"));
@@ -1927,10 +2001,11 @@ document.querySelectorAll("[data-push]").forEach((b) => {
     } catch (e) { toast(e.message); }
     renderPush();
   };
-});
+}
 
 $("stFilm").onchange = async () => {
   if (await saveMe({ default_film: $("stFilm").value })) toast(T("Так будут проявляться новые кадры", "New frames will be developed like this"));
+  $("stFilmName").textContent = $("stFilm").selectedOptions[0].textContent.replace(T(" по ситуации", " by scene"), "");
 };
 
 async function openTrash() {
@@ -2698,7 +2773,9 @@ const ED_SECTIONS = [
   { h: ["Цвета по полосам", "Colour bands"], fold: true, s: bandSliders() },
   { h: ["Смешивание каналов", "Channel mixing"], fold: true, s: mixSliders() },
 ];
-const pctOf = (s, v) => (s.fmt ? s.fmt(v) : Math.round(s.min < 0 ? (v / s.max) * 100 : ((v - s.min) / (s.max - s.min)) * 100));
+const pctRaw = (s, v) => (s.fmt ? s.fmt(v) : Math.round(s.min < 0 ? (v / s.max) * 100 : ((v - s.min) / (s.max - s.min)) * 100));
+// подпись значения: настоящий минус, в русском — запятая в дробях («+0,30 EV», «−18»)
+const pctOf = (s, v) => String(pctRaw(s, v)).replace(/-/g, "−").replace(/(\d)\.(\d)/, T("$1,$2", "$1.$2"));
 const lookRev = {};         // ключ плёнки -> метка правки: превью в ленте берутся заново, а не из кэша браузера
 let ed = null;              // { key, P, orig, photo, rows, seq, timer, ctl }
 const deep = (o) => JSON.parse(JSON.stringify(o));
@@ -2735,15 +2812,15 @@ async function openEditor({ key } = {}) {
     }
   } catch (e) { return toast(e.message); }
   ed = { key: key || null, P, orig: deep(P), photo: edPhoto(), rows: [], seq: 0, timer: 0, ctl: null, autoName: !key };
-  $("edTitle").textContent = key ? T("Изменить плёнку", "Edit film") : T("Править плёнку", "Tweak a film");
+  $("edTitle").textContent = T("Своя плёнка", "Your film");
   $("edName").value = name;
   $("edName").placeholder = T("Название", "Name");
   $("edName").oninput = () => { if (ed) ed.autoName = false; };
   $("edSave").textContent = key ? T("Сохранить", "Save") : T("Сохранить плёнку", "Save film");
   $("edSave").disabled = false;
   const base = $("edBase");
-  base.hidden = !!key;
-  base.replaceChildren(...presets.filter((f) => f.p).map((f) => Object.assign(document.createElement("option"), { value: f.key, textContent: T("Основа: ", "Based on: ") + f.name })));
+  $("edBaseBox").hidden = !!key;
+  base.replaceChildren(...presets.filter((f) => f.p).map((f) => Object.assign(document.createElement("option"), { value: f.key, textContent: f.name })));
   base.value = baseKey;
   $("edImg").hidden = true;
   edCmp.hide();
@@ -2777,7 +2854,7 @@ async function openEditor({ key } = {}) {
     for (const s of sec.s) {
       const el = document.createElement("div");
       el.className = "ed-sl";
-      el.innerHTML = `<div class="row"><span></span><span class="v cap"></span></div><input type="range" min="${s.min}" max="${s.max}" step="${s.step}">`;
+      el.innerHTML = `<div class="row"><span></span><span class="v"></span></div><input type="range" min="${s.min}" max="${s.max}" step="${s.step}">`;
       el.querySelector(".row span").textContent = T(...s.n);
       const input = el.querySelector("input"), vEl = el.querySelector(".v");
       input.setAttribute("aria-label", T(...s.n));
@@ -2825,6 +2902,7 @@ function rangeFill(input) {
   const zero = min < 0 && max > 0 ? 0 : min;
   input.style.setProperty("--a", at(Math.min(zero, v)));
   input.style.setProperty("--b", at(Math.max(zero, v)));
+  input.style.setProperty("--z", min < 0 && max > 0 ? at(0) : "-10px");     // отметка нуля у ползунков «±»
 }
 function edSync() {
   for (const { s, input, vEl } of ed.rows) { const v = s.get(ed.P); input.value = v; vEl.textContent = pctOf(s, v); rangeFill(input); }
