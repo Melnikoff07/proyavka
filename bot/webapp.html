@@ -208,7 +208,14 @@
                      animation: run 1s linear infinite; }
   @keyframes run { from { transform: translateX(-100%); } to { transform: translateX(340%); } }
 
-  .panel { padding: 16px 0 calc(14px + env(safe-area-inset-bottom, 0px)); background: var(--tile); border-radius: 28px 28px 0 0; }
+  .panel { padding: 16px 0 calc(14px + env(safe-area-inset-bottom, 0px)); background: var(--tile); border-radius: 28px 28px 0 0;
+           transition: margin-bottom .38s cubic-bezier(.2, .8, .2, 1), opacity .25s; }
+  /* тап по кадру: панель уезжает вниз, кадр — на весь экран (ещё тап — вернуть) */
+  .viewer.immersive .panel { margin-bottom: calc(-1 * var(--ph, 70vh)); opacity: 0; pointer-events: none; }
+  .viewer.immersive .stage { padding-bottom: env(safe-area-inset-bottom, 0px); }
+  .viewer { transition: background .3s, color .3s; }
+  .viewer.immersive { background: #0c0c0b; color: #f1efea; }          /* на весь экран — тёмный фон, как в галерее телефона */
+  .viewer.immersive .vbar .muted { color: rgba(241, 239, 234, .55); }
 
   /* кадрирование: рамка поверх некадрированного кадра, снаружи затемнено */
   .stage.cropping { overflow: hidden; touch-action: none; }
@@ -393,6 +400,14 @@
   .maintabs .tab { padding: 10px 16px 9px; border-radius: 99px; color: var(--btn-text); opacity: .62; text-decoration: none; }
   .maintabs .tab[aria-selected="true"] { background: var(--bg); color: var(--text); opacity: 1; text-decoration: none; }
   body:has(#mainTabs:not([hidden])) { padding-bottom: calc(84px + env(safe-area-inset-bottom, 0px)); }
+  /* наверх: круг справа на высоте вкладок; виден, только когда ушли далеко вниз */
+  .totop { position: fixed; right: var(--pad); bottom: calc(max(var(--dock, 0px), env(safe-area-inset-bottom, 0px)) + 14px); z-index: 9;
+           width: 48px; height: 48px; border-radius: 50%; background: var(--btn-bg); color: var(--btn-text); font-size: 20px; line-height: 1;
+           display: grid; place-items: center; box-shadow: 0 10px 30px rgba(0,0,0,.22);
+           opacity: 0; transform: translateY(12px) scale(.9); pointer-events: none; transition: opacity .2s, transform .25s cubic-bezier(.2, .8, .2, 1); }
+  .totop.show { opacity: 1; transform: none; pointer-events: auto; }
+  body.selecting .totop { bottom: calc(var(--dock, 0px) + 22px); }
+  @media (max-width: 400px) { .totop { width: 44px; height: 44px; } }
   body.tab-community #bAdd, body.tab-community #total, body.tab-community #sub, body.tab-community #iosHint { display: none; }
   #cmPane { padding-bottom: calc(40px + env(safe-area-inset-bottom, 0px)); }
   .st-user.wrap { flex-wrap: wrap; row-gap: 4px; }
@@ -442,6 +457,8 @@
     .viewer > .vbar { grid-column: 1 / -1; }
     .viewer > .stage { grid-column: 1; grid-row: 2; padding: 0 24px 24px; }
     .viewer > .panel { grid-column: 2; grid-row: 2; overflow-y: auto; border-left: 1px solid var(--rule); padding-top: 6px; }
+    .viewer.immersive { grid-template-columns: minmax(0, 1fr) 0; }
+    .viewer.immersive > .panel { display: none; }
     .panel .strip { flex-wrap: wrap; overflow: visible; row-gap: 14px; }
     #lookEd:not([hidden]) { display: grid; grid-template-columns: minmax(0, 1fr) 420px; align-content: start; }
     #lookEd > .vbar { grid-column: 1 / -1; }
@@ -483,6 +500,7 @@
   <p class="sub beta-note" id="betaNote" hidden></p>
   <p class="sub" id="iosHint" hidden data-i18n="To install as an app: Share → Add to Home Screen.">Поставить как приложение: «Поделиться» → «На экран „Домой“».</p>
 </header>
+<button class="totop" id="toTop" aria-label="Наверх" data-i18n-aria="Back to top">↑</button>
 <nav class="maintabs cap" id="mainTabs" role="tablist" hidden>
   <button class="tab" role="tab" data-main="gallery" aria-selected="true" data-i18n="Gallery">Галерея</button>
   <button class="tab" role="tab" data-main="community" aria-selected="false" data-i18n="Community">Сообщество</button>
@@ -975,6 +993,22 @@ if ("ResizeObserver" in window) {
 }
 
 $("selCancel").onclick = exitSelect;
+
+/* наверх: лента длинная (сотни кадров) — одним касанием в начало */
+{
+  let shown = false, raf = 0;
+  const check = () => {
+    raf = 0;
+    const on = scrollY > innerHeight * 2;
+    if (on !== shown) { shown = on; $("toTop").classList.toggle("show", on); }
+  };
+  addEventListener("scroll", () => { if (!raf) raf = requestAnimationFrame(check); }, { passive: true });
+  $("toTop").onclick = () => {
+    const far = scrollY > innerHeight * 12;           // очень далеко — без долгой плавной прокрутки
+    scrollTo({ top: 0, behavior: far || matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
+    haptic();
+  };
+}
 $("vBack").onclick = () => onBack();
 $("sFiles").onclick = async () => {
   const ids = selIds();
@@ -1232,6 +1266,7 @@ function openViewer(i) {
 function closeViewer() {
   if (crop) exitCrop(true);
   if (zoom.s > 1) zoomReset();
+  setImmersive(false);
   vCmp.hide();
   $("viewer").hidden = true;
   document.body.style.overflow = "";
@@ -1255,7 +1290,8 @@ function refreshViewerImage() {
   // пока кадр проявляется — показываем превью выбранной плёнки, потом подменяем чистовиком;
   // если это состояние уже видели — сразу чистовик из кэша
   const seen = p.pending ? seenView(p) : 0;
-  if (seen) setImage(viewUrl(Object.assign({}, p, { v: seen })));
+  if (fullOn(p)) { /* уже показан полный размер этого состояния кадра — его и оставляем */ }
+  else if (seen) setImage(viewUrl(Object.assign({}, p, { v: seen })));
   else if (p.pending || !p.v) setImage(previewUrl(p));
   else { rememberView(p); setImage(viewUrl(p)); }
   $("stage").classList.toggle("busy", !!p.pending && !seen);
@@ -1469,6 +1505,7 @@ function zoomApply() {
   $("stage").classList.toggle("zoomed", zoom.s > 1);
   $("zReset").hidden = zoom.s === 1;
   $("zReset").textContent = `${Math.round(zoom.s * 100)}% · ${T("сбросить", "reset")}`;
+  if (zoom.s > 1.4) wantFull();
 }
 // точка (cx, cy) на экране остаётся под пальцем/курсором
 function zoomAt(s, cx, cy) {
@@ -1484,6 +1521,47 @@ function zoomAt(s, cx, cy) {
   zoomApply();
 }
 function zoomReset() { zoom.s = 1; zoomApply(); }
+
+/* полный размер: при увеличении больше 1,4× догружаем кадр целиком (сервер рисует его раз на правку и кэширует) */
+const full = { id: 0, v: 0, ok: false, loading: "" };
+function fullUrl(p) { return url(`/img/zoom/${p.id}`, `&v=${p.v}`); }
+function fullOn(p) { return full.ok && full.id === p.id && full.v === p.v; }
+function wantFull() {
+  const p = photos[cur];
+  if (!p || p.pending || p.archived || !p.v || crop || cmpOn || fullOn(p)) return;
+  const src = fullUrl(p);
+  if (full.loading === src) return;
+  full.loading = src;
+  $("stage").classList.add("busy");
+  const pre = new Image();
+  pre.decoding = "async";
+  pre.onload = () => {
+    if (full.loading !== src) return;
+    full.loading = "";
+    $("stage").classList.remove("busy");
+    const q = photos[cur];
+    if (!q || q.id !== p.id || q.v !== p.v) return;
+    Object.assign(full, { id: p.id, v: p.v, ok: true });
+    $("vimg").dataset.want = src;
+    $("vimg").src = src;
+  };
+  pre.onerror = () => { if (full.loading === src) { full.loading = ""; $("stage").classList.remove("busy"); } };
+  pre.src = src;
+}
+
+/* кадр на весь экран: панель уезжает вниз */
+function setImmersive(on) {
+  const v = $("viewer");
+  if (v.classList.contains("immersive") === on) return;
+  const panel = v.querySelector(".panel");
+  v.style.setProperty("--ph", panel.offsetHeight + "px");
+  v.classList.toggle("immersive", on);
+  setTimeout(() => { if (zoom.s > 1) zoomApply(); }, 420);       // кадр стал крупнее — пересчитать границы сдвига
+  if (on && !stored("proyavka.immersiveHint")) {
+    stored("proyavka.immersiveHint", "1");
+    toast(T("Коснись кадра ещё раз — панель вернётся", "Tap the frame again to bring the panel back"));
+  }
+}
 $("zReset").onclick = (e) => { e.stopPropagation(); zoomReset(); };
 $("stage").addEventListener("wheel", (e) => {
   if (crop || cmpOn || cur < 0) return;
@@ -1495,11 +1573,13 @@ $("stage").addEventListener("dblclick", (e) => {
   zoomAt(zoom.s > 1 ? 1 : 2.5, e.clientX, e.clientY);
 });
 {
-  let pts = new Map(), last = null, startDist = 0, startS = 1, lastTap = 0;
+  let pts = new Map(), last = null, startDist = 0, startS = 1, lastTap = 0, tap = null, tapT = 0;
   const stage = $("stage");
   const mid = () => { const a = [...pts.values()]; return { x: (a[0].x + a[1].x) / 2, y: (a[0].y + a[1].y) / 2, d: Math.hypot(a[0].x - a[1].x, a[0].y - a[1].y) }; };
   stage.addEventListener("pointerdown", (e) => {
-    if (crop || cmpOn || e.target.closest("button, .cmp-h, .cropbox")) return;
+    clearTimeout(tapT);                                   // второе касание — это двойной тап, а не «спрятать панель»
+    if (crop || cmpOn || e.target.closest("button, .cmp-h, .cropbox")) { tap = null; return; }
+    tap = pts.size ? null : { x: e.clientX, y: e.clientY, t: Date.now() };
     pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
     if (pts.size === 2) { const m = mid(); startDist = m.d; startS = zoom.s; last = m; zoom.pinched = true; }
     else if (pts.size === 1) {
@@ -1528,6 +1608,12 @@ $("stage").addEventListener("dblclick", (e) => {
     }
   });
   const up = (e) => {
+    // короткое касание без сдвига — спрятать или вернуть панель (с паузой, чтобы не спутать с двойным)
+    if (tap && pts.size === 1 && !zoom.pinched && e.type === "pointerup" && Date.now() - tap.t < 350
+        && Math.hypot(e.clientX - tap.x, e.clientY - tap.y) < 8) {
+      tapT = setTimeout(() => { if (cur >= 0 && !crop && !cmpOn) setImmersive(!$("viewer").classList.contains("immersive")); }, 290);
+    }
+    tap = null;
     pts.delete(e.pointerId);
     if (pts.size < 2) startDist = 0;
     if (pts.size === 1) last = [...pts.values()][0];

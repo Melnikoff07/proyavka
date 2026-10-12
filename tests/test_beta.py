@@ -34,7 +34,7 @@ if __name__ == "__main__":
           and b"{{BASE}}" not in page and h.url.encode() in page)
     guide = h.req("/beta/guide.json", auth=False)
     check(f"анимация-гайд — Lottie: {len(guide.get('layers', []))} слоёв, {guide.get('op')} кадров",
-          isinstance(guide, dict) and guide.get("layers") and guide.get("op") == 480 and len(guide.get("assets", [])) == 2)
+          isinstance(guide, dict) and guide.get("layers") and guide.get("op") == 480 and len(guide.get("assets", [])) >= 2)
     terms = h.req("/beta/terms", auth=False)
     check("условия и политика конфиденциальности отдаются", isinstance(terms, bytes) and b"GDPR" in terms and b"{{" not in terms)
     check("типографика: предлог не висит («в\u00a0», «на\u00a0»), тире не начинает строку",

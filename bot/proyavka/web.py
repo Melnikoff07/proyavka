@@ -460,7 +460,7 @@ class Handler(BaseHTTPRequestHandler):
             if not uid:
                 return self.err(401, L("нужна авторизация через Telegram", "Telegram authorization required"))
             if self.album and not (parts in (["api", "presets"], ["api", "updates"], ["api", "photos"], ["api", "zip"])
-                                   or (len(parts) in (3, 4) and parts[0] == "img" and parts[1] in ("thumb", "view", "full", "source", "preview"))):
+                                   or (len(parts) in (3, 4) and parts[0] == "img" and parts[1] in ("thumb", "view", "full", "zoom", "source", "preview"))):
                 return self.err(403, L("по ссылке альбома это недоступно", "not available through an album link"))
             if parts == ["api", "presets"]:
                 items = [{"key": "original", "name": L("Оригинал", "Original"), "when": L("без обработки", "unprocessed")}]
@@ -536,6 +536,11 @@ class Handler(BaseHTTPRequestHandler):
                 if not ph or ph["hidden"]:
                     return self.err(404, L("кадр не найден", "frame not found"))
                 return self.send_full(ph)
+            if len(parts) == 3 and parts[:2] == ["img", "zoom"]:       # полный размер для зума: из кэша, рисуется раз на правку
+                ph = self.mine(parts[2], uid)
+                if not ph or ph["hidden"] or not (has(ph["work"]) or has(ph["src"])):
+                    return self.err(404, L("кадр не найден", "frame not found"))
+                return self.send(200, full_file(ph).read_bytes(), "image/jpeg", "private, max-age=86400")
             if parts == ["api", "zip"]:
                 ids = [int(x) for x in (qs.get("ids") or [""])[0].split(",") if x.isdigit()][:ZIP_MAX]
                 rows = [ph for ph in (self.mine(i, uid) for i in ids) if ph and not ph["hidden"]]

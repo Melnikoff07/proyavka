@@ -10,6 +10,9 @@ English first, [по-русски — ниже](#журнал-изменений
 - Frame view: controls sit in a rounded bottom panel with the frame number in large type, the chosen film is filled with the accent, strength is six dots with the value shown large, and the date / border / before-after toggles are pills.
 - Settings are grouped into cards, every choice is a segmented pill, storage shows large with a thick bar. Film editor: category pills, thin sliders that fill from zero.
 - The beta page uses the same palette.
+- Frame view: tap the frame to hide the panel and see it full screen on a dark background (tap again to bring the panel back); zooming in past 1.4× loads the frame in full size (drawn once per edit and cached on the server).
+- A “back to top” button appears after scrolling two screens down the feed.
+- The “how it works” animation on the beta page is redrawn: one stroke weight and corner system, a real camera screen with a proper Wi‑Fi icon, the photo framed on true 35 mm film (frame, perforations and edge print in scale) and the new feed on the phone.
 
 ### Open beta
 - An optional open beta for a public server (`BETA=1`): the `/beta` page describes the project (a before/after slider on the shared sample with six films, features, an animated Lottie guide "how it works with a camera", FAQ) and lets visitors take a free slot without an invite — pick a nickname and you are signed in. Each slot has its own storage (`BETA_SLOT_MB`, 500 MB) and lifetime (`BETA_DAYS`, 3 days); the number of slots follows the free disk space (minus space promised to other users and `MIN_FREE_GB`), capped by `BETA_SLOTS` (30). Everyone sees the taken slots with nicknames and time left. Testers get a reminder (Telegram, notifications) 12 hours before the end; then the account and its frames are deleted and the slot frees up. The admin can extend a slot in Settings → Users. At most two slots per address a day.
@@ -166,6 +169,9 @@ English first, [по-русски — ниже](#журнал-изменений
 - Просмотр кадра: управление в скруглённой нижней панели, номер кадра крупно, выбранная плёнка залита акцентом, сила — шесть точек и крупное значение, «Дата / Рамка / До-после» — пилюли.
 - Настройки собраны в карточки, любой выбор — сегмент-пилюля, место крупно и толстой полосой. Редактор плёнки: категории-пилюли, тонкие ползунки с заливкой от нуля.
 - Страница беты — в той же палитре.
+- Просмотр кадра: тап по кадру прячет панель — кадр на весь экран на тёмном фоне (ещё тап — панель вернётся); при увеличении больше 1,4× подгружается полный размер (рисуется раз на правку и кэшируется на сервере).
+- Кнопка «наверх» — появляется, когда ленту пролистали на два экрана.
+- Анимация «как это работает» на странице беты перерисована: одна толщина линий и система скруглений, настоящий экран камеры с правильным значком Wi‑Fi, кадр на 35-мм плёнке в масштабе (кадр, перфорация, надписи по краю) и новая лента на телефоне.
 
 ### Открытая бета
 - Необязательная открытая бета для публичного сервера (`BETA=1`): страница `/beta` рассказывает о проекте (шторка «до/после» на общем образце с шестью плёнками, возможности, анимированный гайд Lottie «как это работает с камерой», вопросы) и даёт занять свободный слот без приглашения — придумал ник и сразу внутри. У слота своё место (`BETA_SLOT_MB`, 500 МБ) и срок (`BETA_DAYS`, 3 дня); число слотов идёт от свободного места на диске (за вычетом обещанного остальным и `MIN_FREE_GB`), не больше `BETA_SLOTS` (30). Занятые слоты видны всем — ники и сколько осталось. За 12 часов до конца приходит напоминание (Telegram, уведомления), потом аккаунт с кадрами удаляется и слот освобождается. Администратор может продлить слот в «Настройки → Пользователи». С одного адреса — не больше двух слотов в сутки.
