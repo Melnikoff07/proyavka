@@ -1,0 +1,8 @@
+#!/bin/sh
+# «Проявка»: proyavka-user через сокет /run/proyavka-user.sock (служба proyavka-user@, одно соединение — один запрос).
+# Так бот на том же сервере заводит камеры пользователей без sudo, а его служба может запретить себе повышение прав.
+# Запрос: первая строка «действие имя», дальше — то, что proyavka-user ждёт на stdin. Ответ: код выхода, потом вывод.
+IFS=' ' read -r action name rest || exit 0
+if [ -n "$rest" ]; then printf '2\nbad request\n'; exit 0; fi
+out=$(/usr/local/lib/proyavka/proyavka-user "$action" "$name" 2>&1)
+printf '%s\n%s\n' "$?" "$out"

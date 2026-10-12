@@ -83,6 +83,15 @@ if __name__ == "__main__":
     r = join(h, "четвёртый", ip="10.0.0.4")
     check(f"мест нет — 403 ({r.get('error')})", r["_status"] == 403)
     check("на странице: свободных 0", h.get("/api/beta", auth=False)["free"] == 0)
+    check("IPv6 считается сетью /64", beta.ip_key("2a01:4f8:1:2::5") == beta.ip_key("2a01:4f8:1:2:ffff::9") != beta.ip_key("2a01:4f8:1:3::5"))
+    saved = beta.JOIN_TIMES[:], beta.MAX_SLOTS
+    beta.JOIN_TIMES[:] = [time.time()] * beta.JOINS_PER_HOUR
+    beta.MAX_SLOTS = 99
+    beta._CACHE.clear()
+    r = join(h, "пятый", ip="10.0.0.5")
+    check(f"больше {beta.JOINS_PER_HOUR} новых за час — 403 ({r.get('error')})", r["_status"] == 403 and "час" in r.get("error", ""))
+    beta.JOIN_TIMES[:], beta.MAX_SLOTS = saved
+    beta._CACHE.clear()
 
     h.auth()                                       # администратор
     old = users.user(uid_a)["expires"]

@@ -36,7 +36,7 @@ from .photos import BATCH_MAX, batch_ids, delete_photos, hide_photo, purge_trash
 from .looks import (
     HUB_DIR, RateLimit, add_look, add_lut, community_add, community_image, community_json,
     community_preview, delete_lut, edit_look, hub_decide, hub_pending, hub_raw, hub_receive, look_flags,
-    look_share, original_file, pending_preview, submit_look, try_look, user_look,
+    look_share, original_file, pending_preview, render_budget, submit_look, try_look, user_look,
 )
 from .albums import (
     ALBUM_CSP, ALBUM_ZIPS, ZIP_POOL, album_by_token, album_page, album_public, album_rows, delete_album,
@@ -73,6 +73,7 @@ def preview_file(ph, key, strength, leak="", lseed=0, crop=None):
     path = PREVIEWS / f"{ph['id']}_{key}_{strength}{tag}.jpg"
     if path.exists():
         return path
+    render_budget(ph["owner"])
     snap = dict(ph, leak_seed=lseed, crop=crop)
     return Path(FAST.submit(job_preview, snap, key, strength, str(path), leak).result(timeout=120))
 
@@ -147,6 +148,12 @@ UI_FILES = {"setup.ru.json": UI_DIR / "setup.ru.json", "setup.en.json": UI_DIR /
 def ui_version():
     """Версия файлов /ui/ для адресов (?v=): меняется вместе с файлами, браузер хранит их год."""
     return max((int(f.stat().st_mtime) for f in UI_FILES.values() if f.exists()), default=0)
+
+
+USER_ZIPS = set()                  # у кого сейчас собирается архив: по одному на человека
+UPLOADS = {}                       # пользователь -> сколько файлов принимается прямо сейчас
+UPLOADS_AT_ONCE = 3
+BUSY_LOCK = threading.Lock()
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -558,7 +565,15 @@ class Handler(BaseHTTPRequestHandler):
                 rows = [ph for ph in (self.mine(i, uid) for i in ids) if ph and not ph["hidden"]]
                 if not rows:
                     return self.err(404, L("кадры не найдены", "frames not found"))
-                return self.send_zip(rows)
+                with BUSY_LOCK:
+                    busy = uid in USER_ZIPS
+                    USER_ZIPS.add(uid)
+                if busy:
+                    return self.err(429, L("архив уже собирается — дождись его", "an archive is already being built — wait for it"))
+                try:
+                    return self.send_zip(rows)
+                finally:
+                    USER_ZIPS.discard(uid)
             if parts == ["api", "push"]:
                 return self.js({"supported": bool(webpush), "key": push_key() if webpush else None})
             if parts == ["api", "updates"]:
@@ -604,7 +619,7 @@ class Handler(BaseHTTPRequestHandler):
                 leak = (qs.get("lk") or [""])[0]
                 lseed = int((qs.get("ls") or ["0"])[0])
                 if (not ph or not valid_look(key, uid) or strength not in STRENGTHS
-                        or (leak and leak not in LEAKS)):
+                        or (leak and leak not in LEAKS) or not 0 <= lseed < 1_000_000):
                     return self.err(404, L("нет такого превью", "no such preview"))
                 if not has(ph["work"]):
                     return self.err(410, L("кадр в архиве", "frame is archived"))
@@ -617,6 +632,7 @@ class Handler(BaseHTTPRequestHandler):
                     return self.err(404, L("нет файла", "no file"))
                 path = PREVIEWS / f"{ph['id']}_source.jpg"
                 if not path.exists():
+                    render_budget(uid)
                     FAST.submit(job_source, ph["work"], str(path)).result(timeout=120)
                 return self.file(str(path))
             return self.err(404, L("не найдено", "not found"))
@@ -654,7 +670,18 @@ class Handler(BaseHTTPRequestHandler):
                     if length > LUT_MAX_BYTES:
                         return self.err(400, L("файл LUT больше 16 МБ", "the LUT file is larger than 16 MB"))
                     return self.js(add_lut(uid, (qs.get("name") or ["LUT"])[0], self.rfile.read(length)))
-                return self.js(receive_upload(self.rfile, length, (qs.get("name") or [""])[0], uid))
+                with BUSY_LOCK:
+                    busy = UPLOADS.get(uid, 0) >= UPLOADS_AT_ONCE
+                    if not busy:
+                        UPLOADS[uid] = UPLOADS.get(uid, 0) + 1
+                if busy:
+                    self.drain(length)
+                    return self.err(429, L("слишком много загрузок сразу — подожди, пока уйдут", "too many uploads at once — wait for them to finish"))
+                try:
+                    return self.js(receive_upload(self.rfile, length, (qs.get("name") or [""])[0], uid))
+                finally:
+                    with BUSY_LOCK:
+                        UPLOADS[uid] -= 1
             data = self.body()
             if parts == ["api", "pair"]:            # новое устройство: одноразовый код из ссылки -> постоянный ключ
                 if too_many_fails(self.ip(), everyone=True):
@@ -853,6 +880,8 @@ class Handler(BaseHTTPRequestHandler):
             return self.err(404, L("не найдено", "not found"))
         except (BrokenPipeError, ConnectionResetError):
             pass
+        except RateLimit as e:
+            self.err(429, str(e))
         except (ValueError, RuntimeError) as e:
             self.err(400, str(e))
         except Exception as e:

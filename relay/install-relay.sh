@@ -9,7 +9,8 @@
 #   LE_AGREE=1    пользователь согласился с условиями Let's Encrypt; LE_EMAIL — необязательно
 #   SYNC_USER, SYNC_PUBKEY   режим «дом + сервер»: через кого домашний компьютер забирает кадры
 #   BOT_USER      режим «всё на одном сервере»: пользователь, под которым работает бот
-# Камеры приглашённых пользователей бот заводит сам через proyavka-user (sudo, только этот скрипт).
+# Камеры приглашённых пользователей бот заводит сам через proyavka-user: по SSH — sudo (только этот скрипт),
+# на том же сервере — сокет root-службы proyavka-user@ (боту sudo не нужен).
 # Скрипт можно запускать повторно: он приводит сервер к нужному виду, ничего не ломая.
 set -euo pipefail
 
@@ -212,6 +213,7 @@ say "$(t "Приёмник для приложения камеры" "Receiver f
 install -d -m 755 /usr/local/lib/proyavka
 install -m 755 "$HERE/camera-recv.py" /usr/local/lib/proyavka/camera-recv.py
 install -m 755 -o root -g root "$HERE/proyavka-user" /usr/local/lib/proyavka/proyavka-user
+install -m 755 -o root -g root "$HERE/proyavka-user-sock" /usr/local/lib/proyavka/proyavka-user-sock
 umask 077
 printf 'CAMERA_TOKEN=%s\nUPLOAD_DIR=%s\nPORT=8089\nTOKENS_FILE=/etc/proyavka/camera-tokens\nUSERS_DIR=/srv/camera/u\n' \
     "$CAMERA_TOKEN" "$UPLOAD_DIR" > /etc/proyavka/camera-recv.env
@@ -219,12 +221,49 @@ umask 022
 # бот заводит камеры приглашённых пользователей только через этот скрипт — больше sudo ему ничего не даёт
 sudoers=""
 if [ -n "${SYNC_PUBKEY:-}" ]; then sudoers="$SYNC_USER ALL=(root) NOPASSWD: /usr/local/lib/proyavka/proyavka-user"$'\n'; fi
-if [ -n "${BOT_USER:-}" ]; then sudoers="$sudoers$BOT_USER ALL=(root) NOPASSWD: /usr/local/lib/proyavka/proyavka-user"$'\n'; fi
+if [ -n "${BOT_USER:-}" ]; then          # бот на этом же сервере: сокет вместо sudo, только для группы бота
+    cat > /etc/systemd/system/proyavka-user.socket <<EOF
+[Unit]
+Description=Proyavka: camera accounts (socket for the bot)
+
+[Socket]
+ListenStream=/run/proyavka-user.sock
+SocketUser=root
+SocketGroup=$(id -gn "$BOT_USER")
+SocketMode=0660
+Accept=yes
+MaxConnections=4
+
+[Install]
+WantedBy=sockets.target
+EOF
+    cat > /etc/systemd/system/proyavka-user@.service <<'EOF'
+[Unit]
+Description=Proyavka: camera accounts
+
+[Service]
+ExecStart=/usr/local/lib/proyavka/proyavka-user-sock
+StandardInput=socket
+StandardOutput=socket
+StandardError=journal
+RuntimeMaxSec=60
+NoNewPrivileges=true
+ProtectSystem=strict
+ReadWritePaths=/etc /srv/camera
+ProtectHome=true
+PrivateTmp=true
+PrivateNetwork=true
+EOF
+    systemctl daemon-reload
+    systemctl enable --now proyavka-user.socket >/dev/null 2>&1
+fi
 if [ -n "$sudoers" ]; then
     printf '%s' "$sudoers" > /etc/sudoers.d/proyavka.new
     chmod 440 /etc/sudoers.d/proyavka.new
     if visudo -cf /etc/sudoers.d/proyavka.new >/dev/null; then mv -f /etc/sudoers.d/proyavka.new /etc/sudoers.d/proyavka
     else rm -f /etc/sudoers.d/proyavka.new; echo "sudoers check failed" >&2; fi
+else
+    rm -f /etc/sudoers.d/proyavka          # старое правило для бота: теперь у него сокет
 fi
 cat > /etc/systemd/system/proyavka-recv.service <<EOF
 [Unit]

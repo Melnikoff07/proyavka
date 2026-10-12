@@ -470,6 +470,7 @@ def try_look(uid, data):
         strength = 100
     edge = data.get("edge") if data.get("edge") in (420, 1000) else 420     # 1000 — редактор на широком экране
     params = clean_params(data.get("params"))
+    render_budget(uid)
     return FAST.submit(job_try, dict(ph), params, strength, None, edge).result(timeout=120)
 
 
@@ -486,6 +487,26 @@ def _preview_rate(uid):
             raise RateLimit(L("слишком часто — подожди минуту", "too fast — wait a minute"))
         ts.append(now)
         PREVIEW_RATE[uid] = ts
+
+
+RENDER_BURST = int(os.environ.get("RENDER_BURST", "90"))            # новых отрисовок подряд
+RENDER_PER_MIN = float(os.environ.get("RENDER_PER_MIN", "180"))     # и дальше в минуту; 0 — без предела
+RENDER_BUCKET = {}                # пользователь -> (запас, когда считали)
+
+
+def render_budget(uid):
+    """Новая отрисовка (превью не из кэша, живой просмотр, исходник) — из ведра пользователя. Иначе скрипт, перебирающий
+    варианты засвета или рамки, займёт процессор всех и забьёт диск кэшем. Обычному листанию запаса хватает с лихвой."""
+    if uid == ADMIN or RENDER_PER_MIN <= 0:
+        return
+    now = time.time()
+    with SUBMIT_LOCK:
+        level, t = RENDER_BUCKET.get(uid, (RENDER_BURST, now))
+        level = min(RENDER_BURST, level + (now - t) * RENDER_PER_MIN / 60)
+        if level < 1:
+            RENDER_BUCKET[uid] = (level, now)
+            raise RateLimit(L("слишком много отрисовок подряд — подожди немного", "too many renders in a row — wait a moment"))
+        RENDER_BUCKET[uid] = (level - 1, now)
 
 
 def community_preview(ph, cid, edge=420):

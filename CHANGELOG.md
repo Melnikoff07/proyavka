@@ -26,6 +26,13 @@ English first, [по-русски — ниже](#журнал-изменений
 - The app shows beta testers how much time is left, and the sign-in screen links to the beta when it is on.
 - Push notifications: the sending part is a separate function (`push.push_send`) usable for any message.
 
+### Protection against load from strangers
+- New renders (a preview that is not cached yet, the live editor preview, the original for cropping) come from a per-user budget (`RENDER_BURST` 90 in a row, then `RENDER_PER_MIN` 180 a minute; the admin is not limited): a script that walks through light-leak variants or crops can no longer take the processor from everyone and fill the disk with cache. Cached images are always free; film cards retry quietly if the server asks to slow down.
+- One archive at a time per person, at most three uploads at once; light-leak variant numbers are bounded.
+- The preview cache has a size cap (`PREVIEW_CACHE_GB`, 3 GB; the oldest go first), and when disk space runs low the whole cache is dropped before anyone's frames.
+- Beta: at most `BETA_JOINS_PER_HOUR` (10) new slots an hour in total, and the per-address limit treats an IPv6 /64 network as one address.
+- On a single server the bot no longer needs sudo: camera accounts are created by the root service `proyavka-user@` through the socket `/run/proyavka-user.sock` (only the bot's group can use it), so the bot's service can forbid privilege escalation altogether. The SSH path (home + server) still uses sudo for this one script.
+
 ## 1.6 — 2026-10-10
 
 ### Films
@@ -191,6 +198,13 @@ English first, [по-русски — ниже](#журнал-изменений
 - Необязательная открытая бета для публичного сервера (`BETA=1`): страница `/beta` рассказывает о проекте (шторка «до/после» на общем образце с шестью плёнками, возможности, анимированный гайд Lottie «как это работает с камерой», вопросы) и даёт занять свободный слот без приглашения — придумал ник и сразу внутри. У слота своё место (`BETA_SLOT_MB`, 500 МБ) и срок (`BETA_DAYS`, 3 дня); число слотов идёт от свободного места на диске (за вычетом обещанного остальным и `MIN_FREE_GB`), не больше `BETA_SLOTS` (30). Занятые слоты видны всем — ники и сколько осталось. За 12 часов до конца приходит напоминание (Telegram, уведомления), потом аккаунт с кадрами удаляется и слот освобождается. Администратор может продлить слот в «Настройки → Пользователи». С одного адреса — не больше двух слотов в сутки.
 - В приложении участник беты видит, сколько у него осталось, а экран входа ведёт на бету, когда она включена.
 - Уведомления: отправка вынесена в отдельную функцию (`push.push_send`) для любых сообщений.
+
+### Защита от нагрузки чужими людьми
+- Новые отрисовки (превью, которого ещё нет в кэше, живой просмотр редактора, исходник для кадрирования) идут из запаса пользователя (`RENDER_BURST` — 90 подряд, дальше `RENDER_PER_MIN` — 180 в минуту; администратора не касается): скрипт, перебирающий варианты засвета или рамки, больше не отнимет процессор у всех и не забьёт диск кэшем. Готовое из кэша — всегда без счёта; карточки плёнок сами повторяют запрос, если сервер попросил не частить.
+- Архив — по одному на человека, загрузок разом — не больше трёх; номера вариантов засвета ограничены.
+- У кэша превью есть предел (`PREVIEW_CACHE_GB`, 3 ГБ; старое уходит первым), а при нехватке места на диске весь кэш удаляется раньше, чем чьи-то кадры.
+- Бета: не больше `BETA_JOINS_PER_HOUR` (10) новых слотов в час на всех, а предел «с одного адреса» считает сеть IPv6 /64 одним адресом.
+- На одном сервере боту больше не нужен sudo: камеры пользователей заводит root-служба `proyavka-user@` через сокет `/run/proyavka-user.sock` (доступ только у группы бота), поэтому службе бота можно вовсе запретить повышение прав. Путь «дом + сервер» по SSH по-прежнему зовёт этот один скрипт через sudo.
 
 ## 1.6 — 2026-10-10
 

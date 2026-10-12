@@ -88,4 +88,38 @@ if __name__ == "__main__":
     check("без токена бота вход из Telegram закрыт", sessions.check_init_data("auth_date=1&hash=abc") is False)
     r = h.get("/api/photos?limit=-1&offset=-3")
     check("limit/offset вне границ не ломают ленту", isinstance(r, dict) and len(r.get("photos", [])) <= 120)
+
+    # нагрузка: новые отрисовки — из ведра пользователя (готовые из кэша — бесплатно), архив по одному, кэш превью с пределом
+    from proyavka import looks, web
+    pid = [p for p in h.photos() if p["owner"] == BOB and not p["hidden"]][0]["id"]
+    looks.RENDER_BURST, looks.RENDER_PER_MIN = 3, 1
+    looks.RENDER_BUCKET.clear()
+    got = [hb.req(f"/img/preview/{pid}/super400?st=100&lk=edge&ls={i}") for i in range(5)]
+    st = [g.get("_status") if isinstance(g, dict) else 200 for g in got]
+    check(f"перебор вариантов засвета упирается в предел: {st}", st[:3] == [200] * 3 and st[3:] == [429, 429])
+    again = hb.req(f"/img/preview/{pid}/super400?st=100&lk=edge&ls=0")
+    check("уже нарисованное отдаётся и после предела", isinstance(again, bytes))
+    r = hb.post("/api/look/try", {"id": pid, "params": {}})
+    check(f"живой просмотр тоже из ведра: {r.get('_status') if isinstance(r, dict) else 200}", isinstance(r, dict) and r.get("_status") == 429)
+    check("засвет с огромным номером — отказ", hb.req(f"/img/preview/{pid}/super400?st=100&lk=edge&ls=99999999").get("_status") == 404)
+    looks.RENDER_BURST, looks.RENDER_PER_MIN = 90, 180
+    web.USER_ZIPS.add(BOB)
+    check("второй архив, пока собирается первый, — 429", hb.req(f"/api/zip?ids={pid}").get("_status") == 429)
+    web.USER_ZIPS.discard(BOB)
+    check("а после — собирается", isinstance(hb.req(f"/api/zip?ids={pid}"), bytes))
+    web.UPLOADS[ADMIN] = web.UPLOADS_AT_ONCE
+    r = h.req("/api/upload?name=x.jpg", raw=jpeg(42), ctype="image/jpeg")
+    check(f"больше {web.UPLOADS_AT_ONCE} загрузок разом — 429", r.get("_status") == 429)
+    web.UPLOADS[ADMIN] = 0
+    from proyavka.config import PREVIEWS
+    for i in range(6):
+        (PREVIEWS / f"999999_junk_{i}.jpg").write_bytes(b"x" * 100_000)
+        os.utime(PREVIEWS / f"999999_junk_{i}.jpg", (1000 + i, 1000 + i))
+    total = sum(f.stat().st_size for f in PREVIEWS.iterdir() if f.is_file())
+    freed = storage.trim_previews(total - 250_000)
+    left = sorted(f.name for f in PREVIEWS.glob("999999_junk_*"))
+    check(f"кэш превью урезан со старых: убрано {freed // 1000} КБ, остались {left}",
+          freed >= 250_000 and "999999_junk_0.jpg" not in left)
+    for f in PREVIEWS.glob("999999_junk_*"):
+        f.unlink()
     harness.done()

@@ -420,7 +420,8 @@ def push_server(env, email="", first=False):
         pf.write_text("".join(f"{k}={shlex.quote(v)}\n" for k, v in params.items()))
         pf.chmod(0o600)
         run(["scp", "-q", "-i", str(ADMIN_KEY), str(ROOT / "relay" / "install-relay.sh"),
-             str(ROOT / "relay" / "camera-recv.py"), str(ROOT / "relay" / "proyavka-user"), str(pf), f"{host}:{remote}/"])
+             str(ROOT / "relay" / "camera-recv.py"), str(ROOT / "relay" / "proyavka-user"),
+             str(ROOT / "relay" / "proyavka-user-sock"), str(pf), f"{host}:{remote}/"])
     sudo = "" if admin == "root" else "sudo "
     run(ssh_base(env) + ["-t", host, f"{sudo}bash {remote}/install-relay.sh {remote}/params.env; "
                                       f"r=$?; rm -rf {remote}; exit $r"])

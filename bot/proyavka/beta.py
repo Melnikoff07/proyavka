@@ -1,5 +1,6 @@
 """Открытая бета: страница /beta, слоты на сервере (место под каждого, срок), вход без приглашения, уход по сроку."""
 
+import ipaddress
 import os
 import re
 import shutil
@@ -26,6 +27,7 @@ SLOT_MB = float(os.environ.get("BETA_SLOT_MB", "500"))      # место на о
 DAYS = float(os.environ.get("BETA_DAYS", "3"))              # сколько живёт слот
 MAX_SLOTS = int(os.environ.get("BETA_SLOTS", "30"))         # больше не даём, даже если места хватает (процессор один)
 JOINS_PER_IP = 2                                            # новых слотов с одного адреса за сутки
+JOINS_PER_HOUR = int(os.environ.get("BETA_JOINS_PER_HOUR", "10"))   # всего новых слотов в час: ботам не занять все разом
 WARN_HOURS = 12                                             # за сколько предупредить, что слот кончается
 
 LANDING_FILMS = ["super400", "portrait400", "golden200", "cine250", "across100", "expired"]
@@ -34,6 +36,16 @@ BETA_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__
 
 _CACHE = {}
 JOIN_IPS = {}
+JOIN_TIMES = []
+
+
+def ip_key(ip):
+    """Адрес для предела «слотов с адреса»: у IPv6 — сеть /64 (у одного абонента их миллиарды)."""
+    try:
+        a = ipaddress.ip_address(ip)
+    except ValueError:
+        return ip
+    return str(ipaddress.ip_network(f"{a}/64", strict=False)) if a.version == 6 else str(a)
 WARNED = set()
 
 
@@ -81,6 +93,7 @@ def join(nick, ip, device_name, lang=None, accept=False):
     if not accept:
         raise ValueError(L("нужно согласие с условиями", "you need to accept the terms"))
     now = time.time()
+    ip = ip_key(ip) if ip else ip
     if ip:
         recent = [t for t in JOIN_IPS.get(ip, []) if now - t < 86400]
         if len(recent) >= JOINS_PER_IP:
@@ -91,6 +104,10 @@ def join(nick, ip, device_name, lang=None, accept=False):
             raise ValueError(L("такой ник уже есть — возьми другой", "this nickname is taken — pick another"))
         if len(rows) >= total:
             raise PermissionError(L("свободных слотов нет — загляни позже", "no free slots — check back later"))
+        JOIN_TIMES[:] = [t for t in JOIN_TIMES if now - t < 3600]
+        if JOINS_PER_HOUR and len(JOIN_TIMES) >= JOINS_PER_HOUR:
+            raise PermissionError(L("слишком много новых участников за час — попробуй чуть позже", "too many new testers this hour — try a bit later"))
+        JOIN_TIMES.append(now)
         uid = next_web_uid()
         kw = {"lang": lang} if lang in ("ru", "en") else {}
         add_web_user(uid, nick, storage_gb=SLOT_MB / 1000, expires=now + DAYS * 86400, terms=now, **kw)

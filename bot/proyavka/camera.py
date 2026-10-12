@@ -3,12 +3,14 @@
 import hashlib
 import io
 import os
+import re
 import secrets
 import shlex
+import socket
 import subprocess
 from pathlib import Path
 
-from .config import PROJECT_URL, log, remote
+from .config import LOCAL, PROJECT_URL, log, remote
 from .i18n import L, cur_lang, speak
 from .users import ADMIN, set_user, user, user_lang
 from .telegram import safe, tg
@@ -28,13 +30,36 @@ FTP_ROOT_CERT = APP_ROOT / "camera-app" / "certs" / "isrgrootx1.pem"
 CAM_HELPER = os.environ.get("CAM_HELPER", "/usr/local/lib/proyavka/proyavka-user")
 
 
+CAM_SOCKET = os.environ.get("CAM_SOCKET", "/run/proyavka-user.sock")
+
+
 def cam_helper(action, name, stdin=""):
-    """Пользователи камер на сервере-приёмнике: FTP-вход, папка и токен приложения. Root-скрипт через sudo."""
+    """Пользователи камер на сервере-приёмнике: FTP-вход, папка и токен приложения. Root-скрипт через sudo,
+    а на том же сервере — через сокет его root-службы (тогда боту sudo не нужен вовсе)."""
+    if LOCAL and os.path.exists(CAM_SOCKET):
+        return _cam_socket(action, name, stdin)
     res = subprocess.run(remote(f"sudo -n {CAM_HELPER} {action} {shlex.quote(name)}"), input=stdin,
                          capture_output=True, text=True, timeout=60)
     if res.returncode != 0:
         raise RuntimeError((res.stderr or res.stdout).strip()[-300:] or f"exit {res.returncode}")
     return res.stdout
+
+
+def _cam_socket(action, name, stdin):
+    if not re.fullmatch(r"[a-z]+", action) or not re.fullmatch(r"[A-Za-z0-9_]+", name):
+        raise RuntimeError(f"bad request: {action} {name}")
+    with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as s:
+        s.settimeout(60)
+        s.connect(CAM_SOCKET)
+        s.sendall(f"{action} {name}\n{stdin}".encode())
+        s.shutdown(socket.SHUT_WR)
+        buf = b""
+        while chunk := s.recv(65536):
+            buf += chunk
+    code, _, out = buf.decode(errors="replace").partition("\n")
+    if code.strip() != "0":
+        raise RuntimeError(out.strip()[-300:] or f"exit {code.strip() or '?'}")
+    return out
 
 
 # пароль FTP вводят на камере: только строчные и цифры без похожих (l/1, o/0) — 32^10 ≈ 10^15 вариантов

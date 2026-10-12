@@ -817,6 +817,10 @@ function prevUrl(p, film, leak) {
   return url(`/img/preview/${p.id}/${film}`, `&st=${p.strength}${lk}${c}${r}`);
 }
 function previewUrl(p) { return prevUrl(p, p.preset, p.leak); }
+// превью плёнки не пришло (сервер просит не частить, связь моргнула) — ещё пара попыток с паузой
+function retryImg(img, n = 3) {
+  img.onerror = () => { if (n-- > 0) setTimeout(() => { if (img.isConnected) img.src = img.src.replace(/&try=\d+$/, "") + `&try=${n}`; }, 2000); };
+}
 function leakName(key) { const l = leaks.find((x) => x.key === key); return l ? l.name : ""; }
 function viewUrl(p) { return url(`/img/view/${p.id}`, `&v=${p.v}`); }
 // уже показанные состояния кадра: плёнка/сила/засвет/кроп/дата/рамка -> версия картинки. Вернулся к плёнке, которую
@@ -1163,6 +1167,7 @@ function openSheet(kind) {
     b.setAttribute("aria-pressed", "false");
     b.title = it.title;
     b.innerHTML = `<div class="pic"><img loading="lazy" decoding="async" alt="" src="${esc(it.src)}"></div><div class="fname">${esc(it.name)}</div>`;
+    retryImg(b.querySelector("img"));
     b.onclick = () => {
       const on = b.getAttribute("aria-pressed") !== "true";
       strip.querySelectorAll(".film").forEach((x) => x.setAttribute("aria-pressed", "false"));
@@ -1386,6 +1391,7 @@ function renderStrip(p) {
     b.setAttribute("aria-pressed", String(it.on));
     b.title = it.title;
     b.innerHTML = `<div class="pic"><img loading="lazy" decoding="async" alt="" src="${esc(it.src)}"></div><div class="fname">${esc(it.name)}</div>`;
+    retryImg(b.querySelector("img"));
     b.onclick = () => {
       if (b.getAttribute("aria-pressed") === "true") return;
       apply(tab === "film" ? { preset: it.key } : { leak: it.key });

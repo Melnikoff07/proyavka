@@ -1,5 +1,6 @@
 """Хранилище: сколько места занимает каждый, чистка по лимитам (оригиналы, рабочие копии, корзина), свободное место на диске."""
 
+import os
 import shutil
 import time
 
@@ -33,12 +34,40 @@ def _free_space(rows_sql, args, need):
             log.info("cleanup: #%d %s removed (%.1f MB)", r["id"], field, size / 1e6)
 
 
+PREVIEW_CACHE_GB = float(os.environ.get("PREVIEW_CACHE_GB", "3"))     # кэш превью больше — старые прочь
+
+
+def trim_previews(limit):
+    """Кэш превью не больше limit байт: старые файлы уходят первыми (до 3/4 предела). -> освобождено байт."""
+    files = []
+    for p in PREVIEWS.iterdir():
+        try:
+            st = p.stat()
+        except OSError:
+            continue
+        if p.is_file():
+            files.append((st.st_mtime, st.st_size, p))
+    total = sum(f[1] for f in files)
+    if total <= limit:
+        return 0
+    freed = 0
+    for _, size, p in sorted(files, key=lambda f: f[0]):
+        if total - freed <= limit * 0.75:
+            break
+        remove(p)
+        freed += size
+    log.info("cleanup: кэш превью %.0f МБ, убрано %.0f МБ", total / 1e6, freed / 1e6)
+    return freed
+
+
 def cleanup():
     from .photos import purge_files
     now = time.time()
     for p in PREVIEWS.iterdir():
         if p.is_file() and now - p.stat().st_mtime > 86400:
             remove(p)
+    if PREVIEW_CACHE_GB > 0:
+        trim_previews(PREVIEW_CACHE_GB * 1e9)
     for p in TMP.iterdir():                 # версии для чата, которые устарели, пока ждали отправки
         if p.is_file() and now - p.stat().st_mtime > 3600:
             remove(p)
@@ -57,6 +86,8 @@ def cleanup():
         for f in PREVIEWS.glob("*_full_*.jpg"):     # кэш полных кадров для альбомов — его не жалко
             free[0] += fsize(f)
             remove(f)
+    if free[0] < min_free:                      # весь кэш превью — раньше, чем чьи-то кадры
+        free[0] += trim_previews(0)
     if free[0] < min_free:
         for ph in q("SELECT * FROM photos WHERE hidden=1 AND (src IS NOT NULL OR work IS NOT NULL "
                     "OR view IS NOT NULL OR thumb IS NOT NULL) ORDER BY deleted_at, id"):
