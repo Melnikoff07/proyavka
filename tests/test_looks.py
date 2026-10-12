@@ -144,7 +144,7 @@ if __name__ == "__main__":
     def size(b):
         return Image.open(io.BytesIO(b)).size
     cm_img = h.get(f"/img/cm/{first['id']}")
-    check(f"картинка плёнки каталога отдаётся готовой: {size(cm_img) if isinstance(cm_img, bytes) else cm_img}", isinstance(cm_img, bytes) and max(size(cm_img)) == 900)
+    check(f"картинка плёнки каталога отдаётся готовой: {size(cm_img) if isinstance(cm_img, bytes) else cm_img}", isinstance(cm_img, bytes) and max(size(cm_img)) == 1400)
     bf = h.get(f"/img/cm/{first['id']}-before")
     sm = h.get("/img/cm/sample")
     check("исходник под неё — по умолчанию общий образец", isinstance(bf, bytes) and bf == sm and max(size(sm)) == 1400)

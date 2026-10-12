@@ -249,6 +249,11 @@
   .seg .tab[aria-selected="true"] { background: var(--btn-bg); color: var(--btn-text); text-decoration: none; }
   .leakrow { padding: 12px var(--pad) 0; }
   .leakrow[hidden] { display: none; }
+  .filmacts { display: flex; gap: 8px; padding: 12px var(--pad) 0; overflow-x: auto; scrollbar-width: none; }
+  .filmacts::-webkit-scrollbar { display: none; }
+  .filmacts[hidden] { display: none; }
+  .filmacts .pill { flex: 0 0 auto; display: inline-flex; align-items: center; gap: 7px; color: var(--text); }
+  .filmacts .pill i { font-style: normal; color: var(--acc); }
   .pill { background: var(--raise); padding: 10px 16px; font-size: 14px; font-weight: 500; border-radius: 99px; }
   .panel .opts.cap, .panel .line .label { font-size: 12px; }
   /* зум кадра и стрелки между кадрами */
@@ -430,7 +435,9 @@
   .ed-save .btn { width: 100%; height: 56px; font-size: 17px; }
   .ed-sl { padding: 8px var(--pad) 0; }
   .ed-sl .row { display: flex; justify-content: space-between; align-items: baseline; }
-  .ed-sl .v { color: var(--muted); }
+  .ed-sl .v { color: var(--muted); display: inline-flex; align-items: center; gap: 4px; }
+  .ed-sl .rst { width: 28px; height: 28px; margin: -6px -8px -6px 0; display: grid; place-items: center; color: var(--acc); font-size: 11px; visibility: hidden; }
+  .ed-sl .rst.on { visibility: visible; }
   .ed-sl input[type=range] { -webkit-appearance: none; appearance: none; width: 100%; margin: 4px 0 0; height: 30px; --a: 0%; --b: 0%; --z: -10px;
     background: linear-gradient(var(--acc), var(--acc)) no-repeat; background-size: 2px 12px; background-position: var(--z) 50%; }
   .ed-sl input[type=range]::-webkit-slider-runnable-track { height: 2px; border-radius: 2px;
@@ -486,7 +493,7 @@
   .ed-pic.busy img, .lv-pic.busy img { opacity: .7; }
   .cm-card { cursor: pointer; }
   .cm-grid { padding: 14px var(--pad) 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px 10px; }
-  @media (min-width: 600px) { .cm-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+  @media (min-width: 600px) { .cm-grid { grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 22px 14px; } }
   .cm-card .tile span { padding: 0 12px; text-align: center; }
   .cm-card .tile img { width: 100%; height: 100%; object-fit: cover; }
   .cm-card .nm { margin-top: 7px; font-weight: 500; }
@@ -638,6 +645,11 @@
         <button class="tab" id="bCrop" data-i18n="Crop">Кадрировать</button>
       </div>
       <div class="strip" id="strip" role="listbox" aria-label="Плёнка"></div>
+      <div class="filmacts" id="filmActs" hidden>
+        <button class="pill" id="faEdit"><i aria-hidden="true">✎</i><span data-i18n="Edit film">Править плёнку</span></button>
+        <button class="pill" id="faCm"><i aria-hidden="true">✦</i><span data-i18n="Community LUTs">Плёнки сообщества</span></button>
+        <button class="pill" id="faLut"><i aria-hidden="true">+</i><span data-i18n="Upload LUT">Загрузить LUT</span></button>
+      </div>
       <div class="leakrow" id="leakRow" hidden>
         <button class="pill" id="bShift" data-i18n="↻ Another leak variant">↻ Другой вариант засвета</button>
       </div>
@@ -1467,27 +1479,17 @@ function renderStrip(p) {
     };
     frag.appendChild(b);
   }
-  if (tab === "film") {                     // свой LUT: файл .cube, видит только этот пользователь
-    const add = document.createElement("button");
-    add.className = "film addlut";
-    add.title = T("Свой LUT (.cube). Удалить — долгое нажатие на него", "Your own LUT (.cube). Long-press it to delete");
-    add.innerHTML = `<div class="pic">+</div><div class="fname">${T("Свой LUT", "Your LUT")}</div>`;
-    add.onclick = () => $("lutPicker").click();
-    frag.appendChild(add);
-    for (const [glyph, ru, en, fn] of [["✎", "Править", "Edit", () => openEditor({})], ["✦", "Сообщество", "Community", openCommunity]]) {
-      const b = document.createElement("button");
-      b.className = "film addlut";
-      b.innerHTML = `<div class="pic">${glyph}</div><div class="fname">${T(ru, en)}</div>`;
-      b.onclick = fn;
-      frag.appendChild(b);
-    }
-  }
   strip.replaceChildren(frag);
+  // править, плёнки сообщества и свой LUT — строкой под лентой: не надо листать до конца 25 плёнок
+  $("filmActs").hidden = !(tab === "film" && !p.archived) || !!GUEST;
   $("leakRow").hidden = !(tab === "leak" && p.leak && !p.archived);
   const sel = strip.querySelector('[aria-pressed="true"]');
   if (sel) strip.scrollLeft = sel.offsetLeft - strip.clientWidth / 2 + sel.clientWidth / 2;
 }
 
+$("faEdit").onclick = () => openEditor({});
+$("faCm").onclick = () => openCommunity();
+$("faLut").onclick = () => $("lutPicker").click();
 document.querySelectorAll(".tab[data-tab]").forEach((t) => {
   t.onclick = () => { if (tab !== t.dataset.tab) { tab = t.dataset.tab; haptic(); if (photos[cur]) renderStrip(photos[cur]); } };
 });
@@ -2993,12 +2995,18 @@ async function openEditor({ key } = {}) {
     for (const s of sec.s) {
       const el = document.createElement("div");
       el.className = "ed-sl";
-      el.innerHTML = `<div class="row"><span></span><span class="v"></span></div><input type="range" min="${s.min}" max="${s.max}" step="${s.step}">`;
+      el.innerHTML = `<div class="row"><span></span><span class="v"><b></b><button class="rst" type="button">◆</button></span></div><input type="range" min="${s.min}" max="${s.max}" step="${s.step}">`;
       el.querySelector(".row span").textContent = T(...s.n);
-      const input = el.querySelector("input"), vEl = el.querySelector(".v");
+      const input = el.querySelector("input"), vEl = el.querySelector(".v b"), rst = el.querySelector(".rst");
       input.setAttribute("aria-label", T(...s.n));
-      input.oninput = () => { s.set(ed.P, Number(input.value)); vEl.textContent = pctOf(s, Number(input.value)); rangeFill(input); edPreview(); };
-      ed.rows.push({ s, input, vEl });
+      rst.setAttribute("aria-label", T(`Сбросить: ${T(...s.n)}`, `Reset ${T(...s.n)}`));
+      rst.title = T("Сбросить (или двойное нажатие на ползунок)", "Reset (or double-tap the slider)");
+      const row = { s, input, vEl, rst };
+      input.oninput = () => { s.set(ed.P, Number(input.value)); vEl.textContent = pctOf(s, Number(input.value)); rangeFill(input); edDirty(row); edPreview(); };
+      const reset = () => { s.set(ed.P, s.get(ed.orig)); edSync(); edPreview(); haptic(); };
+      rst.onclick = reset;
+      input.ondblclick = reset;
+      ed.rows.push(row);
       box.appendChild(el);
     }
   }
@@ -3043,8 +3051,10 @@ function rangeFill(input) {
   input.style.setProperty("--b", at(Math.max(zero, v)));
   input.style.setProperty("--z", min < 0 && max > 0 ? at(0) : "-10px");     // отметка нуля у ползунков «±»
 }
+// ◆ виден, пока значение отличается от основы
+function edDirty(r) { r.rst.classList.toggle("on", Math.abs(r.s.get(ed.P) - r.s.get(ed.orig)) > 1e-6); }
 function edSync() {
-  for (const { s, input, vEl } of ed.rows) { const v = s.get(ed.P); input.value = v; vEl.textContent = pctOf(s, v); rangeFill(input); }
+  for (const r of ed.rows) { const v = r.s.get(ed.P); r.input.value = v; r.vEl.textContent = pctOf(r.s, v); rangeFill(r.input); edDirty(r); }
   ed.bwBtn.setAttribute("aria-pressed", String(!!ed.P.bw));
   ed.linBtn.setAttribute("aria-pressed", String(ed.P.linear > 0.5));
   ed.haloBtn.setAttribute("aria-pressed", String(ed.P.halo > 0.5));
@@ -3209,8 +3219,8 @@ function catalogView() {
   intro.textContent = cm.ctx
     ? T("Плёнки, которые собрали и выложили люди. Нажми на плёнку — увидишь её на своём кадре с ползунком «до/после».",
         "Films that people made and shared. Tap one to see it on your frame with a before/after slider.")
-    : T("Плёнки, которые собрали и выложили люди. Нажми на плёнку, чтобы рассмотреть. Примерить на свой кадр можно из просмотра кадра: там же плитка «Сообщество».",
-        "Films that people made and shared. Tap one to look closer. To try it on your own frame, open it from the frame viewer: there is a Community tile too.");
+    : T("Плёнки, которые собрали и выложили люди. Нажми на плёнку, чтобы рассмотреть. Примерить на свой кадр: открой кадр → «✦ Плёнки сообщества» под лентой плёнок.",
+        "Films that people made and shared. Tap one to look closer. To try one on your own frame: open the frame → ✦ Community LUTs under the film strip.");
   body.appendChild(intro);
   const grid = document.createElement("div");
   grid.className = "cm-grid";
@@ -3226,7 +3236,7 @@ function catalogView() {
     card.tabIndex = 0;
     card.setAttribute("role", "button");
     // картинка — готовый кадр, который приложил автор: сервер её только отдаёт, ничего не рисуя
-    card.innerHTML = `<div class="tile"><img loading="lazy" decoding="async" alt="" src="${esc(url(`/img/cm/${l.id}`, `&h=${l.h}`))}"></div><div class="nm"></div><div class="cap muted by"></div><div class="ds muted"></div>`;
+    card.innerHTML = `<div class="tile"><img loading="lazy" decoding="async" alt="" src="${esc(url(`/img/cm/${l.id}`, `&h=${l.h}&e=2`))}"></div><div class="nm"></div><div class="cap muted by"></div><div class="ds muted"></div>`;
     card.querySelector(".nm").textContent = l.name + (l.installed ? "  ✓" : "");
     card.querySelector(".by").textContent = (l.by ? T("автор ", "by ") + l.by : "") + (l.bw ? (l.by ? " · " : "") + T("ч/б", "b&w") : "");
     card.querySelector(".ds").textContent = l.desc;
@@ -3444,8 +3454,8 @@ function renderLookView() {
     before = origUrl(cm.ctx, 1000);
     after = url(`/img/look/${l.id}`, `&p=${cm.ctx.id}&e=1000&h=${l.h}${c}`);
   } else {
-    before = url(`/img/cm/${l.id}-before`, `&h=${l.h}`);
-    after = url(`/img/cm/${l.id}`, `&h=${l.h}`);
+    before = url(`/img/cm/${l.id}-before`, `&h=${l.h}&e=2`);
+    after = url(`/img/cm/${l.id}`, `&h=${l.h}&e=2`);
   }
   $("lvTitle").textContent = T("Плёнка", "Film");
   $("lvPos").textContent = `${lv.i + 1} / ${cm.looks.length}`;

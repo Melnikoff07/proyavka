@@ -16,6 +16,9 @@ English first, [по-русски — ниже](#журнал-изменений
 - The beta page uses the same palette.
 - Frame view: tap the frame to hide the panel and see it full screen on a dark background (tap again to bring the panel back); zooming in past 1.4× loads the frame in full size (drawn once per edit and cached on the server).
 - A “back to top” button appears after scrolling two screens down the feed.
+- Frame view: "Edit film", "Community LUTs" and "Upload LUT" sit in a row of buttons under the film strip instead of at the end of 25 films.
+- Film editor: each slider has a small ◆ that appears once the value differs from the base film and puts it back (a double tap on the slider does the same).
+- Community catalog: pictures are 1400 px (the full size of the sample) instead of 900, and on wide screens the grid has more, smaller columns, so previews stay sharp.
 - Film editor and film view: tap the picture to open it full screen and zoom in (pinch, mouse wheel, double tap, drag); the editor loads a 1600 px version with the same sliders, so grain and halation can be checked up close. Tap again to go back.
 - Incoming frames are prepared two at a time on servers with two or more cores, taking users in turn: one person's batch of 30 frames no longer holds up the first frame of another. The setup wizard now suggests 3 render processes from two cores (two draw, one stays free for film previews).
 - “Download” uses the same cached full-size file as zoom and albums (drawn once per edit), so downloading after zooming, or twice, is instant; opening a frame full screen starts loading its full size right away.
@@ -196,6 +199,9 @@ English first, [по-русски — ниже](#журнал-изменений
 - Страница беты — в той же палитре.
 - Просмотр кадра: тап по кадру прячет панель — кадр на весь экран на тёмном фоне (ещё тап — панель вернётся); при увеличении больше 1,4× подгружается полный размер (рисуется раз на правку и кэшируется на сервере).
 - Кнопка «наверх» — появляется, когда ленту пролистали на два экрана.
+- Просмотр кадра: «Править плёнку», «Плёнки сообщества» и «Загрузить LUT» — строкой кнопок под лентой плёнок, а не в конце 25 плёнок.
+- Редактор плёнки: у каждого ползунка маленький ◆ — появляется, когда значение отличается от основы, и возвращает его (то же — двойное нажатие на ползунок).
+- Каталог сообщества: картинки 1400 px (полный размер образца) вместо 900, на широком экране сетка гуще и карточки меньше — превью чёткие.
 - Редактор плёнки и экран плёнки: нажми на картинку — она откроется на весь экран с зумом (два пальца, колесо мыши, двойное касание, перетаскивание); редактор догружает версию 1600 px с теми же ползунками, чтобы рассмотреть зерно и халяцию вблизи. Ещё одно нажатие — назад.
 - Входящие кадры на сервере с двумя ядрами и больше готовятся по два сразу и по кругу между пользователями: пачка из 30 кадров одного не задерживает первый кадр другого. Мастер установки от двух ядер предлагает 3 процесса отрисовки (два рисуют, один свободен под превью плёнок).
 - «Скачать» берёт тот же полный кадр из кэша, что зум и альбомы (рисуется раз на правку): скачать после зума или второй раз — сразу; кадр на весь экран сразу начинает подгружать полный размер.

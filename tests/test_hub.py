@@ -49,7 +49,7 @@ if __name__ == "__main__":
     first = h.get("/api/community/pending")["items"][0]
     check("угловые скобки из имени убраны (в интерфейсе оно всё равно показывается как текст)", "<" not in first["name"] and ">" not in first["name"] and first["by"] == "Аня")
     pv = h.get(f"/img/pending/{first['id']}")
-    check("превью заявки рисуется на образце", isinstance(pv, bytes) and Image.open(io.BytesIO(pv)).size[0] == 900)
+    check("превью заявки рисуется на образце", isinstance(pv, bytes) and Image.open(io.BytesIO(pv)).size[0] == 1400)
     check("превью — только администратору", h2.get(f"/img/pending/{first['id']}").get("_status") == 404)
 
     n0 = len(h.get("/api/community")["looks"])
@@ -59,7 +59,7 @@ if __name__ == "__main__":
     mine = next((x for x in cat["looks"] if x["id"] == "teplaya-osen"), None)
     check("появилась в каталоге сразу", len(cat["looks"]) == n0 + 1 and mine and mine["by"] == "Аня" and mine["desc"] == "тёплый вечер")
     img = h.get("/img/cm/teplaya-osen")
-    check("и её картинка отдаётся", isinstance(img, bytes) and Image.open(io.BytesIO(img)).size[0] == 900)
+    check("и её картинка отдаётся", isinstance(img, bytes) and Image.open(io.BytesIO(img)).size[0] == 1400)
     check("из очереди ушла", len(h.get("/api/community/pending")["items"]) == 4)
     check("повторно одобрить нельзя", h.post(f"/api/community/pending/{first['id']}", {"action": "approve"}).get("_status") == 400)
 

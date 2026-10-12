@@ -136,7 +136,7 @@ def job_preview(ph, key, strength, path, leak=""):
     return save_atomic(out, path, 84)
 
 
-def job_sample(params, path, edge=900):
+def job_sample(params, path, edge=1400):
     """Плёнка на общем образце каталога (превью заявки и одобренной плёнки)."""
     im = Image.open(COMMUNITY_BUNDLED.parent / "sample.jpg").convert("RGB")
     im.thumbnail((edge, edge), Image.LANCZOS)
