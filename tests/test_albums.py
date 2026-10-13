@@ -54,7 +54,7 @@ if __name__ == "__main__":
     check("миниатюра отдаётся", isinstance(t, bytes) and t[:3] == b"\xff\xd8\xff")
     check("кадр не из альбома — 404", pub.get(f"/a/{tok}/view/{ids[3]}", auth=False).get("_status") == 404)
     check("чужой кадр — 404", pub.get(f"/a/{tok}/view/{other}", auth=False).get("_status") == 404)
-    check("«О проекте» в настройках: GitHub и Telegram", h.get("/api/me")["about"] == {"project": config.PROJECT_URL, "tg": "Sashkere"})
+    check("«О проекте» в настройках: GitHub, канал новостей и Telegram автора", h.get("/api/me")["about"] == {"project": config.PROJECT_URL, "tg": "Sashkere", "news": "proyavkapp"})
     check("лента без входа закрыта", pub.get("/api/photos", auth=False).get("_status") == 401)
 
     t0 = time.time()

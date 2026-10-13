@@ -61,6 +61,9 @@ function tickUntil() {
 setInterval(tickUntil, 1000);
 document.querySelectorAll(".tgl").forEach((a) => (a.href = `https://t.me/${CONTACT}`));
 if (!CONTACT) document.querySelectorAll(".tg").forEach((e) => e.remove());
+const NEWS = /^\w{4,32}$/.test((window.BETA || {}).news || "") ? window.BETA.news : "";   // канал новостей проекта
+document.querySelectorAll(".newsl").forEach((a) => (a.href = `https://t.me/${NEWS}`));
+if (!NEWS) document.querySelectorAll(".news").forEach((e) => e.remove());
 addEventListener("scroll", () => $("top").classList.toggle("scrolled", scrollY > 8), { passive: true });
 
 /* ---------- до / после ---------- */

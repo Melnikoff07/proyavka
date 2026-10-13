@@ -101,6 +101,9 @@ PROJECT_URL = os.environ.get("PROJECT_URL", "https://github.com/Melnikoff07/proy
 CONTACT_TG = os.environ.get("CONTACT_TG", "Sashkere").strip().lstrip("@")     # контакт автора: подвал альбомов и «⋯» → «О проекте»; пусто — скрыть
 if not re.fullmatch(r"[A-Za-z0-9_]{4,32}", CONTACT_TG):
     CONTACT_TG = ""
+NEWS_TG = os.environ.get("NEWS_TG", "proyavkapp").strip().lstrip("@")         # канал новостей проекта: меню ☰, «О проекте», страница беты; пусто — скрыть
+if not re.fullmatch(r"[A-Za-z0-9_]{4,32}", NEWS_TG):
+    NEWS_TG = ""
 
 
 # Выбранные кадры — одной ссылкой для кого угодно, без входа: смотреть и скачивать (по одному или архивом).

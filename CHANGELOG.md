@@ -59,6 +59,7 @@ English first, [по-русски — ниже](#журнал-изменений
 ### Fixes
 - Portrait photos from an iPhone (Display P3) no longer turn sideways: since 1.6 the colour conversion to sRGB dropped the EXIF rotation. Frames already received this way are prepared again from the original once, on the first start after the update (their crop is reset).
 - The first screen for a new person asks what they shoot with: **Phone** opens the photo picker right away, **Camera** goes on to the camera setup (Sony apps or FTP). Before, everyone landed straight in the camera setup, and people without a camera at hand left there. "Connect a camera" in Settings still opens the camera part directly.
+- News channel: [t.me/proyavkapp](https://t.me/proyavkapp) — in ☰ → News, Settings → About and on the beta page (`NEWS_TG`, empty hides it).
 - "Your own overlay" on an iPhone shows every picture in the photo library again (PNG ones were hidden: the picker filtered by an explicit list of formats).
 
 ## 1.6 — 2026-10-10
@@ -260,6 +261,7 @@ English first, [по-русски — ниже](#журнал-изменений
 ### Исправления
 - Вертикальные снимки с iPhone (Display P3) больше не ложатся набок: с 1.6 перевод цвета в sRGB терял поворот из EXIF. Уже принятые так кадры один раз, при первом запуске после обновления, готовятся заново из оригинала (кадрирование у них сбрасывается).
 - Первый экран для нового человека спрашивает, чем он снимает: **Телефон** сразу открывает выбор фото, **Камера** ведёт дальше в подключение камеры (приложения Sony или FTP). Раньше все попадали прямо в мастер камеры, и те, у кого камеры под рукой нет, там и бросали. «Подключить камеру» в настройках по-прежнему открывает сразу часть про камеру.
+- Канал новостей: [t.me/proyavkapp](https://t.me/proyavkapp) — в ☰ → «Новости проекта», в «Настройки» → «О проекте» и на странице беты (`NEWS_TG`, пусто — скрыть).
 - «Свой оверлей» на iPhone снова видит все картинки медиатеки (PNG прятались: выбор фильтровал по явному списку форматов).
 
 ## 1.6 — 2026-10-10

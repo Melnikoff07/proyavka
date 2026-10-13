@@ -641,6 +641,7 @@
         <button role="menuitem" data-m="community" data-i18n="Community films">Плёнки сообщества</button>
         <button role="menuitem" data-m="trash" data-i18n="Trash">Корзина</button>
         <button role="menuitem" data-m="settings" data-i18n="Settings">Настройки</button>
+        <button role="menuitem" data-m="news" id="mNews" data-i18n="News channel">Новости проекта</button>
       </div></div></div>
   <input type="file" id="picker" accept="image/*,.dng,.arw,.cr2,.cr3,.nef,.raf,.orf,.rw2,.pef,.srw" multiple hidden>
   <input type="file" id="lutPicker" accept=".cube" hidden>
@@ -2117,7 +2118,8 @@ async function renderMe(j) {
   $("stTrashBtn").disabled = !me.trash;
   $("stAdmin").hidden = !me.admin;
   const ab = me.about || {};
-  $("stAbout").replaceChildren(...[[ab.project, "GitHub"], [ab.tg ? `https://t.me/${ab.tg}` : "", ab.tg ? `Telegram @${ab.tg}` : ""]].filter((x) => x[0]).map(([u, t]) => {
+  $("stAbout").replaceChildren(...[[ab.project, "GitHub"], [ab.news ? `https://t.me/${ab.news}` : "", T("Новости", "News") + ` @${ab.news}`],
+    [ab.tg ? `https://t.me/${ab.tg}` : "", ab.tg ? T("Автор", "Author") + ` @${ab.tg}` : ""]].filter((x) => x[0]).map(([u, t]) => {
     const b = document.createElement("button");
     b.className = "st-link cap";
     b.textContent = t;
@@ -2155,6 +2157,7 @@ $("mainMenu").onclick = async (e) => {
   else if (m === "look") openEditor({});
   else if (m === "community") setMainTab("community");
   else if (m === "settings") openSettings();
+  else if (m === "news") openLink(`https://t.me/${NEWS}`);
   else if (m === "trash") {
     await openSettings();
     if ($("stTrash").hidden && !$("stTrashBtn").disabled) await openTrash();
@@ -2296,6 +2299,8 @@ $("stTrashBtn").onclick = () => { if (!$("stTrash").hidden) $("stTrash").hidden 
 
 /* ---------- мастер подключения камеры: тип камеры → шаги с анимацией, кнопками файлов и частыми ошибками ---------- */
 const UIV = "{{UIV}}";                       // версия анимаций (подставляет сервер)
+const NEWS = /^\w{4,32}$/.test("{{NEWS}}") ? "{{NEWS}}" : "";   // Telegram-канал проекта (подставляет сервер, NEWS_TG)
+if (!NEWS) $("mNews").remove();
 const SU = { anim: null, marks: {}, kind: null, path: null, i: 0, cam: null, loading: null };
 const PMCA = { win: "https://github.com/ma1co/Sony-PMCA-RE/releases/download/v0.18/pmca-gui-v0.18-win.exe",
                mac: "https://github.com/ma1co/Sony-PMCA-RE/releases/download/v0.18/pmca-gui-v0.18-osx.dmg" };

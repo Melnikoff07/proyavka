@@ -2,7 +2,7 @@
 
 # Proyavka
 
-**English** · [Русский](README.ru.md)
+**English** · [Русский](README.ru.md) · News: [Telegram channel](https://t.me/proyavkapp)
 
 **Film development for your digital camera — on your phone, your computer, or in Telegram.**
 Take a shot, and half a minute later it's in your feed already "on film": colour, grain, halation, overlays, a point-and-shoot date stamp. Change the film and strength any time, with live previews of every film. Use it as an app (browser, iPhone, Android, Windows, Mac) — Telegram is optional.

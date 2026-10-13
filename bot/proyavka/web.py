@@ -14,7 +14,7 @@ from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
 from . import beta, config
-from .config import COMMUNITY_BUNDLED, CONTACT_TG, LANG, PROJECT_URL, PREVIEWS, STRENGTHS, TMP, UPLOAD_MAX, WEB_BASE, WEB_PORT, log
+from .config import COMMUNITY_BUNDLED, CONTACT_TG, LANG, NEWS_TG, PROJECT_URL, PREVIEWS, STRENGTHS, TMP, UPLOAD_MAX, WEB_BASE, WEB_PORT, log
 from .i18n import L, tr, _CTX
 from .util import disposition, download_name, qr_svg, remove
 from .film import LUT_MAX_BYTES, PRESETS, canon, clean_params, params_json, parse_look_code, pname
@@ -455,7 +455,7 @@ class Handler(BaseHTTPRequestHandler):
                 if not WEBAPP_HTML.exists():
                     return self.err(500, "webapp.html not found next to filmbot.py")
                 page = WEBAPP_HTML.read_bytes().replace(b'<html lang="ru"', f'<html lang="{LANG}"'.encode(), 1)
-                page = page.replace(b"{{UIV}}", str(ui_version()).encode())
+                page = page.replace(b"{{UIV}}", str(ui_version()).encode()).replace(b"{{NEWS}}", NEWS_TG.encode())
                 if beta.BETA:
                     page = page.replace(b"<head>", b"<head>\n" + BETA_GO, 1)
                 return self.send(200, page, "text/html; charset=utf-8", headers={"Content-Security-Policy": CSP})

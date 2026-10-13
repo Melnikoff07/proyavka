@@ -35,6 +35,7 @@
       <a class="hide-s" href="#how"><span class="ru">Как это работает</span><span class="en">How it works</span></a>
       <a class="hide-s" href="#faq"><span class="ru">Вопросы</span><span class="en">FAQ</span></a>
       <a class="hide-s" href="{{PROJECT}}" target="_blank" rel="noopener">GitHub</a>
+      <a class="hide-s newsl news" target="_blank" rel="noopener"><span class="ru">Новости</span><span class="en">News</span></a>
       <span class="lang"><button data-lang="ru" aria-pressed="true">RU</button><button data-lang="en" aria-pressed="false">EN</button></span>
       <button class="theme" id="themeBtn" type="button" aria-label="Тема"><svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><circle cx="8" cy="8" r="6.4" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M8 1.6a6.4 6.4 0 0 1 0 12.8z" fill="currentColor"/></svg></button>
     </nav>
@@ -194,7 +195,8 @@
     <nav>
       <a href="/beta/terms"><span class="ru">Условия и конфиденциальность</span><span class="en">Terms &amp; privacy</span></a>
       <a href="{{PROJECT}}" target="_blank" rel="noopener">GitHub</a>
-      <a class="tgl tg" target="_blank" rel="noopener">Telegram</a>
+      <a class="newsl news" target="_blank" rel="noopener"><span class="ru">Канал в Telegram</span><span class="en">Telegram channel</span></a>
+      <a class="tgl tg" target="_blank" rel="noopener"><span class="ru">Написать автору</span><span class="en">Message the author</span></a>
       <a href="/#signin"><span class="ru">Войти по коду</span><span class="en">Sign in with a code</span></a>
     </nav>
   </div>
@@ -212,7 +214,7 @@
   <div class="slots" id="slots"></div>
 </div>
 
-<script>window.BETA = { contact: "{{CONTACT}}", guide: "/beta/guide.json", until: {{UNTIL}} };</script>
+<script>window.BETA = { contact: "{{CONTACT}}", news: "{{NEWS}}", guide: "/beta/guide.json", until: {{UNTIL}} };</script>
 <script src="/beta/lottie.min.js"></script>
 <script src="/beta/beta.js"></script>
 </body>

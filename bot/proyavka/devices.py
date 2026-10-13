@@ -10,7 +10,7 @@ from datetime import datetime
 from pathlib import Path
 
 from . import config
-from .config import CONTACT_TG, ORIG_DAYS, PROJECT_URL, WEBAPP_URL, WEB_BASE, log
+from .config import CONTACT_TG, NEWS_TG, ORIG_DAYS, PROJECT_URL, WEBAPP_URL, WEB_BASE, log
 from .i18n import L, cur_lang, speak
 from .util import html_esc, key_hash, qr_png, segno
 from .film import canon
@@ -217,7 +217,7 @@ def me_json(uid):
             "limit": storage_limit(uid) * 1e9, "frames": n["n"] or 0, "trash": n["t"] or 0, "orig_days": ORIG_DAYS,
             "telegram": {"bot": bot_name_safe(), "linked": bool(u.get("tg")),
                          "can_unlink": uid >= WEB_BASE and bool(u.get("tg"))},
-            "about": {"project": PROJECT_URL, "tg": CONTACT_TG}, "expires": u.get("expires"), "onboarded": bool(u.get("onboarded"))}
+            "about": {"project": PROJECT_URL, "tg": CONTACT_TG, "news": NEWS_TG}, "expires": u.get("expires"), "onboarded": bool(u.get("onboarded"))}
 
 
 def set_me(uid, data):

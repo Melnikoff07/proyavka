@@ -9,7 +9,7 @@ import time
 
 from PIL import Image
 
-from .config import BASE, COMMUNITY_BUNDLED, MIN_FREE_GB, log
+from .config import BASE, COMMUNITY_BUNDLED, MIN_FREE_GB, NEWS_TG, log
 from .i18n import L, speak
 from .util import plural_ru, save_atomic
 from .film import PRESETS, film
@@ -224,7 +224,7 @@ def page(name):
         days = f"{DAYS:g}"
         for k, v in {"SLOT_RU": f"{size} {'ГБ' if gb else 'МБ'}", "SLOT_EN": f"{size} {'GB' if gb else 'MB'}",
                      "DAYS_RU": f"{days} {plural_ru(int(DAYS), 'день', 'дня', 'дней') if DAYS == int(DAYS) else 'дня'}",
-                     "DAYS_EN": f"{days} day{'' if DAYS == 1 else 's'}", "UNTIL": f"{UNTIL:.0f}"}.items():
+                     "DAYS_EN": f"{days} day{'' if DAYS == 1 else 's'}", "UNTIL": f"{UNTIL:.0f}", "NEWS": NEWS_TG}.items():
             text = text.replace("{{" + k + "}}", v)
         for a, v in vers.items():
             text = text.replace(f'/beta/{a}"', f'/beta/{a}?v={v}"')
